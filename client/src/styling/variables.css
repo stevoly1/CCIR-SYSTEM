@@ -1,0 +1,48 @@
+:root {
+    --color-primary: #005C4B;
+    --color-primary-dark: #003D32;
+    --color-primary-light: #E1F1EC;
+    --color-navy: #12142B;
+    --color-navy-soft: #1E2140;
+
+    --color-bg: #F7F8FC;
+    --color-surface: #FFFFFF;
+    --color-border: #E4E7F2;
+    --color-text: #14162B;
+    --color-text-muted: #6B7089;
+    --color-placeholder: #A0A4BD;
+
+    --color-accent-pink: #FDE3EC;
+    --color-accent-pink-text: #C2255C;
+    --color-accent-mint: #DFF6EA;
+    --color-accent-mint-text: #1B8A5A;
+    --color-accent-lavender: #ECE6FF;
+    --color-accent-lavender-text: #5B3DE0;
+
+    --color-status-pending: #A0A4BD;
+    --color-status-review: var(--color-primary);
+    --color-status-progress: #E08A00;
+    --color-status-resolved: #1B8A5A;
+    --color-status-rejected: #D8384F;
+
+    --color-priority-low: #6B7089;
+    --color-priority-medium: var(--color-primary);
+    --color-priority-high: #E08A00;
+    --color-priority-critical: #D8384F;
+
+    --radius-sm: 8px;
+    --radius-md: 14px;
+    --radius-lg: 22px;
+    --radius-pill: 999px;
+
+    --shadow-sm: 0 1px 2px rgba(20, 22, 43, 0.06);
+    --shadow-md: 0 8px 24px rgba(20, 22, 43, 0.08);
+    --shadow-lg: 0 16px 40px rgba(20, 22, 43, 0.12);
+
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, Helvetica, Arial, sans-serif;
+    --font-body: 'DM Sans', var(--font-sans);
+    --font-ui: 'Host Grotesk', var(--font-sans);
+    --font-display: 'GT Walsheim Pro Condensed', 'Host Grotesk', var(--font-sans);
+
+    --sidebar-width: 260px;
+}

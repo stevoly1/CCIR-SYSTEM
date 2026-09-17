@@ -1,0 +1,38 @@
+PROJECT SUMMARY
+
+This project is about building an AI-powered civic complaint and infrastructure reporting backend that allows citizens to report problems in their communities and helps government authorities organize, classify, prioritize, and manage those reports.
+
+In simple terms, citizens can report problems such as potholes, broken streetlights, blocked drainage systems, water leakages, or waste accumulation through an application. They can provide a description and potentially attach an image. The system uses artificial intelligence to analyze the submitted information, identify the type of infrastructure problem, and assist authorities in determining its urgency and how it should be handled.
+
+The main idea that makes the project different is that it is not designed as a website for only one government agency. Instead, it is an open-source, self-hostable backend. A local or state government can deploy the backend on its own servers and connect it to whatever frontend it chooses, such as a website or mobile application.
+
+The system's core components include:
+
+- Authentication
+- API endpoints
+- Database and data management
+- Citizen complaint submission
+- AI-based text and image analysis
+- Automatic complaint classification
+- Complaint prioritization based on type and urgency
+- Administrative APIs
+- Complaint status tracking
+- Government response and management
+- Self-hosting capability
+- System should have auto complete location capabilities for location mapping consistency
+
+A typical workflow would be:
+
+Citizen/App → API → AI Processing → Database → Government/Admin System
+
+For example, a citizen could submit a report saying that there is a large pothole on a particular road and attach a photograph. The system could analyze the report and categorize it as a road/pothole complaint, assign an appropriate priority, store the evidence and location, and mark the complaint as pending. Authorized government personnel could then review the report, update its status, and manage the response.
+
+The project is addressing the problem that simply allowing citizens to report issues does not guarantee that those issues will be properly received, organized, tracked, or acted upon. Traditional reporting methods such as phone calls, physical visits, social media posts, and word-of-mouth are often slow and poorly documented.
+
+The project therefore aims to provide a structured digital system that improves communication between citizens and government institutions while reducing the amount of manual work required to process large numbers of complaints.
+
+The primary deliverable is the backend. It is intended to provide the core API, database, authentication, business logic, and AI-based complaint classification. A minimal reference frontend will be developed only to demonstrate and test the backend during the prototype stage.
+
+ONE-SENTENCE SUMMARY
+
+This project develops an open-source, self-hostable backend that uses AI to automatically analyze and classify citizen reports of public infrastructure problems, while providing government authorities with APIs to monitor, prioritize, track, and manage those complaints.
