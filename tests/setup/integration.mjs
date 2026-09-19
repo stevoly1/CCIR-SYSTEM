@@ -3,9 +3,12 @@ import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 
 let mongoServer;
+const MONGODB_VERSION = '8.2.6';
 
 beforeAll(async () => {
-  mongoServer = await MongoMemoryServer.create();
+  mongoServer = await MongoMemoryServer.create({
+    binary: { version: MONGODB_VERSION },
+  });
   await mongoose.connect(mongoServer.getUri(), { dbName: 'ccir-integration' });
 });
 
