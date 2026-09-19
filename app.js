@@ -1,8 +1,5 @@
-require('dotenv').config();
-
 const fs = require('fs');
 const express = require('express');
-const http = require('http');
 const path = require('path');
 const fileUploader = require('express-fileupload');
 const { rateLimit } = require('express-rate-limit');
@@ -12,15 +9,10 @@ const helmet = require('helmet');
 const compression = require('compression');
 const cors = require('cors');
 
-const connectDB = require('./config/db');
-const seedDefaultCategories = require('./utils/seedCategories');
-
 const origin = process.env.ALLOWED_ORIGIN;
 
 // Express app and server initialization
 const app = express();
-const server = http.createServer(app);
-
 app.set('trust proxy', 1);
 
 // Rate limit setup
@@ -94,21 +86,4 @@ const ErrorMiddleware = require('./middleware/errorHandler');
 app.use(NotFoundMiddleware);
 app.use(ErrorMiddleware);
 
-// Start the app
-const port = process.env.PORT || 8080;
-
-const startApp = async () => {
-  try {
-    await connectDB();
-    await seedDefaultCategories();
-
-    server.listen(port, () => {
-      console.log(`App is listening on port ${port}`);
-    });
-  } catch (error) {
-    console.error('Failed to start app:', error);
-    process.exit(1);
-  }
-};
-
-startApp();
+module.exports = app;

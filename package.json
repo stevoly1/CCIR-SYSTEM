@@ -4,17 +4,21 @@
     "description": "Open-source, self-hostable backend for AI-assisted citizen complaint and infrastructure reporting.",
     "main": "app.js",
     "scripts": {
-        "start": "node app.js",
-        "dev": "nodemon app.js",
-        "set-role": "node scripts/setUserRole.js"
+        "start": "node server.js",
+        "dev": "nodemon server.js",
+        "set-role": "node scripts/setUserRole.js",
+        "test": "npm run test:unit && npm run test:integration",
+        "test:unit": "vitest run --config vitest.unit.config.mjs",
+        "test:integration": "vitest run --config vitest.integration.config.mjs"
     },
     "keywords": [],
     "author": "",
     "license": "ISC",
     "type": "commonjs",
+    "packageManager": "npm@11.6.2",
     "engines": {
         "node": ">=24.19.0 <25",
-        "npm": ">=10 <12"
+        "npm": ">=11.6.2 <12"
     },
     "dependencies": {
         "bcryptjs": "^3.0.3",
@@ -35,6 +39,11 @@
         "zod": "^4.4.3"
     },
     "devDependencies": {
-        "nodemon": "^3.1.14"
+        "@vitest/coverage-v8": "^4.1.6",
+        "mongodb-memory-server": "^11.2.0",
+        "nodemon": "^3.1.14",
+        "supertest": "^7.2.2",
+        "vite": "^8.2.2",
+        "vitest": "^4.1.6"
     }
 }
