@@ -9,12 +9,17 @@
         "npm": ">=11.6.2 <12"
     },
     "scripts": {
+        "check:runtime": "node ../scripts/checkRuntime.js",
+        "preinstall": "node ../scripts/checkRuntime.js",
         "dev": "vite",
         "build": "vite build",
         "lint": "eslint .",
         "preview": "vite preview",
+        "pretest": "node ../scripts/checkRuntime.js",
         "test": "npm run test:unit && npm run test:e2e",
+        "pretest:unit": "node ../scripts/checkRuntime.js",
         "test:unit": "vitest run --config vitest.config.js",
+        "pretest:e2e": "node ../scripts/checkRuntime.js",
         "test:e2e": "playwright test"
     },
     "dependencies": {

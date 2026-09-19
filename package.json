@@ -4,11 +4,16 @@
     "description": "Open-source, self-hostable backend for AI-assisted citizen complaint and infrastructure reporting.",
     "main": "app.js",
     "scripts": {
+        "check:runtime": "node scripts/checkRuntime.js",
+        "preinstall": "node scripts/checkRuntime.js",
         "start": "node server.js",
         "dev": "nodemon server.js",
         "set-role": "node scripts/setUserRole.js",
+        "pretest": "node scripts/checkRuntime.js",
         "test": "npm run test:unit && npm run test:integration",
+        "pretest:unit": "node scripts/checkRuntime.js",
         "test:unit": "vitest run --config vitest.unit.config.mjs",
+        "pretest:integration": "node scripts/checkRuntime.js",
         "test:integration": "vitest run --config vitest.integration.config.mjs"
     },
     "keywords": [],
