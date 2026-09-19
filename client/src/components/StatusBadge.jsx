@@ -1,4 +1,3 @@
-import React from 'react';
 
 const STATUS_STYLES = {
     PENDING: { bg: '#EEF0F6', color: 'var(--color-status-pending)', label: 'Pending' },

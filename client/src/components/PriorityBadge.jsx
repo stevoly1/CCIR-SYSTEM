@@ -1,4 +1,3 @@
-import React from 'react';
 
 const PRIORITY_STYLES = {
     LOW: { color: 'var(--color-priority-low)', label: 'Low' },

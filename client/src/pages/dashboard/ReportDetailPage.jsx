@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -37,6 +37,8 @@ const ReportDetailPage = () => {
 
     useEffect(() => {
         if (current) {
+            // The fetched complaint is the external source for this editable draft.
+            // eslint-disable-next-line react-hooks/set-state-in-effect
             setStatusForm({ status: current.status, priority: current.priority, note: '' });
         }
     }, [current]);

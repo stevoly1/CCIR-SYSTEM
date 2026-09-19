@@ -1,4 +1,3 @@
-import React from 'react';
 import Modal from './Modal';
 
 const ConfirmModal = ({ title = 'Are you sure?', message, confirmLabel = 'Delete', onConfirm, onClose, loading }) => {
