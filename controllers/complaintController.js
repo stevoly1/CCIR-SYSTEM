@@ -99,6 +99,10 @@ const createComplaint = async (req, res) => {
         resolveLocation({ latitude, longitude, address }),
         Category.find({ isActive: true }),
     ]);
+    const fallbackCategory = activeCategories.find((category) => category.name === 'Other');
+    if (!fallbackCategory) {
+        throw new Error('Active Other category is not configured');
+    }
 
     const ai = await aiService.classifyComplaint({
         description,
@@ -107,15 +111,15 @@ const createComplaint = async (req, res) => {
         categoryNames: activeCategories.map((c) => c.name),
     });
 
-    let category = null;
-    if (categoryId) {
+    let category = ai.error ? fallbackCategory : null;
+    if (!category && categoryId) {
         category = await Category.findById(categoryId);
     }
     if (!category) {
         category = activeCategories.find((c) => c.name.toLowerCase() === ai.category?.toLowerCase());
     }
     if (!category) {
-        category = activeCategories.find((c) => c.name === 'Other');
+        category = fallbackCategory;
     }
     if (!category) {
         throw new CustomError.BadRequestError('No category could be determined for this complaint');
