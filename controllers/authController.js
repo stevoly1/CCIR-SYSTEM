@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const { StatusCodes } = require('http-status-codes');
-const { User } = require('../models');
+const { AuthThrottle, User } = require('../models');
 const CustomError = require('../errors');
 const {
     createNewRefreshToken,
@@ -10,8 +10,14 @@ const googleOAuthService = require('../services/googleOAuthService');
 const { resolveGoogleIdentity } = require('../services/googleIdentityService');
 const { safeStateEqual } = require('../policies/googleIdentityPolicy');
 const { getBrowserSecurityConfig } = require('../config/browserSecurity');
+const { createThrottleService } = require('../services/authThrottleService');
 
 const OAUTH_STATE_MAX_AGE_MS = 5 * 60 * 1000;
+const AUTH_WINDOW_MS = 15 * 60 * 1000;
+const authThrottle = createThrottleService({
+    model: AuthThrottle,
+    hmacSecret: process.env.AUTH_THROTTLE_HMAC_SECRET,
+});
 
 const parseOAuthStateCookie = (value) => {
     if (typeof value !== 'string') return null;
@@ -47,6 +53,11 @@ const signup = async (req, res) => {
 
 const login = async (req, res) => {
     const { email, password } = req.body;
+    const accountSubject = email.trim().toLowerCase();
+
+    await authThrottle.consume('login-ip', req.ip, { limit: 20, windowMs: AUTH_WINDOW_MS });
+    const accountFailures = await authThrottle.peek('login-account', accountSubject);
+    if (accountFailures.count >= 5) throw new CustomError.TooManyRequestsError();
 
     const user = await User.findOne({ email }).select('+password');
     if (
@@ -55,10 +66,15 @@ const login = async (req, res) => {
         || user.retiredAt
         || !(await user.comparePassword(password))
     ) {
+        await authThrottle.consume('login-account', accountSubject, {
+            limit: 5,
+            windowMs: AUTH_WINDOW_MS,
+        });
         throw new CustomError.UnauthenticatedError('Invalid email or password');
     }
 
     const refreshToken = await createNewRefreshToken({ userId: user._id.toString() });
+    await authThrottle.clear('login-account', accountSubject);
     attachCookiesToResponse({ res, user, refreshToken });
 
     user.password = undefined;

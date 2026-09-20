@@ -13,6 +13,8 @@ describe('app module boundary', () => {
           ...process.env,
           BROWSER_ORIGIN: 'http://localhost:3000',
           TRUST_PROXY_HOPS: '0',
+          AUTH_THROTTLE_HMAC_SECRET: 'app-load-auth-throttle-secret',
+          NODE_ENV: 'test',
           MONGO_URL: '',
           PORT: '0',
         },

@@ -4,4 +4,5 @@ module.exports = {
     Category: require('./Category'),
     Complaint: require('./Complaint'),
     AdminControl: require('./AdminControl'),
+    AuthThrottle: require('./AuthThrottle'),
 };

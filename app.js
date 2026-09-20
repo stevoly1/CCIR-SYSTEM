@@ -16,13 +16,14 @@ const browserSecurity = getBrowserSecurityConfig(process.env);
 
 // Express app and server initialization
 const app = express();
-app.set('trust proxy', browserSecurity.trustProxy);
+app.set('trust proxy', browserSecurity.trustProxy === 0 ? false : browserSecurity.trustProxy);
 
 // Rate limit setup
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: process.env.NODE_ENV === 'test' ? 10000 : 100,
   message: 'Too many requests from this IP, please try again later.',
+  validate: { xForwardedForHeader: false },
 });
 
 app.use(limiter);

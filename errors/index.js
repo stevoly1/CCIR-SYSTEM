@@ -7,4 +7,5 @@ module.exports = {
     ConflictError: require('./conflictError'),
     PayloadTooLargeError: require('./payloadTooLargeError'),
     UnsupportedMediaTypeError: require('./unsupportedMediaTypeError'),
+    TooManyRequestsError: require('./tooManyRequestsError'),
 };
