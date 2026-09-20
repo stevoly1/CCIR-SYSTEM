@@ -10,6 +10,24 @@ const ASSIGNMENT_EVENT_TYPES = [
     'LEGACY_STATE_IMPORT',
 ];
 
+const historicalIdentitySnapshotSchema = new mongoose.Schema(
+    {
+        userId: {
+            type: mongoose.Schema.Types.ObjectId,
+            required: true,
+        },
+        displayName: {
+            type: String,
+            required: true,
+        },
+        role: {
+            type: String,
+            enum: ['citizen', 'admin', 'agency'],
+        },
+    },
+    { _id: false }
+);
+
 const userSnapshotSchema = new mongoose.Schema(
     {
         userId: {
@@ -89,6 +107,9 @@ const statusHistorySchema = new mongoose.Schema(
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User',
         },
+        changedBySnapshot: {
+            type: historicalIdentitySnapshotSchema,
+        },
         createdAt: {
             type: Date,
             default: Date.now,
@@ -153,6 +174,9 @@ const complaintSchema = new mongoose.Schema(
             ref: 'User',
             required: true,
         },
+        reporterSnapshot: {
+            type: historicalIdentitySnapshotSchema,
+        },
         assignedTo: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User',
@@ -167,6 +191,10 @@ const complaintSchema = new mongoose.Schema(
         },
         resolvedAt: {
             type: Date,
+        },
+        resolvedAtEstimated: {
+            type: Boolean,
+            default: false,
         },
     },
     { timestamps: true }

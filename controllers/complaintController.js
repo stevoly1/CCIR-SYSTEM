@@ -5,6 +5,7 @@ const { Complaint, Category, User } = require('../models');
 const CustomError = require('../errors');
 const { decideAssignment } = require('../policies/assignmentPolicy');
 const { decideTransition } = require('../policies/complaintTransitionPolicy');
+const { buildUserSnapshot, safeHistoricalIdentity } = require('../services/userSnapshotService');
 const generateReferenceCode = require('../utils/referenceCode');
 const aiService = require('../services/aiService');
 const locationService = require('../services/locationService');
@@ -39,6 +40,55 @@ const cleanupTempFile = (tempFilePath) => {
 };
 
 const MAX_IMAGES = 5;
+
+const assignmentIdentityIds = (complaints) => complaints.flatMap((complaint) =>
+    complaint.assignmentHistory.flatMap((entry) => [
+        entry.previous?.userId,
+        entry.next?.userId,
+        entry.changedBy?.userId,
+    ].filter(Boolean))
+);
+
+const loadAssignmentIdentityMap = async (complaints) => {
+    const ids = assignmentIdentityIds(complaints);
+    if (ids.length === 0) return new Map();
+    const users = await User.find({ _id: { $in: ids } }).select('name role isActive retiredAt');
+    return new Map(users.map((user) => [user._id.toString(), user]));
+};
+
+const shapeAssignmentSnapshot = (snapshot, identityById) => {
+    if (!snapshot) return null;
+    return safeHistoricalIdentity({
+        populatedUser: identityById.get(snapshot.userId.toString()),
+        snapshot,
+    });
+};
+
+const shapeHistoricalComplaint = (complaint, assignmentIdentityById = new Map()) => {
+    const shaped = complaint.toObject();
+    shaped.reporter = safeHistoricalIdentity({
+        populatedUser: complaint.reporter,
+        snapshot: complaint.reporterSnapshot,
+    });
+    shaped.statusHistory = complaint.statusHistory.map((entry) => {
+        const value = entry.toObject();
+        value.changedBy = safeHistoricalIdentity({
+            populatedUser: entry.changedBy,
+            snapshot: entry.changedBySnapshot,
+        });
+        delete value.changedBySnapshot;
+        return value;
+    });
+    shaped.assignmentHistory = complaint.assignmentHistory.map((entry) => {
+        const value = entry.toObject();
+        value.previous = shapeAssignmentSnapshot(entry.previous, assignmentIdentityById);
+        value.next = shapeAssignmentSnapshot(entry.next, assignmentIdentityById);
+        value.changedBy = shapeAssignmentSnapshot(entry.changedBy, assignmentIdentityById);
+        return value;
+    });
+    delete shaped.reporterSnapshot;
+    return shaped;
+};
 
 const createComplaint = async (req, res) => {
     const { description, categoryId, address, latitude, longitude } = req.body;
@@ -80,6 +130,10 @@ const createComplaint = async (req, res) => {
         }
     }
 
+    const reporter = await User.findById(req.user.userId);
+    if (!reporter) throw new CustomError.UnauthenticatedError('Not authenticated');
+    const reporterSnapshot = buildUserSnapshot(reporter);
+
     const complaint = await Complaint.create({
         referenceCode: generateReferenceCode(),
         description,
@@ -96,10 +150,20 @@ const createComplaint = async (req, res) => {
             error: ai.error,
         },
         reporter: req.user.userId,
-        statusHistory: [{ status: 'PENDING', note: 'Report submitted', changedBy: req.user.userId }],
+        reporterSnapshot,
+        statusHistory: [{
+            status: 'PENDING',
+            note: 'Report submitted',
+            changedBy: req.user.userId,
+            changedBySnapshot: reporterSnapshot,
+        }],
     });
 
-    await complaint.populate(['category', 'reporter']);
+    await complaint.populate([
+        'category',
+        { path: 'reporter', select: 'name email role isActive retiredAt' },
+        { path: 'statusHistory.changedBy', select: 'name role isActive retiredAt' },
+    ]);
 
     emailService.sendComplaintFiledEmail({
         to: complaint.reporter.email,
@@ -108,7 +172,7 @@ const createComplaint = async (req, res) => {
         complaintId: complaint._id,
     });
 
-    res.status(StatusCodes.CREATED).json({ complaint });
+    res.status(StatusCodes.CREATED).json({ complaint: shapeHistoricalComplaint(complaint) });
 };
 
 const getAllComplaints = async (req, res) => {
@@ -135,35 +199,42 @@ const getAllComplaints = async (req, res) => {
     const [complaints, total] = await Promise.all([
         Complaint.find(filter)
             .populate('category', 'name')
-            .populate('reporter', 'name email')
-            .populate('assignedTo', 'name email')
+            .populate('reporter', 'name role isActive retiredAt')
+            .populate('assignedTo', 'name role isActive retiredAt')
+            .populate('statusHistory.changedBy', 'name role isActive retiredAt')
             .sort({ createdAt: -1 })
             .skip((page - 1) * limit)
             .limit(limit),
         Complaint.countDocuments(filter),
     ]);
 
+    const assignmentIdentityById = await loadAssignmentIdentityMap(complaints);
     res.status(StatusCodes.OK).json({
-        complaints,
+        complaints: complaints.map((complaint) => shapeHistoricalComplaint(complaint, assignmentIdentityById)),
         pagination: { page, limit, total, pages: Math.ceil(total / limit) },
     });
 };
 
 const getSingleComplaint = async (req, res) => {
-    const complaint = await Complaint.findById(req.params.id)
-        .populate('category')
-        .populate('reporter', 'name email phone')
-        .populate('assignedTo', 'name email')
-        .populate('statusHistory.changedBy', 'name role');
+    const complaint = await Complaint.findById(req.params.id);
 
     if (!complaint) throw new CustomError.NotFoundError(`No complaint found with id ${req.params.id}`);
 
-    const isOwner = complaint.reporter._id.toString() === req.user.userId;
+    const isOwner = complaint.reporter.toString() === req.user.userId;
     if (!isOwner && !STAFF_ROLES.includes(req.user.role)) {
         throw new CustomError.ForbiddenError('You do not have access to this complaint');
     }
 
-    res.status(StatusCodes.OK).json({ complaint });
+    await complaint.populate([
+        'category',
+        { path: 'reporter', select: 'name role isActive retiredAt' },
+        { path: 'assignedTo', select: 'name role isActive retiredAt' },
+        { path: 'statusHistory.changedBy', select: 'name role isActive retiredAt' },
+    ]);
+
+    const assignmentIdentityById = await loadAssignmentIdentityMap([complaint]);
+
+    res.status(StatusCodes.OK).json({ complaint: shapeHistoricalComplaint(complaint, assignmentIdentityById) });
 };
 
 const updateComplaint = async (req, res) => {
@@ -194,8 +265,12 @@ const updateComplaint = async (req, res) => {
 const updateComplaintStatus = async (req, res) => {
     const { status, note, priority } = req.body;
 
-    const complaint = await Complaint.findById(req.params.id);
+    const [complaint, actor] = await Promise.all([
+        Complaint.findById(req.params.id),
+        User.findById(req.user.userId),
+    ]);
     if (!complaint) throw new CustomError.NotFoundError(`No complaint found with id ${req.params.id}`);
+    if (!actor) throw new CustomError.UnauthenticatedError('Not authenticated');
 
     const decision = decideTransition({
         from: complaint.status,
@@ -207,7 +282,13 @@ const updateComplaintStatus = async (req, res) => {
 
     const update = {
         $set: { status: decision.status },
-        $push: { statusHistory: { ...decision.historyEntry, changedBy: req.user.userId } },
+        $push: {
+            statusHistory: {
+                ...decision.historyEntry,
+                changedBy: req.user.userId,
+                changedBySnapshot: buildUserSnapshot(actor),
+            },
+        },
         $inc: { __v: 1 },
     };
     if (decision.priority !== undefined) update.$set.priority = decision.priority;
@@ -218,7 +299,12 @@ const updateComplaintStatus = async (req, res) => {
         { _id: complaint._id, status: complaint.status, __v: complaint.__v },
         update,
         { new: true, runValidators: true }
-    ).populate(['category', 'reporter', 'assignedTo']);
+    ).populate([
+        'category',
+        { path: 'reporter', select: 'name email role isActive retiredAt' },
+        { path: 'assignedTo', select: 'name role isActive retiredAt' },
+        { path: 'statusHistory.changedBy', select: 'name role isActive retiredAt' },
+    ]);
 
     if (!updated) {
         throw new CustomError.ConflictError('Complaint status changed concurrently; reload and retry');
@@ -233,7 +319,8 @@ const updateComplaintStatus = async (req, res) => {
         complaintId: updated._id,
     });
 
-    res.status(StatusCodes.OK).json({ complaint: updated });
+    const assignmentIdentityById = await loadAssignmentIdentityMap([updated]);
+    res.status(StatusCodes.OK).json({ complaint: shapeHistoricalComplaint(updated, assignmentIdentityById) });
 };
 
 const assignComplaint = async (req, res) => {
@@ -279,13 +366,19 @@ const assignComplaint = async (req, res) => {
             $inc: { __v: 1 },
         },
         { new: true, runValidators: true }
-    ).populate(['category', 'reporter', 'assignedTo']);
+    ).populate([
+        'category',
+        { path: 'reporter', select: 'name role isActive retiredAt' },
+        { path: 'assignedTo', select: 'name role isActive retiredAt' },
+        { path: 'statusHistory.changedBy', select: 'name role isActive retiredAt' },
+    ]);
 
     if (!updated) {
         throw new CustomError.ConflictError('Complaint assignment changed concurrently; reload and retry');
     }
 
-    res.status(StatusCodes.OK).json({ complaint: updated });
+    const assignmentIdentityById = await loadAssignmentIdentityMap([updated]);
+    res.status(StatusCodes.OK).json({ complaint: shapeHistoricalComplaint(updated, assignmentIdentityById) });
 };
 
 const deleteComplaint = async (req, res) => {

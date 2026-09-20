@@ -8,4 +8,24 @@ const buildUserSnapshot = (user) => {
   };
 };
 
-module.exports = { buildUserSnapshot };
+const safeHistoricalIdentity = ({ populatedUser, snapshot }) => {
+  const userId = populatedUser?._id ?? snapshot?.userId;
+  const role = populatedUser?.role ?? snapshot?.role;
+  let displayName;
+
+  if (!populatedUser) {
+    displayName = 'Unavailable account';
+  } else if (populatedUser.retiredAt) {
+    displayName = 'Retired account';
+  } else {
+    displayName = populatedUser.name;
+  }
+
+  return {
+    userId,
+    displayName,
+    ...(role ? { role } : {}),
+  };
+};
+
+module.exports = { buildUserSnapshot, safeHistoricalIdentity };

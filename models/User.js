@@ -24,7 +24,7 @@ const userSchema = new mongoose.Schema(
             type: String,
             required: [
                 function passwordRequired() {
-                    return this.authProvider === 'local';
+                    return this.authProvider === 'local' && this.isActive !== false && !this.retiredAt;
                 },
                 'Password is required',
             ],
@@ -47,6 +47,15 @@ const userSchema = new mongoose.Schema(
         },
         retiredAt: {
             type: Date,
+        },
+        retiredBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+        },
+        retirementReason: {
+            type: String,
+            trim: true,
+            maxlength: 500,
         },
         authProvider: {
             type: String,
