@@ -52,14 +52,24 @@ const multipartUpload = async (req, res, next) => {
   let failed = false;
   let failureHandled = false;
   let failureError;
+  let disconnected = false;
+  let parserFinished = false;
+  let cleanupPromise;
   const records = [];
   const writes = [];
 
-  const cleanup = () => fsp.rm(uploadDirectory, { recursive: true, force: true });
+  const cleanup = () => {
+    cleanupPromise ||= fsp.rm(uploadDirectory, { recursive: true, force: true }).catch(() => undefined);
+    return cleanupPromise;
+  };
   const finishFailure = () => {
     if (failureHandled) return;
     failureHandled = true;
-    void Promise.allSettled(writes).then(cleanup).then(() => next(failureError));
+    void Promise.allSettled(writes)
+      .then(cleanup)
+      .then(() => {
+        if (!disconnected) next(failureError);
+      });
   };
   const abort = (error) => {
     if (failed) return;
@@ -67,6 +77,25 @@ const multipartUpload = async (req, res, next) => {
     failureError = error;
     req.once('end', finishFailure);
   };
+  const abortDisconnectedRequest = () => {
+    if (disconnected) return;
+    disconnected = true;
+    if (!failed) {
+      failed = true;
+      failureError = new BadRequestError('Multipart upload was interrupted');
+    }
+    req.unpipe(busboy);
+    busboy.destroy();
+    finishFailure();
+  };
+
+  req.once('aborted', abortDisconnectedRequest);
+  req.once('error', () => {
+    if (!parserFinished) abortDisconnectedRequest();
+  });
+  req.once('close', () => {
+    if (!parserFinished && !req.complete && !req.readableEnded) abortDisconnectedRequest();
+  });
 
   busboy.on('field', (name, value) => {
     if (!failed) addField(req.body, name, value);
@@ -124,6 +153,7 @@ const multipartUpload = async (req, res, next) => {
   busboy.once('fieldsLimit', () => abort(new BadRequestError('Multipart upload has too many fields')));
   busboy.once('error', () => abort(new BadRequestError('Malformed multipart upload')));
   busboy.once('finish', () => {
+    parserFinished = true;
     if (failed) return finishFailure();
     void Promise.all(writes).then(() => {
       if (failed) return;

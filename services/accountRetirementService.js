@@ -19,6 +19,8 @@ const normalizeReason = (reason) => {
   return normalized;
 };
 
+const normalizeEmail = (email) => email.trim().toLowerCase();
+
 const requireActiveAdministrator = (actor) => {
   if (!actor || actor.role !== 'admin' || actor.isActive === false || actor.retiredAt) {
     throw new ForbiddenError('An active administrator is required');
@@ -134,6 +136,7 @@ const mutateAdministrator = async ({ targetUserId, actorUserId, changes }) => {
       ]);
       if (!target) throw new NotFoundError('User not found');
       requireActiveAdministrator(actor);
+      if (target.retiredAt) throw new ConflictError('Retired accounts cannot be changed');
 
       const removesAdministrator = target.role === 'admin'
         && (changes.role && changes.role !== 'admin' || changes.isActive === false);
@@ -177,4 +180,92 @@ const mutateAdministrator = async ({ targetUserId, actorUserId, changes }) => {
   return updatedUser;
 };
 
-module.exports = { mutateAdministrator, retireAccount };
+const mutateUserDetails = async ({ targetUserId, actorUserId, changes, selfMutation = false }) => {
+  await ensureAccountLifecycleGuard();
+  const session = await mongoose.startSession();
+  let updatedUser;
+
+  try {
+    await session.withTransaction(async () => {
+      await touchAccountLifecycleGuard(session);
+      const [target, actor] = await Promise.all([
+        User.findById(targetUserId).select('+password').session(session),
+        User.findById(actorUserId).session(session),
+      ]);
+      if (!target) throw new NotFoundError('User not found');
+      if (target.retiredAt) throw new ConflictError('Retired accounts cannot be changed');
+
+      if (selfMutation) {
+        if (!actor || String(actor._id) !== String(target._id) || actor.isActive === false || actor.retiredAt) {
+          throw new ForbiddenError('An active account is required');
+        }
+      } else {
+        requireActiveAdministrator(actor);
+      }
+
+      if (changes.email && normalizeEmail(changes.email) !== target.email) {
+        const existing = await User.exists({
+          _id: { $ne: target._id },
+          email: normalizeEmail(changes.email),
+        }).session(session);
+        if (existing) throw new ConflictError('An account with this email already exists');
+      }
+
+      Object.assign(target, changes);
+      await target.save({ session });
+      updatedUser = target;
+    });
+  } catch (error) {
+    if (error?.code === 11000) throw new ConflictError('An account with this email already exists');
+    throw error;
+  } finally {
+    await session.endSession();
+  }
+
+  return updatedUser;
+};
+
+const bootstrapFirstAdministrator = async ({ targetEmail }) => {
+  await ensureAccountLifecycleGuard();
+  const session = await mongoose.startSession();
+  let updatedUser;
+
+  try {
+    await session.withTransaction(async () => {
+      await touchAccountLifecycleGuard(session);
+      const target = await User.findOne({ email: normalizeEmail(targetEmail) }).session(session);
+      if (!target) throw new NotFoundError('User not found');
+      if (target.retiredAt || target.isActive === false) {
+        throw new ConflictError('Only an active account can become the first administrator');
+      }
+      if (target.role !== 'citizen') {
+        throw new ConflictError('Only a citizen account can become the first administrator');
+      }
+
+      const activeAdministrators = await User.countDocuments({
+        role: 'admin',
+        isActive: { $ne: false },
+        retiredAt: null,
+      }).session(session);
+      if (activeAdministrators > 0) {
+        throw new ConflictError('The first administrator has already been created; use the administrator API');
+      }
+
+      target.role = 'admin';
+      await target.save({ session });
+      await RefreshToken.deleteMany({ user: target._id }, { session });
+      updatedUser = target;
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  return updatedUser;
+};
+
+module.exports = {
+  bootstrapFirstAdministrator,
+  mutateAdministrator,
+  mutateUserDetails,
+  retireAccount,
+};

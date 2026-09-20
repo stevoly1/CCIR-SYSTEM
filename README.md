@@ -54,11 +54,13 @@ See [`.env.example`](./.env.example) for the full list of environment variables 
 
 ### Creating the first admin account
 
-Every account created through `/api/v1/auth/signup` is a `citizen` by default — the API never lets a client set its own role. To promote an account to `admin` or `agency`, run:
+Every account created through `/api/v1/auth/signup` is a `citizen` by default — the API never lets a client set its own role. To create the first administrator, run this once while no active administrator exists:
 
 ```bash
 npm run set-role -- you@example.com admin
 ```
+
+After bootstrap, use the protected administrator API for role changes. The bootstrap command refuses to run once an active administrator exists.
 
 ### Running the reference frontend (optional)
 

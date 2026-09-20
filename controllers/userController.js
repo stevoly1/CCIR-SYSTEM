@@ -2,7 +2,11 @@ const { StatusCodes } = require('http-status-codes');
 const { User, RefreshToken } = require('../models');
 const CustomError = require('../errors');
 const { clearAttachedCookies } = require('../handlers/authHandler');
-const { mutateAdministrator, retireAccount } = require('../services/accountRetirementService');
+const {
+    mutateAdministrator,
+    mutateUserDetails,
+    retireAccount,
+} = require('../services/accountRetirementService');
 
 const getProfile = async (req, res) => {
     const user = await User.findById(req.user.userId);
@@ -11,17 +15,12 @@ const getProfile = async (req, res) => {
 };
 
 const updateProfile = async (req, res) => {
-    const user = await User.findById(req.user.userId);
-    if (!user) throw new CustomError.NotFoundError('User not found');
-
-    const { email } = req.body;
-    if (email && email !== user.email) {
-        const existing = await User.findOne({ email });
-        if (existing) throw new CustomError.ConflictError('An account with this email already exists');
-    }
-
-    Object.assign(user, req.body);
-    await user.save();
+    const user = await mutateUserDetails({
+        targetUserId: req.user.userId,
+        actorUserId: req.user.userId,
+        changes: req.body,
+        selfMutation: true,
+    });
 
     res.status(StatusCodes.OK).json({ user });
 };
@@ -73,17 +72,11 @@ const updateUser = async (req, res) => {
         return res.status(StatusCodes.OK).json({ user });
     }
 
-    const user = await User.findById(req.params.id);
-    if (!user) throw new CustomError.NotFoundError('User not found');
-
-    const { email } = req.body;
-    if (email && email !== user.email) {
-        const existing = await User.findOne({ email });
-        if (existing) throw new CustomError.ConflictError('An account with this email already exists');
-    }
-
-    Object.assign(user, changes);
-    await user.save();
+    const user = await mutateUserDetails({
+        targetUserId: req.params.id,
+        actorUserId: req.user.userId,
+        changes,
+    });
 
     res.status(StatusCodes.OK).json({ user });
 };

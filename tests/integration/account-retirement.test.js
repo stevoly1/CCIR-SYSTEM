@@ -2,7 +2,10 @@ const { Complaint, RefreshToken, User } = require('../../models');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createComplaintFixture } = require('../fixtures/complaint');
 const { createUserFixture } = require('../fixtures/user');
-const { retireAccount } = require('../../services/accountRetirementService');
+const {
+  bootstrapFirstAdministrator,
+  retireAccount,
+} = require('../../services/accountRetirementService');
 
 describe('transactional account retirement', () => {
   it('soft-retires a citizen, removes credentials, and revokes sessions', async () => {
@@ -85,6 +88,114 @@ describe('transactional account retirement', () => {
     const twice = await User.findById(target.id);
     expect(twice.email).toBe(once.email);
     expect(twice.retiredAt).toEqual(once.retiredAt);
+  });
+
+  it('rejects ordinary administrator edits to a retired tombstone', async () => {
+    const { agent: adminAgent, user: admin } = await createAuthenticatedAgent({ role: 'admin' });
+    const target = await createUserFixture({ role: 'citizen', name: 'Original Name' });
+    await retireAccount({ targetUserId: target.id, actorUserId: admin.id, reason: 'Requested' });
+
+    const response = await unsafeRequest(adminAgent, 'patch', `/api/v1/users/${target.id}`)
+      .send({ name: 'Restored Name', email: 'restored@example.test' });
+
+    expect(response.status).toBe(409);
+    const stored = await User.findById(target.id);
+    expect(stored).toMatchObject({
+      name: 'Retired account',
+      email: `retired+${target.id}@invalid.local`,
+      role: 'citizen',
+      isActive: false,
+    });
+  });
+
+  it('preserves the tombstone when profile mutation races retirement', async () => {
+    const { agent, user } = await createAuthenticatedAgent({ role: 'citizen' });
+
+    const [update, retirement] = await Promise.all([
+      unsafeRequest(agent, 'patch', '/api/v1/users/profile')
+        .send({ name: 'Racing Name', email: 'racing@example.test' }),
+      unsafeRequest(agent, 'delete', '/api/v1/users/profile'),
+    ]);
+
+    expect(retirement.status).toBe(200);
+    expect([200, 401, 409]).toContain(update.status);
+    const stored = await User.findById(user.id);
+    expect(stored).toMatchObject({
+      name: 'Retired account',
+      email: `retired+${user.id}@invalid.local`,
+      role: 'citizen',
+      isActive: false,
+    });
+  });
+
+  it('bootstraps exactly one first administrator and revokes their sessions', async () => {
+    const target = await createUserFixture({ role: 'citizen' });
+    await RefreshToken.create({
+      user: target._id,
+      token: 'bootstrap-session-token',
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+
+    const promoted = await bootstrapFirstAdministrator({ targetEmail: target.email });
+
+    expect(promoted).toMatchObject({ role: 'admin', isActive: true });
+    expect(await RefreshToken.countDocuments({ user: target._id })).toBe(0);
+
+    const second = await createUserFixture({ role: 'citizen' });
+    await expect(bootstrapFirstAdministrator({ targetEmail: second.email }))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(await User.findById(second.id)).toMatchObject({ role: 'citizen' });
+  });
+
+  it('refuses to bootstrap a retired account', async () => {
+    const target = await createUserFixture({
+      role: 'citizen',
+      isActive: false,
+      retiredAt: new Date(),
+    });
+
+    await expect(bootstrapFirstAdministrator({ targetEmail: target.email }))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(await User.findById(target.id)).toMatchObject({ role: 'citizen', isActive: false });
+  });
+
+  it('refuses to bootstrap a legacy agency account', async () => {
+    const target = await createUserFixture({ role: 'agency' });
+    await createComplaintFixture({ assignedTo: target._id, status: 'IN_PROGRESS' });
+
+    await expect(bootstrapFirstAdministrator({ targetEmail: target.email }))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(await User.findById(target.id)).toMatchObject({ role: 'agency' });
+  });
+
+  it('allows only one concurrent first-administrator bootstrap to win', async () => {
+    const first = await createUserFixture({ role: 'citizen' });
+    const second = await createUserFixture({ role: 'citizen' });
+
+    const results = await Promise.allSettled([
+      bootstrapFirstAdministrator({ targetEmail: first.email }),
+      bootstrapFirstAdministrator({ targetEmail: second.email }),
+    ]);
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    expect(await User.countDocuments({ role: 'admin', isActive: true, retiredAt: null })).toBe(1);
+  });
+
+  it('rejects role changes to a retired tombstone', async () => {
+    const { agent: adminAgent, user: admin } = await createAuthenticatedAgent({ role: 'admin' });
+    const target = await createUserFixture({ role: 'citizen' });
+    await retireAccount({ targetUserId: target.id, actorUserId: admin.id });
+
+    const response = await unsafeRequest(adminAgent, 'patch', `/api/v1/users/${target.id}`)
+      .send({ role: 'agency' });
+
+    expect(response.status).toBe(409);
+    expect(await User.findById(target.id)).toMatchObject({
+      role: 'citizen',
+      name: 'Retired account',
+      email: `retired+${target.id}@invalid.local`,
+    });
   });
 
   it('rejects an overlong retirement reason before mutation', async () => {
