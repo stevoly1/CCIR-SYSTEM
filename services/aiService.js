@@ -1,6 +1,23 @@
 const fs = require('fs');
+const { z } = require('zod');
 
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
+const FALLBACK_CATEGORY = 'Other';
+
+const parseAiTimeout = (value) => {
+    if (value === undefined) return 8000;
+    if (typeof value !== 'string' || !/^\d+$/.test(value)) {
+        throw new Error('AI_TIMEOUT_MS must be an integer between 1000 and 15000');
+    }
+    const timeout = Number(value);
+    if (!Number.isSafeInteger(timeout) || timeout < 1000 || timeout > 15000) {
+        throw new Error('AI_TIMEOUT_MS must be an integer between 1000 and 15000');
+    }
+    return timeout;
+};
+
+const AI_TIMEOUT_MS = parseAiTimeout(process.env.AI_TIMEOUT_MS);
 
 const buildPrompt = (description, categoryNames) => `You are the triage assistant for a civic infrastructure complaint system.
 A citizen submitted the following report about a public infrastructure problem (e.g. potholes, broken streetlights, blocked drainage, water leakage, waste accumulation).
@@ -18,18 +35,70 @@ Analyze the description (and the attached photo, if provided) and respond with O
   "confidence": a number between 0 and 1 representing your confidence in the category choice
 }`;
 
-// Classifies a complaint using Gemini (text + optional image). Never throws — on any
-// failure it returns a fallback result so complaint submission is never blocked by an AI outage.
+const normalizedBoundedString = (maximum) => z.string()
+    .transform((value) => value.trim())
+    .pipe(z.string().min(1).max(maximum));
+
+const validateAiOutput = (rawText, categoryNames) => {
+    if (typeof rawText !== 'string' || rawText.length === 0) {
+        throw new Error('Invalid AI output');
+    }
+
+    let candidate;
+    try {
+        candidate = JSON.parse(rawText);
+    } catch {
+        throw new Error('Invalid AI output');
+    }
+
+    const schema = z.strictObject({
+        category: z.string().refine((value) => categoryNames.includes(value)),
+        priority: z.enum(PRIORITIES),
+        summary: normalizedBoundedString(240),
+        tags: z.array(normalizedBoundedString(40)).max(5),
+        confidence: z.number().refine(Number.isFinite),
+    });
+    const parsed = schema.safeParse(candidate);
+    if (!parsed.success) throw new Error('Invalid AI output');
+
+    return {
+        category: parsed.data.category,
+        priority: parsed.data.priority,
+        summary: parsed.data.summary,
+        tags: [...new Set(parsed.data.tags.map((tag) => tag.toLowerCase()))],
+        confidence: Math.min(1, Math.max(0, parsed.data.confidence)),
+        error: null,
+    };
+};
+
+const fallbackResult = (errorCode) => ({
+    category: FALLBACK_CATEGORY,
+    priority: 'MEDIUM',
+    summary: '',
+    tags: [],
+    confidence: 0,
+    error: errorCode,
+});
+
+class AiFailure extends Error {
+    constructor(code) {
+        super(code);
+        this.code = code;
+    }
+}
+
+// Classifies a complaint using Gemini (text + optional image). Every failure is
+// reduced to a deterministic non-sensitive fallback so provider outages do not
+// block complaint submission.
 const classifyComplaint = async ({ description, imageTempFilePath, imageMimeType, categoryNames }) => {
     const apiKey = process.env.GOOGLE_API_KEY;
+    if (!apiKey) return fallbackResult('PROVIDER_ERROR');
 
-    if (!apiKey) {
-        return fallbackResult('AI classification is not configured (missing GOOGLE_API_KEY)');
-    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
 
     try {
         const parts = [{ text: buildPrompt(description, categoryNames) }];
-
         if (imageTempFilePath) {
             const imageBuffer = fs.readFileSync(imageTempFilePath);
             parts.push({
@@ -40,53 +109,47 @@ const classifyComplaint = async ({ description, imageTempFilePath, imageMimeType
             });
         }
 
-        const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts }],
-                    generationConfig: { responseMimeType: 'application/json' },
-                }),
-            }
-        );
-
-        if (!response.ok) {
-            const errText = await response.text();
-            throw new Error(`Gemini API error (${response.status}): ${errText}`);
+        let response;
+        try {
+            response = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts }],
+                        generationConfig: { responseMimeType: 'application/json' },
+                    }),
+                    signal: controller.signal,
+                },
+            );
+        } catch (error) {
+            if (controller.signal.aborted || error?.name === 'AbortError') throw new AiFailure('TIMEOUT');
+            throw new AiFailure('NETWORK_ERROR');
         }
 
-        const data = await response.json();
+        if (!response.ok) throw new AiFailure('PROVIDER_ERROR');
+
+        let data;
+        try {
+            data = await response.json();
+        } catch (error) {
+            if (controller.signal.aborted || error?.name === 'AbortError') throw new AiFailure('TIMEOUT');
+            throw new AiFailure('INVALID_OUTPUT');
+        }
         const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (!rawText) {
-            throw new Error('Gemini returned an empty response');
+        try {
+            return validateAiOutput(rawText, categoryNames);
+        } catch {
+            throw new AiFailure('INVALID_OUTPUT');
         }
-
-        const parsed = JSON.parse(rawText);
-
-        return {
-            category: parsed.category || 'Other',
-            priority: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].includes(parsed.priority) ? parsed.priority : 'MEDIUM',
-            summary: parsed.summary || '',
-            tags: Array.isArray(parsed.tags) ? parsed.tags.slice(0, 5) : [],
-            confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.5,
-            error: null,
-        };
     } catch (error) {
-        console.error('AI classification failed:', error.message);
-        return fallbackResult(error.message);
+        const errorCode = error instanceof AiFailure ? error.code : 'INVALID_OUTPUT';
+        console.error('AI classification failed:', errorCode);
+        return fallbackResult(errorCode);
+    } finally {
+        clearTimeout(timeout);
     }
 };
 
-const fallbackResult = (errorMessage) => ({
-    category: 'Other',
-    priority: 'MEDIUM',
-    summary: '',
-    tags: [],
-    confidence: 0,
-    error: errorMessage,
-});
-
-module.exports = { classifyComplaint };
+module.exports = { classifyComplaint, parseAiTimeout, validateAiOutput };
