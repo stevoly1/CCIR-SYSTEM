@@ -5,9 +5,12 @@ const sharp = require('sharp');
 const { inspectComplaintImage } = require('../../services/imageInspectionService');
 
 const fixtures = path.join(__dirname, '..', 'fixtures', 'images');
+let temporaryDirectory;
 
 const fileFor = async (filename, mimetype, overrides = {}) => {
-  const tempFilePath = path.join(fixtures, filename);
+  const fixturePath = path.join(fixtures, filename);
+  const tempFilePath = path.join(temporaryDirectory, filename);
+  await fs.copyFile(fixturePath, tempFilePath);
   const stat = await fs.stat(tempFilePath);
   return {
     name: filename,
@@ -19,8 +22,6 @@ const fileFor = async (filename, mimetype, overrides = {}) => {
 };
 
 describe('trusted complaint image inspection', () => {
-  let temporaryDirectory;
-
   beforeEach(async () => {
     temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'ccir-image-inspection-'));
   });
@@ -37,12 +38,12 @@ describe('trusted complaint image inspection', () => {
     const file = await fileFor(filename, mimetype);
 
     await expect(inspectComplaintImage(file)).resolves.toMatchObject({
-      tempFilePath: file.tempFilePath,
+      tempFilePath: expect.not.stringMatching(new RegExp(`${path.basename(file.tempFilePath)}$`)),
       format,
       mimeType: mimetype,
       width: 8,
       height: 8,
-      size: file.size,
+      size: expect.any(Number),
     });
   });
 
@@ -91,6 +92,26 @@ describe('trusted complaint image inspection', () => {
 
     await expect(inspectComplaintImage({ name: 'truncated.jpg', tempFilePath, mimetype: 'image/jpeg', size }))
       .rejects.toMatchObject({ statusCode: 415 });
+  });
+
+  it('re-encodes decoded pixels so trailing payload bytes cannot reach downstream services', async () => {
+    const original = await fs.readFile(path.join(fixtures, 'valid.jpg'));
+    const payload = Buffer.from('PK\x03\x04<script>polyglot payload</script>');
+    const tempFilePath = path.join(temporaryDirectory, 'polyglot.jpg');
+    await fs.writeFile(tempFilePath, Buffer.concat([original, payload]));
+    const size = (await fs.stat(tempFilePath)).size;
+
+    const inspected = await inspectComplaintImage({
+      name: 'polyglot.jpg',
+      tempFilePath,
+      mimetype: 'image/jpeg',
+      size,
+    });
+    const sanitized = await fs.readFile(inspected.tempFilePath);
+
+    expect(inspected.tempFilePath).not.toBe(tempFilePath);
+    expect(sanitized.includes(payload)).toBe(false);
+    await expect(sharp(sanitized).metadata()).resolves.toMatchObject({ format: 'jpeg', width: 8, height: 8 });
   });
 
   it('rejects animated WebP', async () => {

@@ -1,4 +1,5 @@
 const fs = require('fs/promises');
+const nodeFs = require('fs');
 const os = require('os');
 const path = require('path');
 const { Complaint } = require('../../models');
@@ -47,10 +48,7 @@ describe('complaint upload ordering and compensation', () => {
     expect(response.status).toBe(413);
     expect(aiService.classifyComplaint).not.toHaveBeenCalled();
     expect(upload).not.toHaveBeenCalled();
-    expect(cleanup).toHaveBeenCalledWith(expect.arrayContaining([
-      expect.objectContaining({ tempFilePath: expect.any(String) }),
-    ]));
-    expect(cleanup.mock.calls[0][0]).toHaveLength(6);
+    expect(cleanup).not.toHaveBeenCalled();
   });
 
   it('rejects aggregate size above 25 MiB before AI or cloud calls', async () => {
@@ -64,6 +62,14 @@ describe('complaint upload ordering and compensation', () => {
       largePaths.push(filePath);
     }
     const upload = vi.spyOn(uploadService, 'uploadComplaintImage');
+    const cleanup = vi.spyOn(complaintImageService, 'cleanupTemporaryFiles');
+    const bytesWritten = [];
+    const originalCreateWriteStream = nodeFs.createWriteStream.bind(nodeFs);
+    vi.spyOn(nodeFs, 'createWriteStream').mockImplementation((...args) => {
+      const writer = originalCreateWriteStream(...args);
+      writer.once('finish', () => bytesWritten.push(writer.bytesWritten));
+      return writer;
+    });
     let request = complaintRequest();
     for (const filePath of largePaths) request = request.attach('image', filePath, { contentType: 'image/jpeg' });
 
@@ -72,6 +78,8 @@ describe('complaint upload ordering and compensation', () => {
     expect(response.status).toBe(413);
     expect(aiService.classifyComplaint).not.toHaveBeenCalled();
     expect(upload).not.toHaveBeenCalled();
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(bytesWritten.reduce((sum, size) => sum + size, 0)).toBeLessThanOrEqual(25 * 1024 * 1024);
   });
 
   it('rejects unexpected file fields and invalid content before AI or cloud calls', async () => {
@@ -138,7 +146,8 @@ describe('complaint upload ordering and compensation', () => {
 
     expect(response.status).toBe(201);
     expect(cleanup).toHaveBeenCalledTimes(1);
-    expect(cleanup.mock.calls[0][0]).toHaveLength(1);
+    expect(cleanup.mock.calls[0][0]).toHaveLength(2);
+    expect(new Set(cleanup.mock.calls[0][0].map((file) => file.tempFilePath)).size).toBe(2);
     expect(await Complaint.countDocuments()).toBe(1);
   });
 });

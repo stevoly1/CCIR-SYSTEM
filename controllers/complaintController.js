@@ -1,7 +1,6 @@
 const { StatusCodes } = require('http-status-codes');
 const { Complaint, Category, User } = require('../models');
 const CustomError = require('../errors');
-const { decideAssignment } = require('../policies/assignmentPolicy');
 const { decideTransition } = require('../policies/complaintTransitionPolicy');
 const { buildUserSnapshot, safeHistoricalIdentity } = require('../services/userSnapshotService');
 const generateReferenceCode = require('../utils/referenceCode');
@@ -10,6 +9,7 @@ const locationService = require('../services/locationService');
 const uploadService = require('../services/uploadService');
 const emailService = require('../services/emailService');
 const complaintImageService = require('../services/complaintImageService');
+const { assignComplaintTransaction } = require('../services/complaintAssignmentService');
 
 const STAFF_ROLES = ['admin', 'agency'];
 
@@ -88,12 +88,13 @@ const createComplaint = async (req, res) => {
         Array.isArray(value) ? value : [value]
     ));
 
+    let imageFiles = [];
     try {
         const unexpectedFields = Object.keys(req.files || {}).filter((field) => field !== 'image');
         if (unexpectedFields.length > 0) {
             throw new CustomError.UnsupportedMediaTypeError('Only the image upload field is supported');
         }
-        const imageFiles = await complaintImageService.prepareComplaintImages(req.files?.image);
+        imageFiles = await complaintImageService.prepareComplaintImages(req.files?.image);
 
         const [location, activeCategories] = await Promise.all([
             resolveLocation({ latitude, longitude, address }),
@@ -171,7 +172,7 @@ const createComplaint = async (req, res) => {
 
         res.status(StatusCodes.CREATED).json({ complaint: shapeHistoricalComplaint(complaint) });
     } finally {
-        await complaintImageService.cleanupTemporaryFiles(requestFiles);
+        await complaintImageService.cleanupTemporaryFiles([...requestFiles, ...imageFiles]);
     }
 };
 
@@ -291,8 +292,14 @@ const updateComplaintStatus = async (req, res) => {
         $inc: { __v: 1 },
     };
     if (decision.priority !== undefined) update.$set.priority = decision.priority;
-    if (decision.resolvedAtAction === 'set') update.$set.resolvedAt = decision.historyEntry.createdAt;
-    if (decision.resolvedAtAction === 'clear') update.$unset = { resolvedAt: 1 };
+    if (decision.resolvedAtAction === 'set') {
+        update.$set.resolvedAt = decision.historyEntry.createdAt;
+        update.$set.resolvedAtEstimated = false;
+    }
+    if (decision.resolvedAtAction === 'clear') {
+        update.$set.resolvedAtEstimated = false;
+        update.$unset = { resolvedAt: 1 };
+    }
 
     const updated = await Complaint.findOneAndUpdate(
         { _id: complaint._id, status: complaint.status, __v: complaint.__v },
@@ -309,14 +316,16 @@ const updateComplaintStatus = async (req, res) => {
         throw new CustomError.ConflictError('Complaint status changed concurrently; reload and retry');
     }
 
-    emailService.sendStatusUpdateEmail({
-        to: updated.reporter.email,
-        name: updated.reporter.name,
-        referenceCode: updated.referenceCode,
-        status: updated.status,
-        note,
-        complaintId: updated._id,
-    });
+    if (updated.reporter) {
+        emailService.sendStatusUpdateEmail({
+            to: updated.reporter.email,
+            name: updated.reporter.name,
+            referenceCode: updated.referenceCode,
+            status: updated.status,
+            note,
+            complaintId: updated._id,
+        });
+    }
 
     const assignmentIdentityById = await loadAssignmentIdentityMap([updated]);
     res.status(StatusCodes.OK).json({ complaint: shapeHistoricalComplaint(updated, assignmentIdentityById) });
@@ -324,53 +333,18 @@ const updateComplaintStatus = async (req, res) => {
 
 const assignComplaint = async (req, res) => {
     const { assignedTo, reason } = req.body;
-
-    const complaint = await Complaint.findById(req.params.id).populate('assignedTo');
-    if (!complaint) throw new CustomError.NotFoundError(`No complaint found with id ${req.params.id}`);
-
-    const [actor, target] = await Promise.all([
-        User.findById(req.user.userId),
-        assignedTo === null ? null : User.findById(assignedTo),
-    ]);
-
-    if (assignedTo !== null && !target) {
-        throw new CustomError.NotFoundError(`No user found with id ${assignedTo}`);
-    }
-
-    const originalAssignee = complaint.assignedTo;
-    if (assignedTo === null && !originalAssignee) {
-        throw new CustomError.ConflictError('Complaint is already unassigned');
-    }
-
-    const decision = decideAssignment({
-        actor,
-        target,
-        currentAssignee: originalAssignee,
+    const updated = await assignComplaintTransaction({
+        complaintId: req.params.id,
+        actorUserId: req.user.userId,
+        assignedTo,
         reason,
     });
-
-    const updated = await Complaint.findOneAndUpdate(
-        {
-            _id: complaint._id,
-            assignedTo: originalAssignee?._id ?? null,
-            __v: complaint.__v,
-        },
-        {
-            $set: { assignedTo: decision.assignedTo },
-            $push: { assignmentHistory: decision.event },
-            $inc: { __v: 1 },
-        },
-        { new: true, runValidators: true }
-    ).populate([
+    await updated.populate([
         'category',
         { path: 'reporter', select: 'name role isActive retiredAt' },
         { path: 'assignedTo', select: 'name role isActive retiredAt' },
         { path: 'statusHistory.changedBy', select: 'name role isActive retiredAt' },
     ]);
-
-    if (!updated) {
-        throw new CustomError.ConflictError('Complaint assignment changed concurrently; reload and retry');
-    }
 
     const assignmentIdentityById = await loadAssignmentIdentityMap([updated]);
     res.status(StatusCodes.OK).json({ complaint: shapeHistoricalComplaint(updated, assignmentIdentityById) });

@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const { Complaint } = require('../../models');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createComplaintFixture } = require('../fixtures/complaint');
@@ -119,11 +120,43 @@ describe('PATCH /api/v1/complaints/:id/status', () => {
 
   it('clears resolvedAt when reopening RESOLVED', async () => {
     const { agent, complaint, path } = await setup('RESOLVED');
+    await Complaint.updateOne({ _id: complaint._id }, { $set: { resolvedAtEstimated: true } });
     const response = await unsafeRequest(agent, 'patch', path).send({ status: 'IN_PROGRESS', note: 'Additional work found' });
 
     expect(response.status).toBe(200);
     const stored = await Complaint.findById(complaint.id);
     expect(stored.resolvedAt).toBeUndefined();
+    expect(stored.resolvedAtEstimated).toBe(false);
+  });
+
+  it('clears the migrated estimate marker when resolving again', async () => {
+    const { agent, complaint, path } = await setup('IN_PROGRESS');
+    await Complaint.updateOne({ _id: complaint._id }, { $set: { resolvedAtEstimated: true } });
+
+    const response = await unsafeRequest(agent, 'patch', path).send({ status: 'RESOLVED' });
+
+    expect(response.status).toBe(200);
+    expect((await Complaint.findById(complaint.id)).resolvedAtEstimated).toBe(false);
+  });
+
+  it('returns the committed transition when the legacy reporter no longer exists', async () => {
+    const { agent, complaint, path } = await setup('PENDING');
+    const missingReporter = new mongoose.Types.ObjectId();
+    await Complaint.updateOne({ _id: complaint._id }, {
+      $set: {
+        reporter: missingReporter,
+        reporterSnapshot: { userId: missingReporter, displayName: 'Legacy Reporter', role: 'citizen' },
+      },
+    });
+
+    const response = await unsafeRequest(agent, 'patch', path).send({ status: 'IN_REVIEW' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.complaint).toMatchObject({ status: 'IN_REVIEW' });
+    expect(response.body.complaint.reporter).toMatchObject({
+      userId: missingReporter.toString(),
+      displayName: 'Unavailable account',
+    });
   });
 
   it('preserves resolvedAt absence on unrelated transitions', async () => {

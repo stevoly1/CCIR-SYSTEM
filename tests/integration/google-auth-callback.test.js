@@ -164,6 +164,26 @@ describe('Google authentication callback', () => {
     expect(sessionCookies(replay)).toHaveLength(0);
   });
 
+  it('allows only one concurrent callback to consume the same state', async () => {
+    const exchange = vi.spyOn(googleOAuthService, 'exchangeCodeForProfile')
+      .mockResolvedValue(successProfile());
+    const agent = request.agent(app);
+    const { response: authorization, state } = await beginGoogle(agent);
+    const oauthCookie = authorization.headers['set-cookie'].find((header) => header.startsWith('oauthState='));
+
+    const invoke = () => request(app)
+      .get('/api/v1/auth/google/callback')
+      .set('Cookie', oauthCookie)
+      .query({ code: 'authorization-code', state });
+    const responses = await Promise.all([invoke(), invoke()]);
+
+    expect(responses.map((response) => response.headers.location).sort()).toEqual([
+      `${process.env.BROWSER_ORIGIN}/dashboard`,
+      `${process.env.BROWSER_ORIGIN}/login?error=google_auth_failed`,
+    ].sort());
+    expect(exchange).toHaveBeenCalledTimes(1);
+  });
+
   it('uses one generic redirect and stable log code for provider failure', async () => {
     vi.spyOn(googleOAuthService, 'exchangeCodeForProfile').mockRejectedValue(new Error('secret provider body'));
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});

@@ -112,6 +112,39 @@ describe('transactional account retirement', () => {
     deleteTokens.mockRestore();
   });
 
+  it('requires open complaints to be unassigned before an agency is deactivated', async () => {
+    const { agent: adminAgent } = await createAuthenticatedAgent({ role: 'admin' });
+    const agency = await createUserFixture({ role: 'agency' });
+    const complaint = await createComplaintFixture({ assignedTo: agency._id, status: 'IN_PROGRESS' });
+
+    const response = await unsafeRequest(adminAgent, 'patch', `/api/v1/users/${agency.id}`)
+      .send({ isActive: false, reason: 'Contract ended' });
+
+    expect(response.status).toBe(409);
+    expect(await User.findById(agency.id)).toMatchObject({ isActive: true, role: 'agency' });
+    expect((await Complaint.findById(complaint.id)).assignedTo.toString()).toBe(agency.id);
+  });
+
+  it('allows only assignment or agency deactivation to win concurrently', async () => {
+    const { agent: adminAgent } = await createAuthenticatedAgent({ role: 'admin' });
+    const agency = await createUserFixture({ role: 'agency' });
+    const complaint = await createComplaintFixture({ status: 'IN_PROGRESS' });
+
+    const [assignment, deactivation] = await Promise.all([
+      unsafeRequest(adminAgent, 'patch', `/api/v1/complaints/${complaint.id}/assign`)
+        .send({ assignedTo: agency.id }),
+      unsafeRequest(adminAgent, 'patch', `/api/v1/users/${agency.id}`)
+        .send({ isActive: false, reason: 'Contract ended' }),
+    ]);
+
+    expect([assignment.status, deactivation.status].sort()).toEqual([200, 409]);
+    const [storedComplaint, storedAgency] = await Promise.all([
+      Complaint.findById(complaint.id),
+      User.findById(agency.id),
+    ]);
+    expect(storedAgency.isActive === false && Boolean(storedComplaint.assignedTo)).toBe(false);
+  });
+
   it('serializes two administrators concurrently demoting each other', async () => {
     const { agent: firstAgent, user: first } = await createAuthenticatedAgent({ role: 'admin' });
     const { agent: secondAgent, user: second } = await createAuthenticatedAgent({ role: 'admin' });

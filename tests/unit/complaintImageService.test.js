@@ -45,6 +45,33 @@ describe('complaint image orchestration', () => {
     expect(prepared).toHaveLength(2);
   });
 
+  it('removes canonical files when later inspection fails', async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'ccir-canonical-cleanup-'));
+    const canonicalPath = path.join(directory, 'canonical.jpg');
+    await fs.writeFile(canonicalPath, 'canonical');
+    vi.spyOn(imageInspectionService, 'inspectComplaintImage')
+      .mockResolvedValueOnce({ ...image(1), tempFilePath: canonicalPath, size: 9 })
+      .mockRejectedValueOnce(new Error('decode failed'));
+
+    await expect(prepareComplaintImages([image(1), image(2)])).rejects.toThrow('decode failed');
+    await expect(fs.access(canonicalPath)).rejects.toThrow();
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+
+  it('removes canonical files when re-encoding exceeds the aggregate limit', async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'ccir-canonical-limit-'));
+    const paths = [path.join(directory, 'one.jpg'), path.join(directory, 'two.jpg')];
+    await Promise.all(paths.map((filePath) => fs.writeFile(filePath, 'canonical')));
+    vi.spyOn(imageInspectionService, 'inspectComplaintImage')
+      .mockResolvedValueOnce({ ...image(1), tempFilePath: paths[0], size: 13 * 1024 * 1024 })
+      .mockResolvedValueOnce({ ...image(2), tempFilePath: paths[1], size: 13 * 1024 * 1024 });
+
+    await expect(prepareComplaintImages([image(1), image(2)]))
+      .rejects.toMatchObject({ statusCode: 413 });
+    await Promise.all(paths.map((filePath) => expect(fs.access(filePath)).rejects.toThrow()));
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+
   it('deletes successful uploads when the third upload fails', async () => {
     const originalError = new Error('third upload failed');
     vi.spyOn(uploadService, 'uploadComplaintImage')

@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const { StatusCodes } = require('http-status-codes');
-const { AuthThrottle, User } = require('../models');
+const { AuthThrottle, OAuthState, User } = require('../models');
 const CustomError = require('../errors');
 const {
     createNewRefreshToken,
@@ -28,6 +28,8 @@ const parseOAuthStateCookie = (value) => {
     if (!Number.isSafeInteger(issuedAt) || age < 0 || age > OAUTH_STATE_MAX_AGE_MS) return null;
     return match[2];
 };
+
+const digestOAuthState = (state) => crypto.createHash('sha256').update(state).digest('hex');
 
 const googleFailureRedirect = (res, frontendUrl, code) => {
     console.error('Google sign-in failed:', code);
@@ -81,14 +83,19 @@ const login = async (req, res) => {
     res.status(StatusCodes.OK).json({ user });
 };
 
-const googleAuthRedirect = (req, res) => {
+const googleAuthRedirect = async (req, res) => {
     if (!googleOAuthService.isConfigured()) {
         throw new CustomError.CustomAPIError('Google sign-in is not configured', StatusCodes.SERVICE_UNAVAILABLE);
     }
 
     const state = crypto.randomBytes(16).toString('hex');
+    const issuedAt = Date.now();
+    await OAuthState.create({
+        digest: digestOAuthState(state),
+        expiresAt: new Date(issuedAt + OAUTH_STATE_MAX_AGE_MS),
+    });
     const { cookieOptions } = getBrowserSecurityConfig(process.env);
-    res.cookie('oauthState', `${Date.now()}.${state}`, {
+    res.cookie('oauthState', `${issuedAt}.${state}`, {
         ...cookieOptions,
         maxAge: OAUTH_STATE_MAX_AGE_MS,
     });
@@ -103,6 +110,14 @@ const googleAuthCallback = async (req, res) => {
     res.clearCookie('oauthState', cookieOptions);
 
     if (typeof code !== 'string' || !code || !expectedState || !safeStateEqual(state, expectedState)) {
+        return googleFailureRedirect(res, frontendUrl, 'STATE_INVALID');
+    }
+
+    const consumedState = await OAuthState.findOneAndDelete({
+        digest: digestOAuthState(expectedState),
+        expiresAt: { $gt: new Date() },
+    });
+    if (!consumedState) {
         return googleFailureRedirect(res, frontendUrl, 'STATE_INVALID');
     }
 

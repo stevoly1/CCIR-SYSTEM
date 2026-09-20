@@ -1,9 +1,12 @@
 const mongoose = require('mongoose');
-const { AdminControl, Complaint, RefreshToken, User } = require('../models');
+const { Complaint, RefreshToken, User } = require('../models');
 const { buildUserSnapshot } = require('./userSnapshotService');
+const {
+  ensureAccountLifecycleGuard,
+  touchAccountLifecycleGuard,
+} = require('./accountLifecycleGuard');
 const { BadRequestError, ConflictError, ForbiddenError, NotFoundError } = require('../errors');
 
-const CONTROL_ID = 'administrator-lifecycle';
 const TERMINAL_STATUSES = new Set(['RESOLVED', 'REJECTED']);
 
 const normalizeReason = (reason) => {
@@ -15,24 +18,6 @@ const normalizeReason = (reason) => {
   }
   return normalized;
 };
-
-const ensureControlDocument = async () => {
-  try {
-    await AdminControl.updateOne(
-      { _id: CONTROL_ID },
-      { $setOnInsert: { revision: 0 } },
-      { upsert: true },
-    );
-  } catch (error) {
-    if (error.code !== 11000) throw error;
-  }
-};
-
-const touchAdministratorGuard = (session) => AdminControl.updateOne(
-  { _id: CONTROL_ID },
-  { $inc: { revision: 1 } },
-  { session },
-);
 
 const requireActiveAdministrator = (actor) => {
   if (!actor || actor.role !== 'admin' || actor.isActive === false || actor.retiredAt) {
@@ -81,13 +66,13 @@ const preserveSnapshotsAndAssignments = async ({ target, actor, reason, session,
 
 const retireAccount = async ({ targetUserId, actorUserId, reason }) => {
   const normalizedReason = normalizeReason(reason);
-  await ensureControlDocument();
+  await ensureAccountLifecycleGuard();
   const session = await mongoose.startSession();
   let retiredUser;
 
   try {
     await session.withTransaction(async () => {
-      await touchAdministratorGuard(session);
+      await touchAccountLifecycleGuard(session);
       const [target, actor] = await Promise.all([
         User.findById(targetUserId).select('+password').session(session),
         User.findById(actorUserId).session(session),
@@ -136,13 +121,13 @@ const retireAccount = async ({ targetUserId, actorUserId, reason }) => {
 };
 
 const mutateAdministrator = async ({ targetUserId, actorUserId, changes }) => {
-  await ensureControlDocument();
+  await ensureAccountLifecycleGuard();
   const session = await mongoose.startSession();
   let updatedUser;
 
   try {
     await session.withTransaction(async () => {
-      await touchAdministratorGuard(session);
+      await touchAccountLifecycleGuard(session);
       const [target, actor] = await Promise.all([
         User.findById(targetUserId).session(session),
         User.findById(actorUserId).session(session),
@@ -162,6 +147,20 @@ const mutateAdministrator = async ({ targetUserId, actorUserId, changes }) => {
           retiredAt: null,
         }).session(session);
         if (activeAdmins <= 1) throw new ConflictError('The final active administrator cannot be changed');
+      }
+
+      const removesAgencyEligibility = target.role === 'agency' && (
+        changes.isActive === false
+        || Boolean(changes.role && changes.role !== 'agency')
+      );
+      if (removesAgencyEligibility) {
+        const openAssignments = await Complaint.countDocuments({
+          assignedTo: target._id,
+          status: { $nin: [...TERMINAL_STATUSES] },
+        }).session(session);
+        if (openAssignments > 0) {
+          throw new ConflictError('Unassign open complaints before changing this agency account');
+        }
       }
 
       Object.assign(target, changes);

@@ -3,6 +3,7 @@ const { Complaint, User } = require('../../models');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createComplaintFixture } = require('../fixtures/complaint');
 const { createUserFixture } = require('../fixtures/user');
+const { retireAccount } = require('../../services/accountRetirementService');
 
 describe('PATCH /api/v1/complaints/:id/assign', () => {
   let adminAgent;
@@ -173,5 +174,49 @@ describe('PATCH /api/v1/complaints/:id/assign', () => {
     const stored = await Complaint.findById(complaint.id);
     expect(stored.assignmentHistory).toHaveLength(1);
     expect(stored.__v).toBe(1);
+  });
+
+  it('cannot commit an assignment from a retirement transaction stale read', async () => {
+    let markScanRead;
+    let releaseScan;
+    const scanRead = new Promise((resolve) => { markScanRead = resolve; });
+    const scanRelease = new Promise((resolve) => { releaseScan = resolve; });
+    const originalFind = Complaint.find.bind(Complaint);
+    const find = vi.spyOn(Complaint, 'find').mockImplementation((...args) => {
+      const query = originalFind(...args);
+      if (args[0]?.$or?.some((clause) => Object.hasOwn(clause, 'assignedTo'))) {
+        const originalExec = query.exec.bind(query);
+        query.exec = async () => {
+          const complaints = await originalExec();
+          markScanRead();
+          await scanRelease;
+          return complaints;
+        };
+      }
+      return query;
+    });
+
+    try {
+      const retirement = retireAccount({
+        targetUserId: agency.id,
+        actorUserId: admin.id,
+        reason: 'Concurrency regression',
+      });
+      await scanRead;
+      const assignment = assign(adminAgent, complaint.id, { assignedTo: agency.id });
+      setTimeout(releaseScan, 250);
+      const [assignmentResponse] = await Promise.all([assignment, retirement]);
+
+      const [storedComplaint, storedAgency] = await Promise.all([
+        Complaint.findById(complaint.id),
+        User.findById(agency.id),
+      ]);
+      expect(storedAgency.retiredAt).toBeInstanceOf(Date);
+      expect(storedComplaint.assignedTo ?? null).toBeNull();
+      expect(assignmentResponse.status).toBe(409);
+    } finally {
+      releaseScan();
+      find.mockRestore();
+    }
   });
 });

@@ -25,8 +25,17 @@ const prepareComplaintImages = async (rawFiles) => {
   }
 
   const inspected = [];
-  for (const file of files) {
-    inspected.push(await imageInspectionService.inspectComplaintImage(file));
+  try {
+    for (const file of files) {
+      inspected.push(await imageInspectionService.inspectComplaintImage(file));
+    }
+    const canonicalBytes = inspected.reduce((sum, file) => sum + file.size, 0);
+    if (canonicalBytes > MAX_AGGREGATE_BYTES) {
+      throw new PayloadTooLargeError('Canonical complaint images exceed the 25 MiB aggregate limit');
+    }
+  } catch (error) {
+    await cleanupTemporaryFiles(inspected);
+    throw error;
   }
   return inspected;
 };
@@ -61,9 +70,9 @@ const uploadComplaintImages = async (files) => {
 };
 
 const cleanupTemporaryFiles = async (files = []) => {
-  const paths = files
+  const paths = [...new Set(files
     .map((file) => file?.tempFilePath)
-    .filter((tempFilePath) => typeof tempFilePath === 'string' && tempFilePath.length > 0);
+    .filter((tempFilePath) => typeof tempFilePath === 'string' && tempFilePath.length > 0))];
   await Promise.allSettled(paths.map((tempFilePath) => fs.unlink(tempFilePath)));
 };
 

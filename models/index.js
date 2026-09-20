@@ -5,4 +5,5 @@ module.exports = {
     Complaint: require('./Complaint'),
     AdminControl: require('./AdminControl'),
     AuthThrottle: require('./AuthThrottle'),
+    OAuthState: require('./OAuthState'),
 };

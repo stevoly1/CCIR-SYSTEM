@@ -1,4 +1,6 @@
 const fs = require('fs/promises');
+const crypto = require('crypto');
+const path = require('path');
 const { PayloadTooLargeError, UnsupportedMediaTypeError } = require('../errors');
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -52,6 +54,7 @@ const inspectComplaintImage = async (file) => {
 
   let stat;
   let header;
+  let sanitizedPath;
   try {
     stat = await fs.stat(file.tempFilePath);
     if (!stat.isFile()) throw new Error('Upload path is not a file');
@@ -90,15 +93,28 @@ const inspectComplaintImage = async (file) => {
     }
 
     await image.clone().raw().toBuffer({ resolveWithObject: true });
+    sanitizedPath = path.join(
+      path.dirname(file.tempFilePath),
+      `ccir-sanitized-${crypto.randomUUID()}.${metadata.format}`,
+    );
+    let canonical = image.clone().rotate();
+    if (metadata.format === 'jpeg') canonical = canonical.jpeg({ quality: 90 });
+    if (metadata.format === 'png') canonical = canonical.png({ compressionLevel: 9 });
+    if (metadata.format === 'webp') canonical = canonical.webp({ quality: 90 });
+    const sanitized = await canonical.toFile(sanitizedPath);
+    if (sanitized.size > MAX_IMAGE_BYTES) {
+      throw new PayloadTooLargeError('Canonical image exceeds the 10 MiB limit');
+    }
     return {
-      tempFilePath: file.tempFilePath,
+      tempFilePath: sanitizedPath,
       format: metadata.format,
       mimeType: MIME_BY_FORMAT[metadata.format],
-      width: metadata.width,
-      height: metadata.height,
-      size: stat.size,
+      width: sanitized.width,
+      height: sanitized.height,
+      size: sanitized.size,
     };
   } catch (error) {
+    if (sanitizedPath) await fs.unlink(sanitizedPath).catch(() => {});
     if (error instanceof PayloadTooLargeError || error instanceof UnsupportedMediaTypeError) throw error;
     if (/pixel limit|exceeds.*pixels/i.test(error.message)) {
       throw new PayloadTooLargeError('Image exceeds the 25,000,000 pixel limit');

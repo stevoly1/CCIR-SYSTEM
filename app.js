@@ -1,16 +1,15 @@
 const fs = require('fs');
 const express = require('express');
 const path = require('path');
-const fileUploader = require('express-fileupload');
 const { rateLimit } = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
 const morgan = require('morgan');
 const helmet = require('helmet');
 const compression = require('compression');
 const cors = require('cors');
-const { MAX_IMAGE_BYTES } = require('./services/imageInspectionService');
 const { getBrowserSecurityConfig } = require('./config/browserSecurity');
 const requireApprovedOrigin = require('./middleware/originGuard');
+const multipartUpload = require('./middleware/multipartUpload');
 
 const browserSecurity = getBrowserSecurityConfig(process.env);
 
@@ -44,12 +43,7 @@ app.use(cors(browserSecurity.corsOptions));
 // Additional middlewares
 app.use(compression());
 app.use('/api/v1', requireApprovedOrigin);
-app.use(fileUploader({
-  useTempFiles: true,
-  tempFileDir: path.join(require('os').tmpdir(), 'ccir-uploads'),
-  limits: { fileSize: MAX_IMAGE_BYTES },
-  abortOnLimit: true,
-}));
+app.use(multipartUpload);
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser(process.env.COOKIE));
