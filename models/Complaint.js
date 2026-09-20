@@ -2,6 +2,77 @@ const mongoose = require('mongoose');
 const { PRIORITIES } = require('./Category');
 
 const STATUSES = ['PENDING', 'IN_REVIEW', 'IN_PROGRESS', 'RESOLVED', 'REJECTED'];
+const ASSIGNMENT_EVENT_TYPES = [
+    'ASSIGNED',
+    'REASSIGNED',
+    'UNASSIGNED',
+    'RETIREMENT_UNASSIGNMENT',
+    'LEGACY_STATE_IMPORT',
+];
+
+const userSnapshotSchema = new mongoose.Schema(
+    {
+        userId: {
+            type: mongoose.Schema.Types.ObjectId,
+            required: true,
+        },
+        displayName: {
+            type: String,
+            required: true,
+        },
+        role: {
+            type: String,
+            enum: ['citizen', 'admin', 'agency'],
+            required: true,
+        },
+    },
+    { _id: false }
+);
+
+const assignmentHistorySchema = new mongoose.Schema(
+    {
+        type: {
+            type: String,
+            enum: ASSIGNMENT_EVENT_TYPES,
+            required: true,
+        },
+        previous: {
+            type: userSnapshotSchema,
+            default: null,
+        },
+        next: {
+            type: userSnapshotSchema,
+            default: null,
+        },
+        changedBy: {
+            type: userSnapshotSchema,
+            default: null,
+        },
+        migrationMarker: {
+            type: String,
+            enum: ['PHASE_1_MIGRATION'],
+        },
+        reason: {
+            type: String,
+            trim: true,
+            maxlength: 500,
+        },
+        createdAt: {
+            type: Date,
+            required: true,
+        },
+    },
+    { _id: false }
+);
+
+assignmentHistorySchema.pre('validate', function requireEventAuthor(next) {
+    const hasActor = Boolean(this.changedBy);
+    const hasMigrationMarker = Boolean(this.migrationMarker);
+    if (hasActor === hasMigrationMarker) {
+        this.invalidate('changedBy', 'Assignment history requires exactly one actor or migration marker');
+    }
+    next();
+});
 
 const statusHistorySchema = new mongoose.Schema(
     {
@@ -85,6 +156,10 @@ const complaintSchema = new mongoose.Schema(
             type: [statusHistorySchema],
             default: [],
         },
+        assignmentHistory: {
+            type: [assignmentHistorySchema],
+            default: [],
+        },
         resolvedAt: {
             type: Date,
         },
@@ -98,3 +173,4 @@ complaintSchema.index({ status: 1, priority: 1 });
 
 module.exports = mongoose.model('Complaint', complaintSchema);
 module.exports.STATUSES = STATUSES;
+module.exports.ASSIGNMENT_EVENT_TYPES = ASSIGNMENT_EVENT_TYPES;

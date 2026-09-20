@@ -40,6 +40,11 @@ const userSchema = new mongoose.Schema(
             enum: ROLES,
             default: 'citizen',
         },
+        isActive: {
+            type: Boolean,
+            default: true,
+            index: true,
+        },
         authProvider: {
             type: String,
             enum: AUTH_PROVIDERS,
