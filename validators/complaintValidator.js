@@ -29,7 +29,8 @@ const updateStatusSchema = z.object({
 });
 
 const assignComplaintSchema = z.object({
-    assignedTo: objectId,
+    assignedTo: objectId.nullable(),
+    reason: z.string().trim().min(1).max(500).optional(),
 });
 
 module.exports = {

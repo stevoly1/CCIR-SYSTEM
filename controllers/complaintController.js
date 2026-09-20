@@ -1,7 +1,9 @@
 const fs = require('fs');
+const mongoose = require('mongoose');
 const { StatusCodes } = require('http-status-codes');
-const { Complaint, Category } = require('../models');
+const { Complaint, Category, User } = require('../models');
 const CustomError = require('../errors');
+const { decideAssignment } = require('../policies/assignmentPolicy');
 const generateReferenceCode = require('../utils/referenceCode');
 const aiService = require('../services/aiService');
 const locationService = require('../services/locationService');
@@ -215,33 +217,55 @@ const updateComplaintStatus = async (req, res) => {
 };
 
 const assignComplaint = async (req, res) => {
-    const { assignedTo } = req.body;
+    const { assignedTo, reason } = req.body;
 
-    const complaint = await Complaint.findById(req.params.id);
+    if (!mongoose.isObjectIdOrHexString(req.params.id)) {
+        throw new CustomError.BadRequestError('Invalid complaint id');
+    }
+
+    const complaint = await Complaint.findById(req.params.id).populate('assignedTo');
     if (!complaint) throw new CustomError.NotFoundError(`No complaint found with id ${req.params.id}`);
 
-    complaint.assignedTo = assignedTo;
-    const statusChanged = complaint.status === 'PENDING';
-    if (statusChanged) {
-        complaint.status = 'IN_REVIEW';
-        complaint.statusHistory.push({ status: 'IN_REVIEW', note: 'Assigned for review', changedBy: req.user.userId });
+    const [actor, target] = await Promise.all([
+        User.findById(req.user.userId),
+        assignedTo === null ? null : User.findById(assignedTo),
+    ]);
+
+    if (assignedTo !== null && !target) {
+        throw new CustomError.NotFoundError(`No user found with id ${assignedTo}`);
     }
 
-    await complaint.save();
-    await complaint.populate(['category', 'reporter', 'assignedTo']);
-
-    if (statusChanged) {
-        emailService.sendStatusUpdateEmail({
-            to: complaint.reporter.email,
-            name: complaint.reporter.name,
-            referenceCode: complaint.referenceCode,
-            status: complaint.status,
-            note: 'Assigned for review',
-            complaintId: complaint._id,
-        });
+    const originalAssignee = complaint.assignedTo;
+    if (assignedTo === null && !originalAssignee) {
+        throw new CustomError.ConflictError('Complaint is already unassigned');
     }
 
-    res.status(StatusCodes.OK).json({ complaint });
+    const decision = decideAssignment({
+        actor,
+        target,
+        currentAssignee: originalAssignee,
+        reason,
+    });
+
+    const updated = await Complaint.findOneAndUpdate(
+        {
+            _id: complaint._id,
+            assignedTo: originalAssignee?._id ?? null,
+            __v: complaint.__v,
+        },
+        {
+            $set: { assignedTo: decision.assignedTo },
+            $push: { assignmentHistory: decision.event },
+            $inc: { __v: 1 },
+        },
+        { new: true, runValidators: true }
+    ).populate(['category', 'reporter', 'assignedTo']);
+
+    if (!updated) {
+        throw new CustomError.ConflictError('Complaint assignment changed concurrently; reload and retry');
+    }
+
+    res.status(StatusCodes.OK).json({ complaint: updated });
 };
 
 const deleteComplaint = async (req, res) => {

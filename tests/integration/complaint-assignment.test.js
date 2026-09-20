@@ -1,0 +1,174 @@
+const mongoose = require('mongoose');
+const { Complaint, User } = require('../../models');
+const { createAuthenticatedAgent } = require('../helpers/auth');
+const { createComplaintFixture } = require('../fixtures/complaint');
+const { createUserFixture } = require('../fixtures/user');
+
+describe('PATCH /api/v1/complaints/:id/assign', () => {
+  let adminAgent;
+  let citizenAgent;
+  let admin;
+  let agency;
+  let secondAgency;
+  let complaint;
+
+  beforeEach(async () => {
+    ({ agent: adminAgent, user: admin } = await createAuthenticatedAgent({ role: 'admin' }));
+    ({ agent: citizenAgent } = await createAuthenticatedAgent({ role: 'citizen' }));
+    agency = await createUserFixture({ role: 'agency' });
+    secondAgency = await createUserFixture({ role: 'agency' });
+    complaint = await createComplaintFixture();
+  });
+
+  const assign = (agent, complaintId, body) => agent
+    .patch(`/api/v1/complaints/${complaintId}/assign`)
+    .send(body);
+
+  it('assigns an active agency without changing complaint status', async () => {
+    const response = await assign(adminAgent, complaint.id, { assignedTo: agency.id, reason: 'Routing' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.complaint.status).toBe('PENDING');
+    expect(response.body.complaint.assignedTo._id).toBe(agency.id);
+    expect(response.body.complaint.assignmentHistory).toHaveLength(1);
+    expect(response.body.complaint.assignmentHistory[0]).toMatchObject({
+      type: 'ASSIGNED',
+      previous: null,
+      next: { userId: agency.id, displayName: agency.name, role: 'agency' },
+      changedBy: { userId: admin.id, displayName: admin.name, role: 'admin' },
+      reason: 'Routing',
+    });
+    expect(JSON.stringify(response.body.complaint.assignmentHistory[0])).not.toMatch(/email|phone|avatar|password/i);
+  });
+
+  it('reassigns without changing complaint status', async () => {
+    complaint.assignedTo = agency._id;
+    await complaint.save();
+
+    const response = await assign(adminAgent, complaint.id, { assignedTo: secondAgency.id, reason: 'Shift change' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.complaint.status).toBe('PENDING');
+    expect(response.body.complaint.assignmentHistory.at(-1)).toMatchObject({
+      type: 'REASSIGNED',
+      reason: 'Shift change',
+      previous: { userId: agency.id },
+      next: { userId: secondAgency.id },
+    });
+  });
+
+  it('supports explicit null unassignment', async () => {
+    complaint.assignedTo = agency._id;
+    await complaint.save();
+
+    const response = await assign(adminAgent, complaint.id, { assignedTo: null, reason: 'Queue reset' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.complaint.assignedTo).toBeNull();
+    expect(response.body.complaint.assignmentHistory.at(-1)).toMatchObject({
+      type: 'UNASSIGNED',
+      previous: { userId: agency.id },
+      next: null,
+    });
+  });
+
+  it.each([
+    ['malformed complaint id', 'not-an-id', () => ({ assignedTo: agency.id })],
+    ['malformed target id', () => complaint.id, () => ({ assignedTo: 'not-an-id' })],
+    ['missing assignedTo', () => complaint.id, () => ({ reason: 'No target field' })],
+    ['overlong reason', () => complaint.id, () => ({ assignedTo: agency.id, reason: 'x'.repeat(501) })],
+  ])('returns 400 for %s', async (_label, complaintIdValue, bodyValue) => {
+    const complaintId = typeof complaintIdValue === 'function' ? complaintIdValue() : complaintIdValue;
+    const response = await assign(adminAgent, complaintId, bodyValue());
+
+    expect(response.status).toBe(400);
+  });
+
+  it('returns 404 for a missing complaint', async () => {
+    const response = await assign(adminAgent, new mongoose.Types.ObjectId(), { assignedTo: agency.id });
+    expect(response.status).toBe(404);
+  });
+
+  it('returns 404 for a missing assignment target', async () => {
+    const response = await assign(adminAgent, complaint.id, { assignedTo: new mongoose.Types.ObjectId().toString() });
+    expect(response.status).toBe(404);
+  });
+
+  it.each(['citizen', 'admin'])('rejects a %s target', async (role) => {
+    const target = await createUserFixture({ role });
+    const response = await assign(adminAgent, complaint.id, { assignedTo: target.id });
+    expect(response.status).toBe(409);
+  });
+
+  it.each([
+    ['inactive', { isActive: false }],
+    ['retired', { retiredAt: new Date() }],
+  ])('rejects an %s agency target', async (_label, overrides) => {
+    const target = await createUserFixture({ role: 'agency', ...overrides });
+    const response = await assign(adminAgent, complaint.id, { assignedTo: target.id });
+    expect(response.status).toBe(409);
+  });
+
+  it('rejects a non-admin actor', async () => {
+    const response = await assign(citizenAgent, complaint.id, { assignedTo: agency.id });
+    expect(response.status).toBe(403);
+  });
+
+  it('rejects an inactive administrator even when the token says admin', async () => {
+    await User.updateOne({ _id: admin._id }, { $set: { isActive: false } });
+    const response = await assign(adminAgent, complaint.id, { assignedTo: agency.id });
+    expect(response.status).toBe(403);
+  });
+
+  it('rejects a retired administrator even when the token says admin', async () => {
+    await User.updateOne({ _id: admin._id }, { $set: { retiredAt: new Date() } });
+    const response = await assign(adminAgent, complaint.id, { assignedTo: agency.id });
+    expect(response.status).toBe(403);
+  });
+
+  it('rejects a downgraded administrator even when the token says admin', async () => {
+    await User.updateOne({ _id: admin._id }, { $set: { role: 'citizen' } });
+    const response = await assign(adminAgent, complaint.id, { assignedTo: agency.id });
+    expect(response.status).toBe(403);
+  });
+
+  it('rejects the already-current assignee without appending history', async () => {
+    complaint.assignedTo = agency._id;
+    await complaint.save();
+
+    const response = await assign(adminAgent, complaint.id, { assignedTo: agency.id });
+
+    expect(response.status).toBe(409);
+    const stored = await Complaint.findById(complaint.id);
+    expect(stored.assignmentHistory).toHaveLength(0);
+  });
+
+  it('rejects unassigning an already-unassigned complaint', async () => {
+    const response = await assign(adminAgent, complaint.id, { assignedTo: null });
+
+    expect(response.status).toBe(409);
+    const stored = await Complaint.findById(complaint.id);
+    expect(stored.assignmentHistory).toHaveLength(0);
+  });
+
+  it('preserves assignment snapshots after a user is renamed', async () => {
+    const response = await assign(adminAgent, complaint.id, { assignedTo: agency.id });
+    expect(response.status).toBe(200);
+
+    await User.updateOne({ _id: agency._id }, { $set: { name: 'Renamed Agency' } });
+    const stored = await Complaint.findById(complaint.id);
+    expect(stored.assignmentHistory[0].next.displayName).toBe(agency.name);
+  });
+
+  it('allows only one winner for concurrent assignments from the same version', async () => {
+    const responses = await Promise.all([
+      assign(adminAgent, complaint.id, { assignedTo: agency.id, reason: 'First contender' }),
+      assign(adminAgent, complaint.id, { assignedTo: secondAgency.id, reason: 'Second contender' }),
+    ]);
+
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+    const stored = await Complaint.findById(complaint.id);
+    expect(stored.assignmentHistory).toHaveLength(1);
+    expect(stored.__v).toBe(1);
+  });
+});

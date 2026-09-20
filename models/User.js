@@ -45,6 +45,9 @@ const userSchema = new mongoose.Schema(
             default: true,
             index: true,
         },
+        retiredAt: {
+            type: Date,
+        },
         authProvider: {
             type: String,
             enum: AUTH_PROVIDERS,
