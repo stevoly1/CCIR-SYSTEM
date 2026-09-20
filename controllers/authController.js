@@ -7,7 +7,26 @@ const {
     attachCookiesToResponse,
 } = require('../handlers/authHandler');
 const googleOAuthService = require('../services/googleOAuthService');
+const { resolveGoogleIdentity } = require('../services/googleIdentityService');
+const { safeStateEqual } = require('../policies/googleIdentityPolicy');
 const { getBrowserSecurityConfig } = require('../config/browserSecurity');
+
+const OAUTH_STATE_MAX_AGE_MS = 5 * 60 * 1000;
+
+const parseOAuthStateCookie = (value) => {
+    if (typeof value !== 'string') return null;
+    const match = value.match(/^(\d{13})\.([0-9a-f]{32})$/i);
+    if (!match) return null;
+    const issuedAt = Number(match[1]);
+    const age = Date.now() - issuedAt;
+    if (!Number.isSafeInteger(issuedAt) || age < 0 || age > OAUTH_STATE_MAX_AGE_MS) return null;
+    return match[2];
+};
+
+const googleFailureRedirect = (res, frontendUrl, code) => {
+    console.error('Google sign-in failed:', code);
+    return res.redirect(`${frontendUrl}/login?error=google_auth_failed`);
+};
 
 const signup = async (req, res) => {
     const { email, password, name, phone } = req.body;
@@ -53,9 +72,9 @@ const googleAuthRedirect = (req, res) => {
 
     const state = crypto.randomBytes(16).toString('hex');
     const { cookieOptions } = getBrowserSecurityConfig(process.env);
-    res.cookie('oauthState', state, {
+    res.cookie('oauthState', `${Date.now()}.${state}`, {
         ...cookieOptions,
-        maxAge: 5 * 60 * 1000,
+        maxAge: OAUTH_STATE_MAX_AGE_MS,
     });
 
     res.redirect(googleOAuthService.buildAuthUrl(state));
@@ -64,40 +83,32 @@ const googleAuthRedirect = (req, res) => {
 const googleAuthCallback = async (req, res) => {
     const { browserOrigin: frontendUrl, cookieOptions } = getBrowserSecurityConfig(process.env);
     const { code, state } = req.query;
-    const expectedState = req.signedCookies.oauthState;
+    const expectedState = parseOAuthStateCookie(req.signedCookies.oauthState);
     res.clearCookie('oauthState', cookieOptions);
 
+    if (typeof code !== 'string' || !code || !expectedState || !safeStateEqual(state, expectedState)) {
+        return googleFailureRedirect(res, frontendUrl, 'STATE_INVALID');
+    }
+
+    let profile;
     try {
-        if (!code || !state || !expectedState || state !== expectedState) {
-            throw new Error('Invalid or expired Google sign-in request');
-        }
+        profile = await googleOAuthService.exchangeCodeForProfile(code);
+    } catch {
+        return googleFailureRedirect(res, frontendUrl, 'PROVIDER_ERROR');
+    }
 
-        const profile = await googleOAuthService.exchangeCodeForProfile(code);
-
-        let user = await User.findOne({ $or: [{ googleId: profile.googleId }, { email: profile.email }] });
-
-        if (!user) {
-            user = await User.create({
-                name: (profile.name || profile.email.split('@')[0]).slice(0, 60),
-                email: profile.email,
-                googleId: profile.googleId,
-                authProvider: 'google',
-                avatarUrl: profile.avatarUrl,
-            });
-        } else if (!user.googleId) {
-            // Link an existing local account that shares this Google email.
-            user.googleId = profile.googleId;
-            user.avatarUrl = user.avatarUrl || profile.avatarUrl;
-            await user.save();
-        }
-
+    try {
+        const user = await resolveGoogleIdentity(profile);
         const refreshToken = await createNewRefreshToken({ userId: user._id.toString() });
         attachCookiesToResponse({ res, user, refreshToken });
-
-        res.redirect(`${frontendUrl}/dashboard`);
+        return res.redirect(`${frontendUrl}/dashboard`);
     } catch (error) {
-        console.error('Google sign-in failed:', error.message);
-        res.redirect(`${frontendUrl}/login?error=google_auth_failed`);
+        const stableCode = [
+            'IDENTITY_CONFLICT',
+            'INACTIVE_IDENTITY',
+            'INVALID_PROFILE',
+        ].includes(error.code) ? error.code : 'IDENTITY_ERROR';
+        return googleFailureRedirect(res, frontendUrl, stableCode);
     }
 };
 
