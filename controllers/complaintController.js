@@ -1,4 +1,3 @@
-const fs = require('fs');
 const mongoose = require('mongoose');
 const { StatusCodes } = require('http-status-codes');
 const { Complaint, Category, User } = require('../models');
@@ -11,6 +10,7 @@ const aiService = require('../services/aiService');
 const locationService = require('../services/locationService');
 const uploadService = require('../services/uploadService');
 const emailService = require('../services/emailService');
+const complaintImageService = require('../services/complaintImageService');
 
 const STAFF_ROLES = ['admin', 'agency'];
 
@@ -33,13 +33,6 @@ const resolveLocation = async ({ latitude, longitude, address }) => {
     }
     return { latitude, longitude, address };
 };
-
-const cleanupTempFile = (tempFilePath) => {
-    if (!tempFilePath) return;
-    fs.unlink(tempFilePath, () => {});
-};
-
-const MAX_IMAGES = 5;
 
 const assignmentIdentityIds = (complaints) => complaints.flatMap((complaint) =>
     complaint.assignmentHistory.flatMap((entry) => [
@@ -92,91 +85,95 @@ const shapeHistoricalComplaint = (complaint, assignmentIdentityById = new Map())
 
 const createComplaint = async (req, res) => {
     const { description, categoryId, address, latitude, longitude } = req.body;
-    const rawFiles = req.files?.image;
-    const imageFiles = (Array.isArray(rawFiles) ? rawFiles : rawFiles ? [rawFiles] : []).slice(0, MAX_IMAGES);
+    const requestFiles = Object.values(req.files || {}).flatMap((value) => (
+        Array.isArray(value) ? value : [value]
+    ));
 
-    const [location, activeCategories] = await Promise.all([
-        resolveLocation({ latitude, longitude, address }),
-        Category.find({ isActive: true }),
-    ]);
-    const fallbackCategory = activeCategories.find((category) => category.name === 'Other');
-    if (!fallbackCategory) {
-        throw new Error('Active Other category is not configured');
-    }
-
-    const ai = await aiService.classifyComplaint({
-        description,
-        imageTempFilePath: imageFiles[0]?.tempFilePath,
-        imageMimeType: imageFiles[0]?.mimetype,
-        categoryNames: activeCategories.map((c) => c.name),
-    });
-
-    let category = ai.error ? fallbackCategory : null;
-    if (!category && categoryId) {
-        category = await Category.findById(categoryId);
-    }
-    if (!category) {
-        category = activeCategories.find((c) => c.name.toLowerCase() === ai.category?.toLowerCase());
-    }
-    if (!category) {
-        category = fallbackCategory;
-    }
-    if (!category) {
-        throw new CustomError.BadRequestError('No category could be determined for this complaint');
-    }
-
-    let images = [];
-    if (imageFiles.length) {
-        try {
-            images = await Promise.all(imageFiles.map((file) => uploadService.uploadComplaintImage(file.tempFilePath)));
-        } finally {
-            imageFiles.forEach((file) => cleanupTempFile(file.tempFilePath));
+    try {
+        const unexpectedFields = Object.keys(req.files || {}).filter((field) => field !== 'image');
+        if (unexpectedFields.length > 0) {
+            throw new CustomError.UnsupportedMediaTypeError('Only the image upload field is supported');
         }
+        const imageFiles = await complaintImageService.prepareComplaintImages(req.files?.image);
+
+        const [location, activeCategories] = await Promise.all([
+            resolveLocation({ latitude, longitude, address }),
+            Category.find({ isActive: true }),
+        ]);
+        const fallbackCategory = activeCategories.find((category) => category.name === 'Other');
+        if (!fallbackCategory) {
+            throw new Error('Active Other category is not configured');
+        }
+
+        const ai = await aiService.classifyComplaint({
+            description,
+            imageTempFilePath: imageFiles[0]?.tempFilePath,
+            imageMimeType: imageFiles[0]?.mimeType,
+            categoryNames: activeCategories.map((c) => c.name),
+        });
+
+        let category = ai.error ? fallbackCategory : null;
+        if (!category && categoryId) {
+            category = await Category.findById(categoryId);
+        }
+        if (!category) {
+            category = activeCategories.find((c) => c.name.toLowerCase() === ai.category?.toLowerCase());
+        }
+        if (!category) category = fallbackCategory;
+
+        const reporter = await User.findById(req.user.userId);
+        if (!reporter) throw new CustomError.UnauthenticatedError('Not authenticated');
+        const reporterSnapshot = buildUserSnapshot(reporter);
+        const images = await complaintImageService.uploadComplaintImages(imageFiles);
+
+        let complaint;
+        try {
+            complaint = await Complaint.create({
+                referenceCode: generateReferenceCode(),
+                description,
+                images,
+                location,
+                category: category._id,
+                priority: ai.error ? category.defaultPriority : ai.priority,
+                ai: {
+                    suggestedCategory: ai.category,
+                    confidence: ai.confidence,
+                    summary: ai.summary,
+                    tags: ai.tags,
+                    classifiedAt: new Date(),
+                    error: ai.error,
+                },
+                reporter: req.user.userId,
+                reporterSnapshot,
+                statusHistory: [{
+                    status: 'PENDING',
+                    note: 'Report submitted',
+                    changedBy: req.user.userId,
+                    changedBySnapshot: reporterSnapshot,
+                }],
+            });
+        } catch (error) {
+            await complaintImageService.cleanupCloudImages(images);
+            throw error;
+        }
+
+        await complaint.populate([
+            'category',
+            { path: 'reporter', select: 'name email role isActive retiredAt' },
+            { path: 'statusHistory.changedBy', select: 'name role isActive retiredAt' },
+        ]);
+
+        emailService.sendComplaintFiledEmail({
+            to: complaint.reporter.email,
+            name: complaint.reporter.name,
+            referenceCode: complaint.referenceCode,
+            complaintId: complaint._id,
+        });
+
+        res.status(StatusCodes.CREATED).json({ complaint: shapeHistoricalComplaint(complaint) });
+    } finally {
+        await complaintImageService.cleanupTemporaryFiles(requestFiles);
     }
-
-    const reporter = await User.findById(req.user.userId);
-    if (!reporter) throw new CustomError.UnauthenticatedError('Not authenticated');
-    const reporterSnapshot = buildUserSnapshot(reporter);
-
-    const complaint = await Complaint.create({
-        referenceCode: generateReferenceCode(),
-        description,
-        images,
-        location,
-        category: category._id,
-        priority: ai.error ? category.defaultPriority : ai.priority,
-        ai: {
-            suggestedCategory: ai.category,
-            confidence: ai.confidence,
-            summary: ai.summary,
-            tags: ai.tags,
-            classifiedAt: new Date(),
-            error: ai.error,
-        },
-        reporter: req.user.userId,
-        reporterSnapshot,
-        statusHistory: [{
-            status: 'PENDING',
-            note: 'Report submitted',
-            changedBy: req.user.userId,
-            changedBySnapshot: reporterSnapshot,
-        }],
-    });
-
-    await complaint.populate([
-        'category',
-        { path: 'reporter', select: 'name email role isActive retiredAt' },
-        { path: 'statusHistory.changedBy', select: 'name role isActive retiredAt' },
-    ]);
-
-    emailService.sendComplaintFiledEmail({
-        to: complaint.reporter.email,
-        name: complaint.reporter.name,
-        referenceCode: complaint.referenceCode,
-        complaintId: complaint._id,
-    });
-
-    res.status(StatusCodes.CREATED).json({ complaint: shapeHistoricalComplaint(complaint) });
 };
 
 const getAllComplaints = async (req, res) => {

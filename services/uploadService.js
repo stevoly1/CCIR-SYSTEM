@@ -15,7 +15,9 @@ const deleteComplaintImage = async (publicId) => {
 };
 
 const deleteComplaintImages = async (publicIds = []) => {
-    await Promise.all(publicIds.filter(Boolean).map(deleteComplaintImage));
+    const filteredIds = publicIds.filter(Boolean);
+    const results = await Promise.allSettled(filteredIds.map(deleteComplaintImage));
+    return filteredIds.filter((_, index) => results[index].status === 'rejected');
 };
 
 module.exports = { uploadComplaintImage, deleteComplaintImage, deleteComplaintImages };

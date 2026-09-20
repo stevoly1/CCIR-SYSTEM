@@ -8,6 +8,7 @@ const morgan = require('morgan');
 const helmet = require('helmet');
 const compression = require('compression');
 const cors = require('cors');
+const { MAX_IMAGE_BYTES } = require('./services/imageInspectionService');
 
 const origin = process.env.ALLOWED_ORIGIN;
 
@@ -45,7 +46,7 @@ app.use(compression());
 app.use(fileUploader({
   useTempFiles: true,
   tempFileDir: path.join(require('os').tmpdir(), 'ccir-uploads'),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: MAX_IMAGE_BYTES },
   abortOnLimit: true,
 }));
 app.use(express.json());

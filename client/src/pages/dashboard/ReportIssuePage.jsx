@@ -7,6 +7,11 @@ import Topbar from '../../components/Topbar';
 import axiosClient from '../../api/axiosClient';
 import { createComplaint, resetCreateStatus } from '../../slices/complaintSlice';
 
+const MAX_IMAGES = 5;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_AGGREGATE_BYTES = 25 * 1024 * 1024;
+const ACCEPTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
 const ReportIssuePage = () => {
     const dispatch = useDispatch();
     const navigate = useNavigate();
@@ -19,7 +24,6 @@ const ReportIssuePage = () => {
     const [locating, setLocating] = useState(false);
     const [images, setImages] = useState([]);
     const debounceRef = useRef(null);
-    const MAX_IMAGES = 5;
 
     useEffect(() => {
         return () => dispatch(resetCreateStatus());
@@ -87,12 +91,31 @@ const ReportIssuePage = () => {
         const files = Array.from(e.target.files || []);
         if (!files.length) return;
 
-        const room = MAX_IMAGES - images.length;
-        if (files.length > room) {
+        const rejectSelection = (message) => {
+            toast.error(message);
+            e.target.value = '';
+        };
+        if (images.length + files.length > MAX_IMAGES) {
             toast.error(`You can add up to ${MAX_IMAGES} photos per report`);
+            e.target.value = '';
+            return;
+        }
+        if (files.some((file) => !ACCEPTED_IMAGE_TYPES.has(file.type))) {
+            rejectSelection('Photos must be JPEG, PNG, or WebP');
+            return;
+        }
+        if (files.some((file) => file.size > MAX_IMAGE_BYTES)) {
+            rejectSelection('Each photo must be 10 MiB or smaller');
+            return;
+        }
+        const aggregateSize = [...images.map((image) => image.file), ...files]
+            .reduce((sum, file) => sum + file.size, 0);
+        if (aggregateSize > MAX_AGGREGATE_BYTES) {
+            rejectSelection('Photos must total 25 MiB or less');
+            return;
         }
 
-        const accepted = files.slice(0, room).map((file) => ({ file, previewUrl: URL.createObjectURL(file) }));
+        const accepted = files.map((file) => ({ file, previewUrl: URL.createObjectURL(file) }));
         setImages((prev) => [...prev, ...accepted]);
         e.target.value = '';
     };
@@ -211,7 +234,7 @@ const ReportIssuePage = () => {
                             </label>
                         )}
                     </div>
-                    <input id="image" type="file" accept="image/*" multiple onChange={handleImageChange} style={{ display: 'none' }} />
+                    <input id="image" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={handleImageChange} style={{ display: 'none' }} />
                 </div>
 
                 <button className="btn btn-primary" type="submit" disabled={createStatus === 'loading'}>

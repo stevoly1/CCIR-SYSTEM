@@ -1,5 +1,4 @@
 const fs = require('fs/promises');
-const sharp = require('sharp');
 const { PayloadTooLargeError, UnsupportedMediaTypeError } = require('../errors');
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -72,6 +71,9 @@ const inspectComplaintImage = async (file) => {
   }
 
   try {
+    // Keep the native decoder out of the ordinary application-startup path.
+    // Upload inspection is the only boundary that needs to initialize Sharp.
+    const sharp = require('sharp');
     const image = sharp(file.tempFilePath, {
       failOn: 'warning',
       limitInputPixels: MAX_INPUT_PIXELS,
