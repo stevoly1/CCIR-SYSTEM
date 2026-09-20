@@ -5,4 +5,6 @@ module.exports = {
     UnauthenticatedError: require('./unauthenticatedError'),
     ForbiddenError: require('./forbiddenError'),
     ConflictError: require('./conflictError'),
+    PayloadTooLargeError: require('./payloadTooLargeError'),
+    UnsupportedMediaTypeError: require('./unsupportedMediaTypeError'),
 };
