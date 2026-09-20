@@ -2,6 +2,7 @@ const { StatusCodes } = require('http-status-codes');
 const { User, RefreshToken } = require('../models');
 const CustomError = require('../errors');
 const { clearAttachedCookies } = require('../handlers/authHandler');
+const { mutateAdministrator, retireAccount } = require('../services/accountRetirementService');
 
 const getProfile = async (req, res) => {
     const user = await User.findById(req.user.userId);
@@ -26,8 +27,11 @@ const updateProfile = async (req, res) => {
 };
 
 const deleteProfile = async (req, res) => {
-    await User.findByIdAndDelete(req.user.userId);
-    await RefreshToken.deleteMany({ user: req.user.userId });
+    await retireAccount({
+        targetUserId: req.user.userId,
+        actorUserId: req.user.userId,
+        reason: req.body?.reason,
+    });
     clearAttachedCookies(res);
     res.status(StatusCodes.OK).json({ msg: 'Account deleted' });
 };
@@ -60,6 +64,16 @@ const listAllUsers = async (req, res) => {
 };
 
 const updateUser = async (req, res) => {
+    const { reason, ...changes } = req.body;
+    if (Object.hasOwn(changes, 'role') || Object.hasOwn(changes, 'isActive')) {
+        const user = await mutateAdministrator({
+            targetUserId: req.params.id,
+            actorUserId: req.user.userId,
+            changes,
+        });
+        return res.status(StatusCodes.OK).json({ user });
+    }
+
     const user = await User.findById(req.params.id);
     if (!user) throw new CustomError.NotFoundError('User not found');
 
@@ -69,7 +83,7 @@ const updateUser = async (req, res) => {
         if (existing) throw new CustomError.BadRequestError('An account with this email already exists');
     }
 
-    Object.assign(user, req.body);
+    Object.assign(user, changes);
     await user.save();
 
     res.status(StatusCodes.OK).json({ user });
@@ -80,11 +94,12 @@ const deleteUser = async (req, res) => {
         throw new CustomError.BadRequestError('Use your profile settings to delete your own account');
     }
 
-    const user = await User.findByIdAndDelete(req.params.id);
-    if (!user) throw new CustomError.NotFoundError('User not found');
-
-    await RefreshToken.deleteMany({ user: req.params.id });
-    res.status(StatusCodes.OK).json({ msg: 'User deleted' });
+    await retireAccount({
+        targetUserId: req.params.id,
+        actorUserId: req.user.userId,
+        reason: req.body?.reason,
+    });
+    res.status(StatusCodes.OK).json({ msg: 'User retired' });
 };
 
 const logout = async (req, res) => {

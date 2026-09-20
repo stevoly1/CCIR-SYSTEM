@@ -3,4 +3,5 @@ module.exports = {
     RefreshToken: require('./RefreshToken'),
     Category: require('./Category'),
     Complaint: require('./Complaint'),
+    AdminControl: require('./AdminControl'),
 };

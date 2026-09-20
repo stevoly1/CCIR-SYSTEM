@@ -21,6 +21,8 @@ const adminUpdateUserSchema = z.object({
     email: z.string().email({ message: 'Invalid email address' }).optional(),
     phone: z.string().optional(),
     role: z.enum(['citizen', 'admin', 'agency']).optional(),
+    isActive: z.boolean().optional(),
+    reason: z.string().trim().min(1).max(500).optional(),
 });
 
 module.exports = {

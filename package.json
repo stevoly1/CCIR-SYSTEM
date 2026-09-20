@@ -9,6 +9,7 @@
         "start": "node server.js",
         "dev": "nodemon server.js",
         "set-role": "node scripts/setUserRole.js",
+        "migrate:phase1": "node scripts/migratePhase1.js",
         "pretest": "node scripts/checkRuntime.js",
         "test": "npm run test:unit && npm run test:integration",
         "pretest:unit": "node scripts/checkRuntime.js",
