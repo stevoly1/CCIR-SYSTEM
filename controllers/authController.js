@@ -30,7 +30,12 @@ const login = async (req, res) => {
     const { email, password } = req.body;
 
     const user = await User.findOne({ email }).select('+password');
-    if (!user || !(await user.comparePassword(password))) {
+    if (
+        !user
+        || user.isActive !== true
+        || user.retiredAt
+        || !(await user.comparePassword(password))
+    ) {
         throw new CustomError.UnauthenticatedError('Invalid email or password');
     }
 

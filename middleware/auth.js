@@ -1,28 +1,52 @@
+const mongoose = require('mongoose');
 const {
     verifyAccessToken,
     verifyRefreshToken,
     attachCookiesToResponse,
+    clearCookieFromResponse,
 } = require('../handlers/authHandler');
 const { User, RefreshToken } = require('../models');
 const CustomError = require('../errors');
+
+const authenticationFailure = () => new CustomError.UnauthenticatedError(
+    'Session expired, please log in again',
+);
+
+const loadCurrentUser = async (userId) => {
+    if (typeof userId !== 'string' || !mongoose.isObjectIdOrHexString(userId)) return null;
+    const user = await User.findById(userId);
+    if (!user || user.isActive !== true || user.retiredAt) return null;
+    return user;
+};
+
+const currentUserContext = (user) => ({
+    userId: user._id.toString(),
+    email: user.email,
+    role: user.role,
+    isActive: user.isActive,
+    retiredAt: user.retiredAt || null,
+});
 
 const authentication = async (req, res, next) => {
     const accessToken = req.signedCookies.accessToken;
     const refreshToken = req.signedCookies.refreshToken;
 
-    // Case 1: valid access token — proceed normally
+    // A valid signature identifies the account; current database state supplies authority.
     if (accessToken) {
+        let payload;
         try {
-            const payload = verifyAccessToken(accessToken);
-            req.user = payload;
-            return next();
-        } catch (err) {
-            // expired or tampered — clear it, fall through to refresh attempt
-            res.clearCookie('accessToken');
+            payload = verifyAccessToken(accessToken);
+        } catch {}
+        if (payload) {
+            const user = await loadCurrentUser(payload.userId);
+            if (user) {
+                req.user = currentUserContext(user);
+                return next();
+            }
         }
+        clearCookieFromResponse(res, 'accessToken');
     }
 
-    // Case 2: no (valid) access token — try the refresh token
     if (!refreshToken) {
         throw new CustomError.UnauthenticatedError('Not authenticated');
     }
@@ -30,29 +54,32 @@ const authentication = async (req, res, next) => {
     let refreshPayload;
     try {
         refreshPayload = verifyRefreshToken(refreshToken);
-    } catch (err) {
-        res.clearCookie('refreshToken');
-        throw new CustomError.UnauthenticatedError('Session expired, please log in again');
+    } catch {
+        clearCookieFromResponse(res, 'refreshToken');
+        throw authenticationFailure();
     }
 
     const storedToken = await RefreshToken.findOne({ token: refreshPayload.refreshTokenString });
-
-    if (!storedToken || !storedToken.isValid) {
-        res.clearCookie('refreshToken');
-        throw new CustomError.UnauthenticatedError('Session expired, please log in again');
+    const ownershipMatches = storedToken
+        && String(storedToken.user) === refreshPayload.userId;
+    if (
+        !ownershipMatches
+        || storedToken.isValid !== true
+        || storedToken.expiresAt <= new Date()
+    ) {
+        clearCookieFromResponse(res, 'refreshToken');
+        throw authenticationFailure();
     }
 
-    const user = await User.findById(refreshPayload.userId);
-
+    const user = await loadCurrentUser(refreshPayload.userId);
     if (!user) {
-        throw new CustomError.UnauthenticatedError('Session expired, please log in again');
+        clearCookieFromResponse(res, 'refreshToken');
+        throw authenticationFailure();
     }
 
-    // issue a fresh access token (reuse same refresh token — no need to rotate it here)
     attachCookiesToResponse({ res, user, refreshToken });
-
-    req.user = { userId: user._id.toString(), email: user.email, role: user.role };
-    next();
+    req.user = currentUserContext(user);
+    return next();
 };
 
 module.exports = { authentication };

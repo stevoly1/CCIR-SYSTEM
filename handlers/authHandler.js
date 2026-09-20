@@ -4,8 +4,8 @@ const { RefreshToken } = require('../models');
 const parseDuration = require('../utils/parseDuration');
 const { getBrowserSecurityConfig } = require('../config/browserSecurity');
 
-const createAccessToken = (payload) => {
-    return jwt.sign(payload, process.env.JWT_TOKEN, {
+const createAccessToken = ({ userId }) => {
+    return jwt.sign({ userId }, process.env.JWT_TOKEN, {
         expiresIn: process.env.ACCESS_TOKEN_LIFESPAN,
     });
 };
@@ -38,7 +38,7 @@ const createNewRefreshToken = async ({ userId }) => {
 };
 
 const attachCookiesToResponse = ({ res, user, refreshToken }) => {
-    const accessToken = createAccessToken({ userId: user._id.toString(), email: user.email, role: user.role });
+    const accessToken = createAccessToken({ userId: user._id.toString() });
     const { cookieOptions } = getBrowserSecurityConfig(process.env);
 
     res.cookie('accessToken', accessToken, {
@@ -52,10 +52,14 @@ const attachCookiesToResponse = ({ res, user, refreshToken }) => {
     });
 };
 
-const clearAttachedCookies = (res) => {
+const clearCookieFromResponse = (res, name) => {
     const { cookieOptions } = getBrowserSecurityConfig(process.env);
-    res.clearCookie('accessToken', cookieOptions);
-    res.clearCookie('refreshToken', cookieOptions);
+    res.clearCookie(name, cookieOptions);
+};
+
+const clearAttachedCookies = (res) => {
+    clearCookieFromResponse(res, 'accessToken');
+    clearCookieFromResponse(res, 'refreshToken');
 };
 
 module.exports = {
@@ -64,5 +68,6 @@ module.exports = {
     verifyAccessToken,
     verifyRefreshToken,
     attachCookiesToResponse,
+    clearCookieFromResponse,
     clearAttachedCookies,
 };

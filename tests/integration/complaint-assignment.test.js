@@ -120,13 +120,13 @@ describe('PATCH /api/v1/complaints/:id/assign', () => {
   it('rejects an inactive administrator even when the token says admin', async () => {
     await User.updateOne({ _id: admin._id }, { $set: { isActive: false } });
     const response = await assign(adminAgent, complaint.id, { assignedTo: agency.id });
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(401);
   });
 
   it('rejects a retired administrator even when the token says admin', async () => {
     await User.updateOne({ _id: admin._id }, { $set: { retiredAt: new Date() } });
     const response = await assign(adminAgent, complaint.id, { assignedTo: agency.id });
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(401);
   });
 
   it('rejects a downgraded administrator even when the token says admin', async () => {

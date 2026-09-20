@@ -166,7 +166,7 @@ const mutateAdministrator = async ({ targetUserId, actorUserId, changes }) => {
 
       Object.assign(target, changes);
       await target.save({ session });
-      if (changes.isActive === false || (changes.role && changes.role !== 'admin')) {
+      if (changes.isActive === false || Object.hasOwn(changes, 'role')) {
         await RefreshToken.deleteMany({ user: target._id }, { session });
       }
       updatedUser = target;
