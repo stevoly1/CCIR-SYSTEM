@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const { Complaint, User } = require('../../models');
-const { createAuthenticatedAgent } = require('../helpers/auth');
+const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createComplaintFixture } = require('../fixtures/complaint');
 const { createUserFixture } = require('../fixtures/user');
 const { createCategoryFixture } = require('../fixtures/category');
@@ -162,7 +162,7 @@ describe('complaint historical identity reads', () => {
     });
     await createCategoryFixture({ name: 'Other' });
 
-    const created = await citizenAgent.post('/api/v1/complaints').send({
+    const created = await unsafeRequest(citizenAgent, 'post', '/api/v1/complaints').send({
       description: 'A sufficiently detailed complaint for snapshot creation',
     });
 
@@ -187,8 +187,11 @@ describe('complaint historical identity reads', () => {
       role: 'citizen',
     });
 
-    const transitioned = await adminAgent
-      .patch(`/api/v1/complaints/${complaintId}/status`)
+    const transitioned = await unsafeRequest(
+      adminAgent,
+      'patch',
+      `/api/v1/complaints/${complaintId}/status`,
+    )
       .send({ status: 'IN_REVIEW' });
     expect(transitioned.status).toBe(200);
 

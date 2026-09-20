@@ -5,7 +5,7 @@ const { Complaint } = require('../../models');
 const aiService = require('../../services/aiService');
 const complaintImageService = require('../../services/complaintImageService');
 const uploadService = require('../../services/uploadService');
-const { createAuthenticatedAgent } = require('../helpers/auth');
+const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createCategoryFixture } = require('../fixtures/category');
 
 const fixture = path.join(__dirname, '..', 'fixtures', 'images', 'valid.jpg');
@@ -33,8 +33,7 @@ describe('complaint upload ordering and compensation', () => {
     await fs.rm(temporaryDirectory, { recursive: true, force: true });
   });
 
-  const complaintRequest = () => agent
-    .post('/api/v1/complaints')
+  const complaintRequest = () => unsafeRequest(agent, 'post', '/api/v1/complaints')
     .field('description', 'A detailed complaint with uploaded evidence');
 
   it('rejects six images before AI or cloud calls and cleans every temp file', async () => {

@@ -1,6 +1,6 @@
 const { Category, Complaint } = require('../../models');
 const aiService = require('../../services/aiService');
-const { createAuthenticatedAgent } = require('../helpers/auth');
+const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createCategoryFixture } = require('../fixtures/category');
 
 const fallback = (error) => ({
@@ -21,7 +21,7 @@ describe('complaint AI fallback invariant', () => {
       const roads = await createCategoryFixture({ name: 'Roads', defaultPriority: 'LOW' });
       vi.spyOn(aiService, 'classifyComplaint').mockResolvedValue(fallback(errorCode));
 
-      const response = await agent.post('/api/v1/complaints').send({
+      const response = await unsafeRequest(agent, 'post', '/api/v1/complaints').send({
         description: `A detailed fallback complaint for ${errorCode}`,
         categoryId: roads.id,
       });
@@ -47,7 +47,7 @@ describe('complaint AI fallback invariant', () => {
     await createCategoryFixture({ name: 'Roads' });
     const classify = vi.spyOn(aiService, 'classifyComplaint').mockResolvedValue(fallback('TIMEOUT'));
 
-    const response = await agent.post('/api/v1/complaints').send({
+    const response = await unsafeRequest(agent, 'post', '/api/v1/complaints').send({
       description: 'A detailed complaint with no fallback category configured',
     });
 
@@ -61,20 +61,22 @@ describe('complaint AI fallback invariant', () => {
     const { agent } = await createAuthenticatedAgent({ role: 'admin' });
     const other = await createCategoryFixture({ name: 'Other', defaultPriority: 'MEDIUM' });
 
-    const renamed = await agent.patch(`/api/v1/categories/${other.id}`).send({ name: 'Miscellaneous' });
+    const renamed = await unsafeRequest(agent, 'patch', `/api/v1/categories/${other.id}`)
+      .send({ name: 'Miscellaneous' });
     expect(renamed.status).toBe(409);
 
-    const deactivated = await agent.patch(`/api/v1/categories/${other.id}`).send({ isActive: false });
+    const deactivated = await unsafeRequest(agent, 'patch', `/api/v1/categories/${other.id}`)
+      .send({ isActive: false });
     expect(deactivated.status).toBe(409);
 
-    const configured = await agent.patch(`/api/v1/categories/${other.id}`).send({
+    const configured = await unsafeRequest(agent, 'patch', `/api/v1/categories/${other.id}`).send({
       description: 'Required complaint fallback',
       defaultPriority: 'HIGH',
     });
     expect(configured.status).toBe(200);
     expect(configured.body.category).toMatchObject({ name: 'Other', isActive: true, defaultPriority: 'HIGH' });
 
-    const deleted = await agent.delete(`/api/v1/categories/${other.id}`);
+    const deleted = await unsafeRequest(agent, 'delete', `/api/v1/categories/${other.id}`);
     expect(deleted.status).toBe(409);
     expect(await Category.findById(other.id)).toMatchObject({ name: 'Other', isActive: true });
   });

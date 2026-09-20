@@ -7,6 +7,7 @@ const {
     attachCookiesToResponse,
 } = require('../handlers/authHandler');
 const googleOAuthService = require('../services/googleOAuthService');
+const { getBrowserSecurityConfig } = require('../config/browserSecurity');
 
 const signup = async (req, res) => {
     const { email, password, name, phone } = req.body;
@@ -46,22 +47,20 @@ const googleAuthRedirect = (req, res) => {
     }
 
     const state = crypto.randomBytes(16).toString('hex');
+    const { cookieOptions } = getBrowserSecurityConfig(process.env);
     res.cookie('oauthState', state, {
-        httpOnly: true,
-        signed: true,
+        ...cookieOptions,
         maxAge: 5 * 60 * 1000,
-        sameSite: 'lax',
-        secure: process.env.NODE_ENV === 'production',
     });
 
     res.redirect(googleOAuthService.buildAuthUrl(state));
 };
 
 const googleAuthCallback = async (req, res) => {
-    const frontendUrl = process.env.ALLOWED_ORIGIN || '/';
+    const { browserOrigin: frontendUrl, cookieOptions } = getBrowserSecurityConfig(process.env);
     const { code, state } = req.query;
     const expectedState = req.signedCookies.oauthState;
-    res.clearCookie('oauthState');
+    res.clearCookie('oauthState', cookieOptions);
 
     try {
         if (!code || !state || !expectedState || state !== expectedState) {

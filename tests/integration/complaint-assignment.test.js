@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const { Complaint, User } = require('../../models');
-const { createAuthenticatedAgent } = require('../helpers/auth');
+const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createComplaintFixture } = require('../fixtures/complaint');
 const { createUserFixture } = require('../fixtures/user');
 
@@ -20,8 +20,11 @@ describe('PATCH /api/v1/complaints/:id/assign', () => {
     complaint = await createComplaintFixture();
   });
 
-  const assign = (agent, complaintId, body) => agent
-    .patch(`/api/v1/complaints/${complaintId}/assign`)
+  const assign = (agent, complaintId, body) => unsafeRequest(
+    agent,
+    'patch',
+    `/api/v1/complaints/${complaintId}/assign`,
+  )
     .send(body);
 
   it('assigns an active agency without changing complaint status', async () => {

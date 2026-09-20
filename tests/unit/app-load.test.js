@@ -9,7 +9,13 @@ describe('app module boundary', () => {
       ['-e', "const app = require('./app'); process.stdout.write(typeof app)"],
       {
         cwd: projectRoot,
-        env: { ...process.env, MONGO_URL: '', PORT: '0' },
+        env: {
+          ...process.env,
+          BROWSER_ORIGIN: 'http://localhost:3000',
+          TRUST_PROXY_HOPS: '0',
+          MONGO_URL: '',
+          PORT: '0',
+        },
         encoding: 'utf8',
         timeout: 2000,
       },

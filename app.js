@@ -9,12 +9,14 @@ const helmet = require('helmet');
 const compression = require('compression');
 const cors = require('cors');
 const { MAX_IMAGE_BYTES } = require('./services/imageInspectionService');
+const { getBrowserSecurityConfig } = require('./config/browserSecurity');
+const requireApprovedOrigin = require('./middleware/originGuard');
 
-const origin = process.env.ALLOWED_ORIGIN;
+const browserSecurity = getBrowserSecurityConfig(process.env);
 
 // Express app and server initialization
 const app = express();
-app.set('trust proxy', 1);
+app.set('trust proxy', browserSecurity.trustProxy);
 
 // Rate limit setup
 const limiter = rateLimit({
@@ -36,13 +38,11 @@ app.use(helmet.contentSecurityPolicy({
 }));
 
 // CORS configuration
-app.use(cors({
-  origin: origin ? origin.split(',') : true,
-  credentials: true,
-}));
+app.use(cors(browserSecurity.corsOptions));
 
 // Additional middlewares
 app.use(compression());
+app.use('/api/v1', requireApprovedOrigin);
 app.use(fileUploader({
   useTempFiles: true,
   tempFileDir: path.join(require('os').tmpdir(), 'ccir-uploads'),

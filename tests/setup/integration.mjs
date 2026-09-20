@@ -11,6 +11,8 @@ process.env.ACCESS_TOKEN_LIFESPAN ||= '15m';
 process.env.REFRESH_TOKEN_LIFESPAN ||= '7d';
 process.env.COOKIE ||= 'integration-cookie-secret';
 process.env.ALLOWED_ORIGIN ||= 'http://localhost:3000';
+process.env.BROWSER_ORIGIN ||= 'http://localhost:3000';
+process.env.TRUST_PROXY_HOPS ||= '0';
 
 beforeAll(async () => {
   mongoServer = await MongoMemoryReplSet.create({

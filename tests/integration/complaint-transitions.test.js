@@ -1,5 +1,5 @@
 const { Complaint } = require('../../models');
-const { createAuthenticatedAgent } = require('../helpers/auth');
+const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createComplaintFixture } = require('../fixtures/complaint');
 
 describe('PATCH /api/v1/complaints/:id/status', () => {
@@ -29,7 +29,7 @@ describe('PATCH /api/v1/complaints/:id/status', () => {
 
   it.each(STATUSES.flatMap((from) => STATUSES.map((to) => [from, to])))('%s -> %s matches the route policy', async (from, to) => {
     const { agent, complaint, path } = await setup(from);
-    const response = await agent.patch(path).send({ status: to, note: 'Correction required' });
+    const response = await unsafeRequest(agent, 'patch', path).send({ status: to, note: 'Correction required' });
     const permitted = allowed.has(`${from}>${to}`);
 
     expect(response.status).toBe(permitted ? 200 : 409);
@@ -46,7 +46,7 @@ describe('PATCH /api/v1/complaints/:id/status', () => {
   ])('requires a reason for %s -> %s without mutating', async (from, to) => {
     const { agent, complaint, path } = await setup(from);
     const originalVersion = complaint.__v;
-    const response = await agent.patch(path).send({ status: to });
+    const response = await unsafeRequest(agent, 'patch', path).send({ status: to });
 
     expect(response.status).toBe(409);
     const stored = await Complaint.findById(complaint.id);
@@ -57,7 +57,7 @@ describe('PATCH /api/v1/complaints/:id/status', () => {
 
   it('rejects a whitespace-only required reason without mutating', async () => {
     const { agent, complaint, path } = await setup('RESOLVED');
-    const response = await agent.patch(path).send({ status: 'IN_PROGRESS', note: '   ' });
+    const response = await unsafeRequest(agent, 'patch', path).send({ status: 'IN_PROGRESS', note: '   ' });
 
     expect(response.status).toBe(409);
     const stored = await Complaint.findById(complaint.id);
@@ -67,7 +67,7 @@ describe('PATCH /api/v1/complaints/:id/status', () => {
 
   it('rejects an overlong reason before mutation', async () => {
     const { agent, complaint, path } = await setup('PENDING');
-    const response = await agent.patch(path).send({ status: 'IN_REVIEW', note: 'x'.repeat(501) });
+    const response = await unsafeRequest(agent, 'patch', path).send({ status: 'IN_REVIEW', note: 'x'.repeat(501) });
 
     expect(response.status).toBe(400);
     expect((await Complaint.findById(complaint.id)).status).toBe('PENDING');
@@ -75,7 +75,7 @@ describe('PATCH /api/v1/complaints/:id/status', () => {
 
   it('applies an optional valid priority only with a legal transition', async () => {
     const { agent, complaint, path } = await setup('PENDING');
-    const response = await agent.patch(path).send({ status: 'IN_REVIEW', priority: 'HIGH' });
+    const response = await unsafeRequest(agent, 'patch', path).send({ status: 'IN_REVIEW', priority: 'HIGH' });
 
     expect(response.status).toBe(200);
     expect(response.body.complaint).toMatchObject({ status: 'IN_REVIEW', priority: 'HIGH' });
@@ -85,7 +85,7 @@ describe('PATCH /api/v1/complaints/:id/status', () => {
 
   it('rejects an invalid priority before mutation', async () => {
     const { agent, complaint, path } = await setup('PENDING');
-    const response = await agent.patch(path).send({ status: 'IN_REVIEW', priority: 'URGENT' });
+    const response = await unsafeRequest(agent, 'patch', path).send({ status: 'IN_REVIEW', priority: 'URGENT' });
 
     expect(response.status).toBe(400);
     const stored = await Complaint.findById(complaint.id);
@@ -96,7 +96,7 @@ describe('PATCH /api/v1/complaints/:id/status', () => {
   it('rejects a priority-only duplicate without mutating priority or history', async () => {
     const { agent, complaint, path } = await setup('PENDING');
     const originalVersion = complaint.__v;
-    const response = await agent.patch(path).send({ status: 'PENDING', priority: 'CRITICAL' });
+    const response = await unsafeRequest(agent, 'patch', path).send({ status: 'PENDING', priority: 'CRITICAL' });
 
     expect(response.status).toBe(409);
     const stored = await Complaint.findById(complaint.id);
@@ -108,7 +108,7 @@ describe('PATCH /api/v1/complaints/:id/status', () => {
   it('sets resolvedAt when entering RESOLVED', async () => {
     const { agent, complaint, path } = await setup('IN_PROGRESS');
     const before = Date.now();
-    const response = await agent.patch(path).send({ status: 'RESOLVED' });
+    const response = await unsafeRequest(agent, 'patch', path).send({ status: 'RESOLVED' });
 
     expect(response.status).toBe(200);
     const stored = await Complaint.findById(complaint.id);
@@ -119,7 +119,7 @@ describe('PATCH /api/v1/complaints/:id/status', () => {
 
   it('clears resolvedAt when reopening RESOLVED', async () => {
     const { agent, complaint, path } = await setup('RESOLVED');
-    const response = await agent.patch(path).send({ status: 'IN_PROGRESS', note: 'Additional work found' });
+    const response = await unsafeRequest(agent, 'patch', path).send({ status: 'IN_PROGRESS', note: 'Additional work found' });
 
     expect(response.status).toBe(200);
     const stored = await Complaint.findById(complaint.id);
@@ -128,7 +128,7 @@ describe('PATCH /api/v1/complaints/:id/status', () => {
 
   it('preserves resolvedAt absence on unrelated transitions', async () => {
     const { agent, complaint, path } = await setup('PENDING');
-    const response = await agent.patch(path).send({ status: 'IN_REVIEW' });
+    const response = await unsafeRequest(agent, 'patch', path).send({ status: 'IN_REVIEW' });
 
     expect(response.status).toBe(200);
     expect((await Complaint.findById(complaint.id)).resolvedAt).toBeUndefined();
@@ -137,8 +137,8 @@ describe('PATCH /api/v1/complaints/:id/status', () => {
   it('accepts one of two concurrent transitions from the same version', async () => {
     const { agent, complaint, path } = await setup('PENDING');
     const [a, b] = await Promise.all([
-      agent.patch(path).send({ status: 'IN_REVIEW' }),
-      agent.patch(path).send({ status: 'REJECTED' }),
+      unsafeRequest(agent, 'patch', path).send({ status: 'IN_REVIEW' }),
+      unsafeRequest(agent, 'patch', path).send({ status: 'REJECTED' }),
     ]);
 
     expect([a.status, b.status].sort()).toEqual([200, 409]);

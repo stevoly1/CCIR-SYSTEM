@@ -1,5 +1,5 @@
 const { Complaint, RefreshToken, User } = require('../../models');
-const { createAuthenticatedAgent } = require('../helpers/auth');
+const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createComplaintFixture } = require('../fixtures/complaint');
 const { createUserFixture } = require('../fixtures/user');
 const { retireAccount } = require('../../services/accountRetirementService');
@@ -12,7 +12,7 @@ describe('transactional account retirement', () => {
       statusHistory: [{ status: 'PENDING', changedBy: user._id }],
     });
 
-    const response = await agent.delete('/api/v1/users/profile');
+    const response = await unsafeRequest(agent, 'delete', '/api/v1/users/profile');
 
     expect(response.status).toBe(200);
     const retired = await User.findById(user.id).select('+password');
@@ -38,7 +38,7 @@ describe('transactional account retirement', () => {
     const open = await createComplaintFixture({ reporter, assignedTo: agency._id, status: 'IN_PROGRESS' });
     const resolved = await createComplaintFixture({ reporter, assignedTo: agency._id, status: 'RESOLVED', resolvedAt: new Date() });
 
-    const response = await agent.delete('/api/v1/users/profile');
+    const response = await unsafeRequest(agent, 'delete', '/api/v1/users/profile');
 
     expect(response.status).toBe(200);
     const storedOpen = await Complaint.findById(open.id);
@@ -55,7 +55,7 @@ describe('transactional account retirement', () => {
   it('rejects administrator self-retirement', async () => {
     const { agent, user } = await createAuthenticatedAgent({ role: 'admin' });
 
-    const response = await agent.delete('/api/v1/users/profile');
+    const response = await unsafeRequest(agent, 'delete', '/api/v1/users/profile');
 
     expect(response.status).toBe(409);
     expect(await User.findById(user.id)).toMatchObject({ role: 'admin', isActive: true });
@@ -65,7 +65,7 @@ describe('transactional account retirement', () => {
     const { agent } = await createAuthenticatedAgent({ role: 'admin' });
     const target = await createUserFixture({ role: 'citizen' });
 
-    const response = await agent.delete(`/api/v1/users/${target.id}`);
+    const response = await unsafeRequest(agent, 'delete', `/api/v1/users/${target.id}`);
 
     expect(response.status).toBe(200);
     expect(await User.findById(target.id)).toMatchObject({ isActive: false });
@@ -104,7 +104,7 @@ describe('transactional account retirement', () => {
     const complaint = await createComplaintFixture({ assignedTo: agency._id, status: 'IN_PROGRESS' });
     const deleteTokens = vi.spyOn(RefreshToken, 'deleteMany').mockRejectedValueOnce(new Error('injected token failure'));
 
-    const response = await agent.delete('/api/v1/users/profile');
+    const response = await unsafeRequest(agent, 'delete', '/api/v1/users/profile');
 
     expect(response.status).toBe(500);
     expect(await User.findById(agency.id)).toMatchObject({ isActive: true });
@@ -117,8 +117,8 @@ describe('transactional account retirement', () => {
     const { agent: secondAgent, user: second } = await createAuthenticatedAgent({ role: 'admin' });
 
     const results = await Promise.all([
-      firstAgent.patch(`/api/v1/users/${second.id}`).send({ role: 'citizen' }),
-      secondAgent.patch(`/api/v1/users/${first.id}`).send({ role: 'citizen' }),
+      unsafeRequest(firstAgent, 'patch', `/api/v1/users/${second.id}`).send({ role: 'citizen' }),
+      unsafeRequest(secondAgent, 'patch', `/api/v1/users/${first.id}`).send({ role: 'citizen' }),
     ]);
 
     expect(results.filter((result) => result.status === 200)).toHaveLength(1);

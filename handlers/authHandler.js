@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { RefreshToken } = require('../models');
 const parseDuration = require('../utils/parseDuration');
+const { getBrowserSecurityConfig } = require('../config/browserSecurity');
 
 const createAccessToken = (payload) => {
     return jwt.sign(payload, process.env.JWT_TOKEN, {
@@ -38,29 +39,23 @@ const createNewRefreshToken = async ({ userId }) => {
 
 const attachCookiesToResponse = ({ res, user, refreshToken }) => {
     const accessToken = createAccessToken({ userId: user._id.toString(), email: user.email, role: user.role });
-
-    const isProd = process.env.NODE_ENV === 'production';
+    const { cookieOptions } = getBrowserSecurityConfig(process.env);
 
     res.cookie('accessToken', accessToken, {
-        httpOnly: true,
+        ...cookieOptions,
         expires: new Date(Date.now() + parseDuration(process.env.ACCESS_TOKEN_LIFESPAN)),
-        secure: isProd,
-        signed: true,
-        sameSite: isProd ? 'none' : 'lax',
     });
 
     res.cookie('refreshToken', refreshToken, {
-        httpOnly: true,
+        ...cookieOptions,
         expires: new Date(Date.now() + parseDuration(process.env.REFRESH_TOKEN_LIFESPAN)),
-        secure: isProd,
-        signed: true,
-        sameSite: isProd ? 'none' : 'lax',
     });
 };
 
 const clearAttachedCookies = (res) => {
-    res.clearCookie('accessToken');
-    res.clearCookie('refreshToken');
+    const { cookieOptions } = getBrowserSecurityConfig(process.env);
+    res.clearCookie('accessToken', cookieOptions);
+    res.clearCookie('refreshToken', cookieOptions);
 };
 
 module.exports = {
