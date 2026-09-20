@@ -89,8 +89,13 @@ const statusHistorySchema = new mongoose.Schema(
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User',
         },
+        createdAt: {
+            type: Date,
+            default: Date.now,
+            required: true,
+        },
     },
-    { timestamps: { createdAt: true, updatedAt: false } }
+    { _id: true }
 );
 
 const complaintSchema = new mongoose.Schema(

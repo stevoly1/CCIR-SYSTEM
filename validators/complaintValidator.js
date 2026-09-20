@@ -24,7 +24,7 @@ const updateComplaintSchema = z.object({
 
 const updateStatusSchema = z.object({
     status: z.enum(STATUSES),
-    note: z.string().max(500).optional(),
+    note: z.string().trim().max(500).optional(),
     priority: z.enum(PRIORITIES).optional(),
 });
 

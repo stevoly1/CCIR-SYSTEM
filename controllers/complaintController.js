@@ -4,6 +4,7 @@ const { StatusCodes } = require('http-status-codes');
 const { Complaint, Category, User } = require('../models');
 const CustomError = require('../errors');
 const { decideAssignment } = require('../policies/assignmentPolicy');
+const { decideTransition } = require('../policies/complaintTransitionPolicy');
 const generateReferenceCode = require('../utils/referenceCode');
 const aiService = require('../services/aiService');
 const locationService = require('../services/locationService');
@@ -193,27 +194,46 @@ const updateComplaint = async (req, res) => {
 const updateComplaintStatus = async (req, res) => {
     const { status, note, priority } = req.body;
 
-    const complaint = await Complaint.findById(req.params.id).populate('reporter', 'name email');
+    const complaint = await Complaint.findById(req.params.id);
     if (!complaint) throw new CustomError.NotFoundError(`No complaint found with id ${req.params.id}`);
 
-    complaint.status = status;
-    if (priority) complaint.priority = priority;
-    if (status === 'RESOLVED') complaint.resolvedAt = new Date();
-    complaint.statusHistory.push({ status, note, changedBy: req.user.userId });
-
-    await complaint.save();
-    await complaint.populate(['category', 'assignedTo']);
-
-    emailService.sendStatusUpdateEmail({
-        to: complaint.reporter.email,
-        name: complaint.reporter.name,
-        referenceCode: complaint.referenceCode,
-        status: complaint.status,
-        note,
-        complaintId: complaint._id,
+    const decision = decideTransition({
+        from: complaint.status,
+        to: status,
+        reason: note,
+        priority,
+        now: new Date(),
     });
 
-    res.status(StatusCodes.OK).json({ complaint });
+    const update = {
+        $set: { status: decision.status },
+        $push: { statusHistory: { ...decision.historyEntry, changedBy: req.user.userId } },
+        $inc: { __v: 1 },
+    };
+    if (decision.priority !== undefined) update.$set.priority = decision.priority;
+    if (decision.resolvedAtAction === 'set') update.$set.resolvedAt = decision.historyEntry.createdAt;
+    if (decision.resolvedAtAction === 'clear') update.$unset = { resolvedAt: 1 };
+
+    const updated = await Complaint.findOneAndUpdate(
+        { _id: complaint._id, status: complaint.status, __v: complaint.__v },
+        update,
+        { new: true, runValidators: true }
+    ).populate(['category', 'reporter', 'assignedTo']);
+
+    if (!updated) {
+        throw new CustomError.ConflictError('Complaint status changed concurrently; reload and retry');
+    }
+
+    emailService.sendStatusUpdateEmail({
+        to: updated.reporter.email,
+        name: updated.reporter.name,
+        referenceCode: updated.referenceCode,
+        status: updated.status,
+        note,
+        complaintId: updated._id,
+    });
+
+    res.status(StatusCodes.OK).json({ complaint: updated });
 };
 
 const assignComplaint = async (req, res) => {
