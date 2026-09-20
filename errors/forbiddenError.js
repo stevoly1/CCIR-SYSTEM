@@ -3,7 +3,7 @@ const CustomAPIError = require('./customError');
 
 class ForbiddenError extends CustomAPIError {
     constructor(message) {
-        super(message, StatusCodes.FORBIDDEN);
+        super(message, StatusCodes.FORBIDDEN, 'FORBIDDEN');
     }
 }
 module.exports = ForbiddenError;

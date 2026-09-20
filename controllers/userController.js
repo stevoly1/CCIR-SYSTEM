@@ -17,7 +17,7 @@ const updateProfile = async (req, res) => {
     const { email } = req.body;
     if (email && email !== user.email) {
         const existing = await User.findOne({ email });
-        if (existing) throw new CustomError.BadRequestError('An account with this email already exists');
+        if (existing) throw new CustomError.ConflictError('An account with this email already exists');
     }
 
     Object.assign(user, req.body);
@@ -39,8 +39,7 @@ const deleteProfile = async (req, res) => {
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const listAllUsers = async (req, res) => {
-    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-    const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
+    const { page, limit } = req.query;
 
     const filter = {};
     if (req.query.role) filter.role = req.query.role;
@@ -80,7 +79,7 @@ const updateUser = async (req, res) => {
     const { email } = req.body;
     if (email && email !== user.email) {
         const existing = await User.findOne({ email });
-        if (existing) throw new CustomError.BadRequestError('An account with this email already exists');
+        if (existing) throw new CustomError.ConflictError('An account with this email already exists');
     }
 
     Object.assign(user, changes);

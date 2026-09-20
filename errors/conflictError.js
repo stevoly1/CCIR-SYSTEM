@@ -3,7 +3,7 @@ const CustomAPIError = require('./customError');
 
 class ConflictError extends CustomAPIError {
   constructor(message) {
-    super(message, StatusCodes.CONFLICT);
+    super(message, StatusCodes.CONFLICT, 'CONFLICT');
   }
 }
 

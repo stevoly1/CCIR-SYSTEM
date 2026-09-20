@@ -6,7 +6,10 @@ const axiosClient = axios.create({
 });
 
 export const extractErrorMessage = (error) => {
-    return error?.response?.data?.msg || error?.message || 'Something went wrong';
+    return error?.response?.data?.error?.message
+        || error?.response?.data?.msg
+        || error?.message
+        || 'Something went wrong';
 };
 
 export default axiosClient;

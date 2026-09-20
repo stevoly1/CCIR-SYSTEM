@@ -104,7 +104,10 @@ describe('complaint upload ordering and compensation', () => {
       .attach('image', fixture);
 
     expect(response.status).toBe(500);
-    expect(response.body.msg).toBe('cloud upload failed');
+    expect(response.body).toEqual({
+      error: { code: 'INTERNAL_ERROR', message: 'Something went wrong' },
+      msg: 'Something went wrong',
+    });
     expect(remove).toHaveBeenCalledWith(['one', 'two']);
     expect(await Complaint.countDocuments()).toBe(0);
   });
@@ -119,7 +122,10 @@ describe('complaint upload ordering and compensation', () => {
     const response = await complaintRequest().attach('image', fixture).attach('image', fixture);
 
     expect(response.status).toBe(500);
-    expect(response.body.msg).toBe('database write failed');
+    expect(response.body).toEqual({
+      error: { code: 'INTERNAL_ERROR', message: 'Something went wrong' },
+      msg: 'Something went wrong',
+    });
     expect(remove).toHaveBeenCalledWith(['one', 'two']);
   });
 

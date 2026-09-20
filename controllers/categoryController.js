@@ -16,7 +16,7 @@ const protectSystemFallback = (category, changes = {}) => {
 
 const createCategory = async (req, res) => {
     const existing = await Category.findOne({ name: req.body.name });
-    if (existing) throw new CustomError.BadRequestError('A category with this name already exists');
+    if (existing) throw new CustomError.ConflictError('A category with this name already exists');
 
     const category = await Category.create(req.body);
     res.status(StatusCodes.CREATED).json({ category });

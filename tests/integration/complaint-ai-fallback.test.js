@@ -52,7 +52,10 @@ describe('complaint AI fallback invariant', () => {
     });
 
     expect(response.status).toBe(500);
-    expect(response.body).toEqual({ msg: 'Active Other category is not configured' });
+    expect(response.body).toEqual({
+      error: { code: 'INTERNAL_ERROR', message: 'Something went wrong' },
+      msg: 'Something went wrong',
+    });
     expect(classify).not.toHaveBeenCalled();
     expect(await Complaint.countDocuments()).toBe(0);
   });

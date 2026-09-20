@@ -39,7 +39,7 @@ const signup = async (req, res) => {
 
     const existing = await User.findOne({ email });
     if (existing) {
-        throw new CustomError.BadRequestError('An account with this email already exists');
+        throw new CustomError.ConflictError('An account with this email already exists');
     }
 
     // role is intentionally never taken from the client — every signup is a citizen account.

@@ -1,4 +1,3 @@
-const mongoose = require('mongoose');
 const { StatusCodes } = require('http-status-codes');
 const { Complaint, Category, User } = require('../models');
 const CustomError = require('../errors');
@@ -177,8 +176,7 @@ const createComplaint = async (req, res) => {
 };
 
 const getAllComplaints = async (req, res) => {
-    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-    const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
+    const { page, limit, sort } = req.query;
 
     const filter = {};
     if (!STAFF_ROLES.includes(req.user.role)) {
@@ -203,7 +201,7 @@ const getAllComplaints = async (req, res) => {
             .populate('reporter', 'name role isActive retiredAt')
             .populate('assignedTo', 'name role isActive retiredAt')
             .populate('statusHistory.changedBy', 'name role isActive retiredAt')
-            .sort({ createdAt: -1 })
+            .sort({ createdAt: sort === 'oldest' ? 1 : -1 })
             .skip((page - 1) * limit)
             .limit(limit),
         Complaint.countDocuments(filter),
@@ -326,10 +324,6 @@ const updateComplaintStatus = async (req, res) => {
 
 const assignComplaint = async (req, res) => {
     const { assignedTo, reason } = req.body;
-
-    if (!mongoose.isObjectIdOrHexString(req.params.id)) {
-        throw new CustomError.BadRequestError('Invalid complaint id');
-    }
 
     const complaint = await Complaint.findById(req.params.id).populate('assignedTo');
     if (!complaint) throw new CustomError.NotFoundError(`No complaint found with id ${req.params.id}`);
