@@ -44,7 +44,7 @@ const multipartUpload = async (req, res, next) => {
       },
     });
   } catch {
-    await fsp.rm(uploadDirectory, { recursive: true, force: true });
+    await fsp.rm(uploadDirectory, { recursive: true, force: true }).catch(() => undefined);
     return next(new BadRequestError('Malformed multipart upload'));
   }
 
@@ -75,7 +75,10 @@ const multipartUpload = async (req, res, next) => {
     if (failed) return;
     failed = true;
     failureError = error;
-    req.once('end', finishFailure);
+    req.unpipe(busboy);
+    req.resume();
+    busboy.destroy();
+    finishFailure();
   };
   const abortDisconnectedRequest = () => {
     if (disconnected) return;

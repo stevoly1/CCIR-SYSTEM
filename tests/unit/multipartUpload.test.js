@@ -83,4 +83,47 @@ describe('multipart upload abort cleanup', () => {
       fs.rm(path.join(uploadRoot, name), { recursive: true, force: true })
     )));
   });
+
+  it('fails and cleans immediately when a limit is exceeded before request end', async () => {
+    const before = new Set(await listRequestDirectories());
+    const boundary = 'ccir-held-open-limit';
+    const req = new PassThrough();
+    req.headers = { 'content-type': `multipart/form-data; boundary=${boundary}` };
+    req.is = () => true;
+    const res = new EventEmitter();
+    const nextCalled = new Promise((resolve) => {
+      void multipartUpload(req, res, resolve);
+    });
+
+    let body = '';
+    for (let index = 0; index < 6; index += 1) {
+      body += `--${boundary}\r\n`
+        + `Content-Disposition: form-data; name="image"; filename="${index}.jpg"\r\n`
+        + 'Content-Type: image/jpeg\r\n\r\nx\r\n';
+    }
+    req.write(body);
+
+    const error = await Promise.race([
+      nextCalled,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('limit cleanup waited for end')), 1000)),
+    ]);
+    expect(error).toMatchObject({ statusCode: 413 });
+    await waitFor(async () => (await listRequestDirectories()).every((name) => before.has(name)));
+    req.destroy();
+  });
+
+  it('returns the intended malformed-upload error when constructor cleanup rejects', async () => {
+    const req = new PassThrough();
+    req.headers = { 'content-type': 'multipart/form-data' };
+    req.is = () => true;
+    const res = new EventEmitter();
+    const cleanup = vi.spyOn(fs, 'rm').mockRejectedValueOnce(new Error('injected cleanup failure'));
+    const next = vi.fn();
+
+    await multipartUpload(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(next.mock.calls[0][0]).toMatchObject({ statusCode: 400 });
+    cleanup.mockRestore();
+  });
 });

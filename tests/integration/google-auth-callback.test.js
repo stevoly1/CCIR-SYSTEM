@@ -3,6 +3,8 @@ const request = require('supertest');
 const app = require('../../app');
 const { RefreshToken, User } = require('../../models');
 const googleOAuthService = require('../../services/googleOAuthService');
+const { establishGoogleIdentitySession } = require('../../services/googleIdentityService');
+const { retireAccount } = require('../../services/accountRetirementService');
 const { createUserFixture } = require('../fixtures/user');
 
 const successProfile = (overrides = {}) => ({
@@ -85,6 +87,59 @@ describe('Google authentication callback', () => {
 
     expect(response.headers.location).toBe(`${process.env.BROWSER_ORIGIN}/dashboard`);
     expect((await User.findById(existing.id)).email).toBe('new@example.test');
+  });
+
+  it('cannot overwrite a retirement tombstone or leave a refresh token during a lifecycle race', async () => {
+    const administrator = await createUserFixture({ role: 'admin' });
+    const existing = await createUserFixture({
+      authProvider: 'google',
+      googleId: 'google-subject-123',
+      email: 'old@example.test',
+      password: undefined,
+    });
+
+    const [identity, retirement] = await Promise.allSettled([
+      establishGoogleIdentitySession(successProfile({ email: 'new@example.test' })),
+      retireAccount({
+        targetUserId: existing.id,
+        actorUserId: administrator.id,
+        reason: 'Requested',
+      }),
+    ]);
+
+    expect(retirement.status).toBe('fulfilled');
+    expect(['fulfilled', 'rejected']).toContain(identity.status);
+    const stored = await User.findById(existing.id);
+    expect(stored).toMatchObject({
+      name: 'Retired account',
+      email: `retired+${existing.id}@invalid.local`,
+      isActive: false,
+    });
+    expect(stored.retiredAt).toBeInstanceOf(Date);
+    expect(await RefreshToken.countDocuments({ user: existing._id })).toBe(0);
+  });
+
+  it('rolls back an identity email mutation when refresh-token persistence fails', async () => {
+    const existing = await createUserFixture({
+      authProvider: 'google',
+      googleId: 'google-subject-123',
+      email: 'old@example.test',
+      password: undefined,
+    });
+    const saveToken = vi.spyOn(RefreshToken.prototype, 'save')
+      .mockRejectedValueOnce(new Error('injected token persistence failure'));
+
+    await expect(establishGoogleIdentitySession(successProfile({ email: 'new@example.test' })))
+      .rejects.toThrow('injected token persistence failure');
+
+    const stored = await User.findById(existing.id);
+    expect(stored).toMatchObject({
+      email: 'old@example.test',
+      isActive: true,
+    });
+    expect(stored.retiredAt).toBeFalsy();
+    expect(await RefreshToken.countDocuments({ user: existing._id })).toBe(0);
+    saveToken.mockRestore();
   });
 
   it.each([

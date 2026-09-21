@@ -7,7 +7,7 @@ const {
     attachCookiesToResponse,
 } = require('../handlers/authHandler');
 const googleOAuthService = require('../services/googleOAuthService');
-const { resolveGoogleIdentity } = require('../services/googleIdentityService');
+const { establishGoogleIdentitySession } = require('../services/googleIdentityService');
 const { safeStateEqual } = require('../policies/googleIdentityPolicy');
 const { getBrowserSecurityConfig } = require('../config/browserSecurity');
 const { createThrottleService } = require('../services/authThrottleService');
@@ -129,8 +129,7 @@ const googleAuthCallback = async (req, res) => {
     }
 
     try {
-        const user = await resolveGoogleIdentity(profile);
-        const refreshToken = await createNewRefreshToken({ userId: user._id.toString() });
+        const { user, refreshToken } = await establishGoogleIdentitySession(profile);
         attachCookiesToResponse({ res, user, refreshToken });
         return res.redirect(`${frontendUrl}/dashboard`);
     } catch (error) {

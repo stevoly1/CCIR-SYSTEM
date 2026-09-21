@@ -24,15 +24,16 @@ const verifyRefreshToken = (token) => {
     return jwt.verify(token, process.env.JWT_REFRESH_TOKEN);
 };
 
-const createNewRefreshToken = async ({ userId }) => {
+const createNewRefreshToken = async ({ userId, session }) => {
     const refreshTokenString = crypto.randomBytes(40).toString('hex');
     const expiresAt = new Date(Date.now() + parseDuration(process.env.REFRESH_TOKEN_LIFESPAN));
 
-    await RefreshToken.create({
+    const refreshToken = new RefreshToken({
         token: refreshTokenString,
         user: userId,
         expiresAt,
     });
+    await refreshToken.save({ session });
 
     return createRefreshTokenJwt({ userId, refreshTokenString });
 };
