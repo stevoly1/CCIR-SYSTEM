@@ -32,16 +32,20 @@ const updateComplaintSchema = z.strictObject({
     ...locationFields,
 }).superRefine(addCoordinatePairIssue);
 
+const expectedVersionSchema = z.number().int().min(0).optional();
+
 const updateStatusSchema = z.strictObject({
     status: z.enum(STATUSES),
     publicNote: z.string().trim().max(500).optional(),
     internalNote: z.string().trim().max(1000).optional(),
     priority: z.enum(PRIORITIES).optional(),
+    expectedVersion: expectedVersionSchema,
 });
 
 const assignComplaintSchema = z.strictObject({
     assignedTo: objectIdSchema.nullable(),
     reason: z.string().trim().min(1).max(500).optional(),
+    expectedVersion: expectedVersionSchema,
 });
 
 const complaintListQuerySchema = z.strictObject({
@@ -56,6 +60,7 @@ const complaintListQuerySchema = z.strictObject({
 });
 
 module.exports = {
+    expectedVersionSchema,
     createComplaintSchema,
     updateComplaintSchema,
     updateStatusSchema,

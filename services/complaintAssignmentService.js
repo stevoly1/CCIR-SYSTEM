@@ -1,15 +1,18 @@
 const mongoose = require('mongoose');
 const { Complaint, User } = require('../models');
 const { NotFoundError, ConflictError } = require('../errors');
+const { staleComplaint } = require('../errors/domainErrors');
+const { assertExpectedVersion } = require('./complaintVersionGuard');
 const { decideAssignment } = require('../policies/assignmentPolicy');
 const {
   ensureAccountLifecycleGuard,
   touchAccountLifecycleGuard,
 } = require('./accountLifecycleGuard');
 
-const assignComplaintTransaction = async ({ complaintId, actorUserId, assignedTo, reason }) => {
+const assignComplaintTransaction = async ({ complaintId, actorUserId, assignedTo, reason, expectedVersion }) => {
   const expectedComplaint = await Complaint.findById(complaintId).select('assignedTo __v');
   if (!expectedComplaint) throw new NotFoundError(`No complaint found with id ${complaintId}`);
+  assertExpectedVersion(expectedComplaint, expectedVersion);
   await ensureAccountLifecycleGuard();
   const session = await mongoose.startSession();
   let assignedComplaint;
@@ -21,7 +24,7 @@ const assignComplaintTransaction = async ({ complaintId, actorUserId, assignedTo
       const expectedAssignee = expectedComplaint.assignedTo?.toString() ?? null;
       const currentAssignee = complaint?.assignedTo?._id?.toString() ?? complaint?.assignedTo?.toString() ?? null;
       if (!complaint || complaint.__v !== expectedComplaint.__v || currentAssignee !== expectedAssignee) {
-        throw new ConflictError('Complaint assignment changed concurrently; reload and retry');
+        throw staleComplaint();
       }
 
       const [actor, target] = await Promise.all([
@@ -52,7 +55,7 @@ const assignComplaintTransaction = async ({ complaintId, actorUserId, assignedTo
         { new: true, runValidators: true, session },
       );
       if (!assignedComplaint) {
-        throw new ConflictError('Complaint assignment changed concurrently; reload and retry');
+        throw staleComplaint();
       }
     });
   } finally {

@@ -12,6 +12,8 @@ const {
     viewerFromRequest,
 } = require('../presenters/complaintPresenter');
 const { buildUserSnapshot } = require('../services/userSnapshotService');
+const { versionFilter } = require('../services/complaintVersionGuard');
+const { staleComplaint } = require('../errors/domainErrors');
 const generateReferenceCode = require('../utils/referenceCode');
 const aiService = require('../services/aiService');
 const locationService = require('../services/locationService');
@@ -211,7 +213,7 @@ const updateComplaint = async (req, res) => {
 };
 
 const updateComplaintStatus = async (req, res) => {
-    const { status, publicNote, internalNote, priority } = req.body;
+    const { status, publicNote, internalNote, priority, expectedVersion } = req.body;
 
     const [complaint, actor] = await Promise.all([
         Complaint.findById(req.params.id),
@@ -219,6 +221,7 @@ const updateComplaintStatus = async (req, res) => {
     ]);
     if (!complaint) throw new CustomError.NotFoundError(`No complaint found with id ${req.params.id}`);
     if (!actor) throw new CustomError.UnauthenticatedError('Not authenticated');
+    const matchVersion = versionFilter(complaint, expectedVersion);
 
     const decision = decideTransition({
         from: complaint.status,
@@ -252,14 +255,12 @@ const updateComplaintStatus = async (req, res) => {
     }
 
     const updated = await Complaint.findOneAndUpdate(
-        { _id: complaint._id, status: complaint.status, __v: complaint.__v },
+        { _id: complaint._id, status: complaint.status, __v: matchVersion },
         update,
         { new: true, runValidators: true }
     ).populate({ path: 'reporter', select: 'name email' });
 
-    if (!updated) {
-        throw new CustomError.ConflictError('Complaint status changed concurrently; reload and retry');
-    }
+    if (!updated) throw staleComplaint();
 
     if (updated.reporter) {
         emailService.sendStatusUpdateEmail({
@@ -276,12 +277,13 @@ const updateComplaintStatus = async (req, res) => {
 };
 
 const assignComplaint = async (req, res) => {
-    const { assignedTo, reason } = req.body;
+    const { assignedTo, reason, expectedVersion } = req.body;
     const updated = await assignComplaintTransaction({
         complaintId: req.params.id,
         actorUserId: req.user.userId,
         assignedTo,
         reason,
+        expectedVersion,
     });
     await respondWithComplaint(res, StatusCodes.OK, updated._id, viewerFromRequest(req));
 };
