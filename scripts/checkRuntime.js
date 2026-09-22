@@ -1,6 +1,6 @@
-const NODE_MINIMUM = [24, 19, 0];
-const NODE_MAXIMUM = [25, 0, 0];
-const NPM_MINIMUM = [11, 6, 2];
+const NODE_MINIMUM = [26, 9, 0];
+const NODE_MAXIMUM = [27, 0, 0];
+const NPM_MINIMUM = [11, 19, 1];
 const NPM_MAXIMUM = [12, 0, 0];
 
 const parseVersion = (value) => {
@@ -39,11 +39,11 @@ const npmVersion = argumentValue('--npm') || npmVersionFromEnvironment();
 const errors = [];
 
 if (!satisfies(nodeVersion, NODE_MINIMUM, NODE_MAXIMUM)) {
-  errors.push(`Unsupported Node.js ${nodeVersion}; required >=24.19.0 <25.`);
+  errors.push(`Unsupported Node.js ${nodeVersion}; required >=26.9.0 <27.`);
 }
 
 if (!satisfies(npmVersion, NPM_MINIMUM, NPM_MAXIMUM)) {
-  errors.push(`Unsupported npm ${npmVersion || 'unknown'}; required >=11.6.2 <12.`);
+  errors.push(`Unsupported npm ${npmVersion || 'unknown'}; required >=11.19.1 <12.`);
 }
 
 if (errors.length > 0) {
