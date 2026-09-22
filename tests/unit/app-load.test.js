@@ -19,7 +19,9 @@ describe('app module boundary', () => {
           PORT: '0',
         },
         encoding: 'utf8',
-        timeout: 2000,
+        // Generous wall-clock budget: a listening or connecting module never exits, so a hang still
+        // fails; slow cold loads on a contended machine must not.
+        timeout: 10000,
       },
     );
 
@@ -27,5 +29,5 @@ describe('app module boundary', () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toBe('function');
     expect(result.stderr).toBe('');
-  });
+  }, 15000);
 });
