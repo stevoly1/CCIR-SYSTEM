@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { ImageOff } from 'lucide-react';
 import StatusBadge from './StatusBadge';
 import PriorityBadge from './PriorityBadge';
+import { categoryLabel } from './complaint/categoryLabel';
 
 const timeAgo = (dateString) => {
     const diffMs = Date.now() - new Date(dateString).getTime();
@@ -20,8 +21,8 @@ const ComplaintCard = ({ complaint }) => {
 
     return (
         <div className="complaint-card" role="button" onClick={() => navigate(`/dashboard/reports/${complaint._id}`)}>
-            {complaint.images?.[0]?.url ? (
-                <img className="complaint-thumb" src={complaint.images[0].url} alt="" />
+            {complaint.thumbnailUrl ? (
+                <img className="complaint-thumb" src={complaint.thumbnailUrl} alt="" />
             ) : (
                 <div className="complaint-thumb"><ImageOff size={20} /></div>
             )}
@@ -29,9 +30,9 @@ const ComplaintCard = ({ complaint }) => {
                 <div className="ref">{complaint.referenceCode}</div>
                 <div className="desc">{complaint.description}</div>
                 <div className="meta">
-                    <span>{complaint.category?.name || 'Uncategorized'}</span>
+                    <span>{categoryLabel(complaint.category)}</span>
                     <span className="meta-dot">&middot;</span>
-                    <span>{complaint.location?.address || 'No location'}</span>
+                    <span>{complaint.address || 'No address recorded'}</span>
                     <span className="meta-dot">&middot;</span>
                     <span>{timeAgo(complaint.createdAt)}</span>
                 </div>

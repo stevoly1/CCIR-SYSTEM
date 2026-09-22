@@ -7,6 +7,8 @@ import Topbar from '../../components/Topbar';
 import StatusBadge from '../../components/StatusBadge';
 import PriorityBadge from '../../components/PriorityBadge';
 import ConfirmModal from '../../components/ConfirmModal';
+import ComplaintTimeline from '../../components/complaint/ComplaintTimeline';
+import { categoryLabel } from '../../components/complaint/categoryLabel';
 import {
     fetchComplaint,
     clearCurrentComplaint,
@@ -46,7 +48,7 @@ const ReportDetailPage = () => {
     const handleUpdateStatus = async (e) => {
         e.preventDefault();
         setUpdating(true);
-        const result = await dispatch(updateComplaintStatus({ id, ...statusForm }));
+        const result = await dispatch(updateComplaintStatus({ id, ...statusForm, expectedVersion: current.version }));
         setUpdating(false);
         if (updateComplaintStatus.fulfilled.match(result)) {
             toast.success('Report updated');
@@ -72,8 +74,8 @@ const ReportDetailPage = () => {
         return <div className="empty-state">Loading report…</div>;
     }
 
-    const isOwner = current.reporter?._id === user?._id;
-    const canDelete = isOwner || isStaff;
+    // Server-computed permissions; Task 16 replaces citizen deletion with withdrawal.
+    const canDelete = Boolean(current.canDelete || current.canEdit);
 
     return (
         <div>
@@ -83,7 +85,7 @@ const ReportDetailPage = () => {
 
             <Topbar
                 title={current.referenceCode}
-                subtitle={`Reported by ${current.reporter?.name || 'a citizen'}`}
+                subtitle={isStaff ? `Reported by ${current.reporter?.displayName}` : 'Your report'}
                 actions={canDelete ? (
                     <button className="icon-btn" onClick={() => setConfirmingDelete(true)} aria-label="Delete report">
                         <Trash2 size={16} />
@@ -142,17 +144,16 @@ const ReportDetailPage = () => {
 
                     <div className="field">
                         <label>Category</label>
-                        <p>{current.category?.name || 'Uncategorized'}</p>
+                        <p>{categoryLabel(current.category)}</p>
                     </div>
 
-                    {current.location?.address && (
-                        <div className="field">
-                            <label>Location</label>
-                            <p style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <MapPin size={15} color="var(--color-text-muted)" style={{ flexShrink: 0 }} /> {current.location.address}
-                            </p>
-                        </div>
-                    )}
+                    <div className="field">
+                        <label>Location</label>
+                        <p style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <MapPin size={15} color="var(--color-text-muted)" style={{ flexShrink: 0 }} /> {current.address || 'No address recorded'}
+                        </p>
+                        {current.hasPrecisePosition && <span className="meta">Precise position recorded</span>}
+                    </div>
 
                     {current.ai?.summary && (
                         <div className="field">
@@ -164,22 +165,9 @@ const ReportDetailPage = () => {
                     )}
 
                     <div className="section-header" style={{ marginTop: 28 }}>
-                        <h2>Status history</h2>
+                        <h2>Timeline</h2>
                     </div>
-                    <div className="card-list">
-                        {current.statusHistory?.slice().reverse().map((entry) => (
-                            <div key={entry._id} className="complaint-card" style={{ alignItems: 'flex-start' }}>
-                                <div className="complaint-info">
-                                    <StatusBadge status={entry.status} />
-                                    {entry.publicNote && <p style={{ marginTop: 8 }}>{entry.publicNote}</p>}
-                                    <div className="meta" style={{ marginTop: 6 }}>
-                                        {entry.changedBy?.name && <span>{entry.changedBy.name}</span>}
-                                        <span>{new Date(entry.createdAt).toLocaleString()}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
+                    <ComplaintTimeline entries={current.timeline} staffView={isStaff} />
                 </div>
 
                 {isStaff && (
