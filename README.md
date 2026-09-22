@@ -6,10 +6,6 @@ CCIR lets citizens report public infrastructure problems (potholes, broken stree
 
 The core deliverable of this project is the **backend** — the API, database, authentication, and AI classification logic. It is designed to be deployed by any local or state government on its own servers and paired with whatever frontend that institution builds or adopts. A minimal reference frontend (in `client/`) is included to demonstrate and test the backend; it is not required for production use and is not the primary deliverable.
 
-## Project remediation program
-
-The audited path from the current prototype to the evaluated final-year-project release is maintained in the [CCIR Master Remediation Program](./docs/remediation/MASTER_REMEDIATION_PROGRAM.md). It orders security and integrity work before feature completion, deployment, formal evaluation, and the evidence-dependent dissertation chapters.
-
 ## Architecture
 
 - **Backend**: Node.js, Express 5, MongoDB (Mongoose)
