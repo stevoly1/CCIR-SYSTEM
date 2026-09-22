@@ -35,7 +35,7 @@ describe('complaint historical identity reads', () => {
       displayName: 'Live Reporter',
       role: 'citizen',
     });
-    expect(response.body.complaint.statusHistory[0].changedBy).toMatchObject({
+    expect(response.body.complaint.timeline[0].actor).toMatchObject({
       userId: reporter.id,
       displayName: 'Live Reporter',
       role: 'citizen',
@@ -73,7 +73,7 @@ describe('complaint historical identity reads', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.complaint.reporter).toMatchObject({ userId: reporter.id, displayName: 'Retired account' });
-    expect(response.body.complaint.statusHistory[0].changedBy).toMatchObject({ userId: reporter.id, displayName: 'Retired account' });
+    expect(response.body.complaint.timeline[0].actor).toMatchObject({ userId: reporter.id, displayName: 'Retired account' });
     expect(JSON.stringify(response.body.complaint)).not.toContain(tombstone);
     expect(JSON.stringify(response.body.complaint)).not.toContain('Sensitive Retired Name');
   });
@@ -90,7 +90,7 @@ describe('complaint historical identity reads', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.complaint.reporter).toMatchObject({ userId: missingId.toString(), displayName: 'Unavailable account' });
-    expect(response.body.complaint.statusHistory[0].changedBy).toMatchObject({
+    expect(response.body.complaint.timeline[0].actor).toMatchObject({
       userId: missingId.toString(),
       displayName: 'Unavailable account',
       role: 'citizen',

@@ -2,7 +2,16 @@ const { StatusCodes } = require('http-status-codes');
 const { Complaint, Category, User } = require('../models');
 const CustomError = require('../errors');
 const { decideTransition } = require('../policies/complaintTransitionPolicy');
-const { buildUserSnapshot, safeHistoricalIdentity } = require('../services/userSnapshotService');
+const authority = require('../policies/complaintAuthorityPolicy');
+const {
+    COMPLAINT_POPULATE,
+    SUMMARY_POPULATE,
+    loadPresentationIdentities,
+    presentComplaint,
+    presentComplaintSummary,
+    viewerFromRequest,
+} = require('../presenters/complaintPresenter');
+const { buildUserSnapshot } = require('../services/userSnapshotService');
 const generateReferenceCode = require('../utils/referenceCode');
 const aiService = require('../services/aiService');
 const locationService = require('../services/locationService');
@@ -10,8 +19,6 @@ const uploadService = require('../services/uploadService');
 const emailService = require('../services/emailService');
 const complaintImageService = require('../services/complaintImageService');
 const { assignComplaintTransaction } = require('../services/complaintAssignmentService');
-
-const STAFF_ROLES = ['admin', 'agency'];
 
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -33,53 +40,12 @@ const resolveLocation = async ({ latitude, longitude, address }) => {
     return { latitude, longitude, address };
 };
 
-const assignmentIdentityIds = (complaints) => complaints.flatMap((complaint) =>
-    complaint.assignmentHistory.flatMap((entry) => [
-        entry.previous?.userId,
-        entry.next?.userId,
-        entry.changedBy?.userId,
-    ].filter(Boolean))
-);
-
-const loadAssignmentIdentityMap = async (complaints) => {
-    const ids = assignmentIdentityIds(complaints);
-    if (ids.length === 0) return new Map();
-    const users = await User.find({ _id: { $in: ids } }).select('name role isActive retiredAt');
-    return new Map(users.map((user) => [user._id.toString(), user]));
-};
-
-const shapeAssignmentSnapshot = (snapshot, identityById) => {
-    if (!snapshot) return null;
-    return safeHistoricalIdentity({
-        populatedUser: identityById.get(snapshot.userId.toString()),
-        snapshot,
-    });
-};
-
-const shapeHistoricalComplaint = (complaint, assignmentIdentityById = new Map()) => {
-    const shaped = complaint.toObject();
-    shaped.reporter = safeHistoricalIdentity({
-        populatedUser: complaint.reporter,
-        snapshot: complaint.reporterSnapshot,
-    });
-    shaped.statusHistory = complaint.statusHistory.map((entry) => {
-        const value = entry.toObject();
-        value.changedBy = safeHistoricalIdentity({
-            populatedUser: entry.changedBy,
-            snapshot: entry.changedBySnapshot,
-        });
-        delete value.changedBySnapshot;
-        return value;
-    });
-    shaped.assignmentHistory = complaint.assignmentHistory.map((entry) => {
-        const value = entry.toObject();
-        value.previous = shapeAssignmentSnapshot(entry.previous, assignmentIdentityById);
-        value.next = shapeAssignmentSnapshot(entry.next, assignmentIdentityById);
-        value.changedBy = shapeAssignmentSnapshot(entry.changedBy, assignmentIdentityById);
-        return value;
-    });
-    delete shaped.reporterSnapshot;
-    return shaped;
+// Every complaint detail response is re-read, populated, and shaped by the presenter.
+const respondWithComplaint = async (res, statusCode, complaintId, viewer) => {
+    const complaint = await Complaint.findById(complaintId).populate(COMPLAINT_POPULATE);
+    if (!complaint) throw new CustomError.NotFoundError(`No complaint found with id ${complaintId}`);
+    const identities = await loadPresentationIdentities([complaint]);
+    res.status(statusCode).json({ complaint: presentComplaint(complaint, viewer, { identities }) });
 };
 
 const createComplaint = async (req, res) => {
@@ -158,20 +124,14 @@ const createComplaint = async (req, res) => {
             throw error;
         }
 
-        await complaint.populate([
-            'category',
-            { path: 'reporter', select: 'name email role isActive retiredAt' },
-            { path: 'statusHistory.changedBy', select: 'name role isActive retiredAt' },
-        ]);
-
         emailService.sendComplaintFiledEmail({
-            to: complaint.reporter.email,
-            name: complaint.reporter.name,
+            to: reporter.email,
+            name: reporter.name,
             referenceCode: complaint.referenceCode,
             complaintId: complaint._id,
         });
 
-        res.status(StatusCodes.CREATED).json({ complaint: shapeHistoricalComplaint(complaint) });
+        await respondWithComplaint(res, StatusCodes.CREATED, complaint._id, viewerFromRequest(req));
     } finally {
         await complaintImageService.cleanupTemporaryFiles([...requestFiles, ...imageFiles]);
     }
@@ -179,9 +139,10 @@ const createComplaint = async (req, res) => {
 
 const getAllComplaints = async (req, res) => {
     const { page, limit, sort } = req.query;
+    const viewer = viewerFromRequest(req);
 
     const filter = {};
-    if (!STAFF_ROLES.includes(req.user.role)) {
+    if (!authority.isStaff(viewer)) {
         filter.reporter = req.user.userId;
     }
     if (req.query.status) filter.status = req.query.status;
@@ -199,43 +160,29 @@ const getAllComplaints = async (req, res) => {
 
     const [complaints, total] = await Promise.all([
         Complaint.find(filter)
-            .populate('category', 'name')
-            .populate('reporter', 'name role isActive retiredAt')
-            .populate('assignedTo', 'name role isActive retiredAt')
-            .populate('statusHistory.changedBy', 'name role isActive retiredAt')
+            .populate(SUMMARY_POPULATE)
             .sort({ createdAt: sort === 'oldest' ? 1 : -1 })
             .skip((page - 1) * limit)
             .limit(limit),
         Complaint.countDocuments(filter),
     ]);
 
-    const assignmentIdentityById = await loadAssignmentIdentityMap(complaints);
     res.status(StatusCodes.OK).json({
-        complaints: complaints.map((complaint) => shapeHistoricalComplaint(complaint, assignmentIdentityById)),
+        complaints: complaints.map((complaint) => presentComplaintSummary(complaint, viewer)),
         pagination: { page, limit, total, pages: Math.ceil(total / limit) },
     });
 };
 
 const getSingleComplaint = async (req, res) => {
     const complaint = await Complaint.findById(req.params.id);
-
     if (!complaint) throw new CustomError.NotFoundError(`No complaint found with id ${req.params.id}`);
 
-    const isOwner = complaint.reporter.toString() === req.user.userId;
-    if (!isOwner && !STAFF_ROLES.includes(req.user.role)) {
+    const viewer = viewerFromRequest(req);
+    if (!authority.canViewComplaint(viewer, complaint)) {
         throw new CustomError.ForbiddenError('You do not have access to this complaint');
     }
 
-    await complaint.populate([
-        'category',
-        { path: 'reporter', select: 'name role isActive retiredAt' },
-        { path: 'assignedTo', select: 'name role isActive retiredAt' },
-        { path: 'statusHistory.changedBy', select: 'name role isActive retiredAt' },
-    ]);
-
-    const assignmentIdentityById = await loadAssignmentIdentityMap([complaint]);
-
-    res.status(StatusCodes.OK).json({ complaint: shapeHistoricalComplaint(complaint, assignmentIdentityById) });
+    await respondWithComplaint(res, StatusCodes.OK, complaint._id, viewer);
 };
 
 const updateComplaint = async (req, res) => {
@@ -260,7 +207,7 @@ const updateComplaint = async (req, res) => {
     }
 
     await complaint.save();
-    res.status(StatusCodes.OK).json({ complaint });
+    await respondWithComplaint(res, StatusCodes.OK, complaint._id, viewerFromRequest(req));
 };
 
 const updateComplaintStatus = async (req, res) => {
@@ -308,12 +255,7 @@ const updateComplaintStatus = async (req, res) => {
         { _id: complaint._id, status: complaint.status, __v: complaint.__v },
         update,
         { new: true, runValidators: true }
-    ).populate([
-        'category',
-        { path: 'reporter', select: 'name email role isActive retiredAt' },
-        { path: 'assignedTo', select: 'name role isActive retiredAt' },
-        { path: 'statusHistory.changedBy', select: 'name role isActive retiredAt' },
-    ]);
+    ).populate({ path: 'reporter', select: 'name email' });
 
     if (!updated) {
         throw new CustomError.ConflictError('Complaint status changed concurrently; reload and retry');
@@ -330,8 +272,7 @@ const updateComplaintStatus = async (req, res) => {
         });
     }
 
-    const assignmentIdentityById = await loadAssignmentIdentityMap([updated]);
-    res.status(StatusCodes.OK).json({ complaint: shapeHistoricalComplaint(updated, assignmentIdentityById) });
+    await respondWithComplaint(res, StatusCodes.OK, updated._id, viewerFromRequest(req));
 };
 
 const assignComplaint = async (req, res) => {
@@ -342,26 +283,20 @@ const assignComplaint = async (req, res) => {
         assignedTo,
         reason,
     });
-    await updated.populate([
-        'category',
-        { path: 'reporter', select: 'name role isActive retiredAt' },
-        { path: 'assignedTo', select: 'name role isActive retiredAt' },
-        { path: 'statusHistory.changedBy', select: 'name role isActive retiredAt' },
-    ]);
-
-    const assignmentIdentityById = await loadAssignmentIdentityMap([updated]);
-    res.status(StatusCodes.OK).json({ complaint: shapeHistoricalComplaint(updated, assignmentIdentityById) });
+    await respondWithComplaint(res, StatusCodes.OK, updated._id, viewerFromRequest(req));
 };
 
 const deleteComplaint = async (req, res) => {
     const complaint = await Complaint.findById(req.params.id);
     if (!complaint) throw new CustomError.NotFoundError(`No complaint found with id ${req.params.id}`);
 
-    const isOwner = complaint.reporter.toString() === req.user.userId;
-    if (!isOwner && !STAFF_ROLES.includes(req.user.role)) {
+    const viewer = viewerFromRequest(req);
+    const isOwner = authority.isReporter(viewer, complaint);
+    const isStaff = authority.isStaff(viewer);
+    if (!isOwner && !isStaff) {
         throw new CustomError.ForbiddenError('You do not have access to this complaint');
     }
-    if (isOwner && !STAFF_ROLES.includes(req.user.role) && complaint.status !== 'PENDING') {
+    if (isOwner && !isStaff && complaint.status !== 'PENDING') {
         throw new CustomError.BadRequestError('This report can no longer be deleted because it is already being processed');
     }
 

@@ -33,7 +33,7 @@ describe('PATCH /api/v1/complaints/:id/assign', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.complaint.status).toBe('PENDING');
-    expect(response.body.complaint.assignedTo._id).toBe(agency.id);
+    expect(response.body.complaint.assignee.userId).toBe(agency.id);
     expect(response.body.complaint.assignmentHistory).toHaveLength(1);
     expect(response.body.complaint.assignmentHistory[0]).toMatchObject({
       type: 'ASSIGNED',
@@ -68,7 +68,7 @@ describe('PATCH /api/v1/complaints/:id/assign', () => {
     const response = await assign(adminAgent, complaint.id, { assignedTo: null, reason: 'Queue reset' });
 
     expect(response.status).toBe(200);
-    expect(response.body.complaint.assignedTo).toBeNull();
+    expect(response.body.complaint.assignee).toBeNull();
     expect(response.body.complaint.assignmentHistory.at(-1)).toMatchObject({
       type: 'UNASSIGNED',
       previous: { userId: agency.id },
