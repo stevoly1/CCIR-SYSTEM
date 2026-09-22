@@ -164,6 +164,7 @@ describe('complaint historical identity reads', () => {
 
     const created = await unsafeRequest(citizenAgent, 'post', '/api/v1/complaints').send({
       description: 'A sufficiently detailed complaint for snapshot creation',
+      address: '1 Test Street',
     });
 
     expect(created.status).toBe(201);

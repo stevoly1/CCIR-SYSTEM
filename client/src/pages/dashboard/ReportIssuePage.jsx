@@ -55,7 +55,7 @@ const ReportIssuePage = () => {
 
     const selectPrediction = (prediction) => {
         setAddress(prediction.label);
-        setCoords({ latitude: prediction.latitude, longitude: prediction.longitude });
+        setCoords({ latitude: prediction.latitude, longitude: prediction.longitude, coordinateSource: 'SUGGESTION' });
         setPredictions([]);
     };
 
@@ -68,7 +68,7 @@ const ReportIssuePage = () => {
         navigator.geolocation.getCurrentPosition(
             async (position) => {
                 const { latitude, longitude } = position.coords;
-                setCoords({ latitude, longitude });
+                setCoords({ latitude, longitude, coordinateSource: 'DEVICE' });
                 try {
                     const { data } = await axiosClient.get('/location/geocode', { params: { latitude, longitude } });
                     setAddress(data.location?.address || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
@@ -136,6 +136,7 @@ const ReportIssuePage = () => {
         if (coords) {
             formData.append('latitude', coords.latitude);
             formData.append('longitude', coords.longitude);
+            formData.append('coordinateSource', coords.coordinateSource);
         }
         images.forEach((img) => formData.append('image', img.file));
 
@@ -177,6 +178,8 @@ const ReportIssuePage = () => {
                         value={address}
                         onChange={(e) => handleAddressChange(e.target.value)}
                         autoComplete="off"
+                        required
+                        minLength={3}
                     />
                     {predictions.length > 0 && (
                         <div style={{

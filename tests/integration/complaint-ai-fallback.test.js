@@ -23,6 +23,7 @@ describe('complaint AI fallback invariant', () => {
 
       const response = await unsafeRequest(agent, 'post', '/api/v1/complaints').send({
         description: `A detailed fallback complaint for ${errorCode}`,
+        address: '1 Test Street',
         categoryId: roads.id,
       });
 
@@ -49,6 +50,7 @@ describe('complaint AI fallback invariant', () => {
 
     const response = await unsafeRequest(agent, 'post', '/api/v1/complaints').send({
       description: 'A detailed complaint with no fallback category configured',
+      address: '1 Test Street',
     });
 
     expect(response.status).toBe(500);

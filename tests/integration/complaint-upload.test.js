@@ -40,7 +40,8 @@ describe('complaint upload ordering and compensation', () => {
   });
 
   const complaintRequest = () => unsafeRequest(agent, 'post', '/api/v1/complaints')
-    .field('description', 'A detailed complaint with uploaded evidence');
+    .field('description', 'A detailed complaint with uploaded evidence')
+    .field('address', '1 Test Street');
 
   it('rejects six images before AI or cloud calls and cleans every temp file', async () => {
     const upload = vi.spyOn(uploadService, 'uploadComplaintImage');
@@ -78,7 +79,7 @@ describe('complaint upload ordering and compensation', () => {
     const response = await postMultipartAllowingEarlyResponse({
       credentials,
       path: '/api/v1/complaints',
-      fields: { description: 'A detailed complaint with uploaded evidence' },
+      fields: { description: 'A detailed complaint with uploaded evidence', address: '1 Test Street' },
       files: largePaths.map((filePath) => ({ field: 'image', path: filePath, contentType: 'image/jpeg' })),
     });
 

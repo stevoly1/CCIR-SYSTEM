@@ -1,38 +1,35 @@
 const { z } = require('zod');
 const {
-    addCoordinatePairIssue,
-    latitudeSchema,
     limitSchema,
-    longitudeSchema,
     objectIdSchema,
     pageSchema,
     searchSchema,
     sortSchema,
 } = require('./commonValidator');
+const { locationShape, refineLocation, locationObjectSchema } = require('./locationValidator');
 
 const STATUSES = ['PENDING', 'IN_REVIEW', 'IN_PROGRESS', 'RESOLVED', 'REJECTED', 'WITHDRAWN'];
 const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
-
-const locationFields = {
-    address: z.string().trim().max(500).optional(),
-    latitude: latitudeSchema.optional(),
-    longitude: longitudeSchema.optional(),
-};
 
 const createComplaintSchema = z.strictObject({
     description: z.string().trim()
         .min(10, { message: 'Description must be at least 10 characters long' })
         .max(2000, { message: 'Description must be at most 2000 characters long' }),
     categoryId: objectIdSchema.optional(),
-    ...locationFields,
-}).superRefine(addCoordinatePairIssue);
+    ...locationShape,
+}).superRefine(refineLocation);
+
+const expectedVersionSchema = z.number().int().min(0).optional();
 
 const updateComplaintSchema = z.strictObject({
     description: z.string().trim().min(10).max(2000).optional(),
-    ...locationFields,
-}).superRefine(addCoordinatePairIssue);
-
-const expectedVersionSchema = z.number().int().min(0).optional();
+    location: locationObjectSchema.optional(),
+    expectedVersion: expectedVersionSchema,
+}).superRefine((value, context) => {
+    if (value.description === undefined && value.location === undefined) {
+        context.addIssue({ code: 'custom', path: ['description'], message: 'Provide a description or a location' });
+    }
+});
 
 const updateStatusSchema = z.strictObject({
     status: z.enum(STATUSES),

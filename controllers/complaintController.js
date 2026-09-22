@@ -12,35 +12,17 @@ const {
     viewerFromRequest,
 } = require('../presenters/complaintPresenter');
 const { buildUserSnapshot } = require('../services/userSnapshotService');
+const { buildLocation } = require('../validators/locationValidator');
 const { versionFilter } = require('../services/complaintVersionGuard');
 const { staleComplaint } = require('../errors/domainErrors');
 const generateReferenceCode = require('../utils/referenceCode');
 const aiService = require('../services/aiService');
-const locationService = require('../services/locationService');
 const uploadService = require('../services/uploadService');
 const emailService = require('../services/emailService');
 const complaintImageService = require('../services/complaintImageService');
 const { assignComplaintTransaction } = require('../services/complaintAssignmentService');
 
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-// Best-effort address/coordinate resolution — a geocoding hiccup should never block a
-// citizen from filing a report, so every branch here degrades to whatever the client sent.
-const resolveLocation = async ({ latitude, longitude, address }) => {
-    try {
-        if (latitude !== undefined && longitude !== undefined) {
-            const resolvedAddress = address || (await locationService.reverseGeocode(latitude, longitude));
-            return { latitude, longitude, address: resolvedAddress || address };
-        }
-        if (address) {
-            const resolved = await locationService.geocodeAddress(address);
-            return resolved;
-        }
-    } catch (error) {
-        console.error('Location resolution failed, falling back to raw input:', error.message);
-    }
-    return { latitude, longitude, address };
-};
 
 // Every complaint detail response is re-read, populated, and shaped by the presenter.
 const respondWithComplaint = async (res, statusCode, complaintId, viewer) => {
@@ -51,7 +33,8 @@ const respondWithComplaint = async (res, statusCode, complaintId, viewer) => {
 };
 
 const createComplaint = async (req, res) => {
-    const { description, categoryId, address, latitude, longitude } = req.body;
+    const { description, categoryId } = req.body;
+    const location = buildLocation(req.body);
     const requestFiles = Object.values(req.files || {}).flatMap((value) => (
         Array.isArray(value) ? value : [value]
     ));
@@ -64,10 +47,7 @@ const createComplaint = async (req, res) => {
         }
         imageFiles = await complaintImageService.prepareComplaintImages(req.files?.image);
 
-        const [location, activeCategories] = await Promise.all([
-            resolveLocation({ latitude, longitude, address }),
-            Category.find({ isActive: true }),
-        ]);
+        const activeCategories = await Category.find({ isActive: true });
         const fallbackCategory = activeCategories.find((category) => category.name === 'Other');
         if (!fallbackCategory) {
             throw new Error('Active Other category is not configured');
@@ -198,15 +178,10 @@ const updateComplaint = async (req, res) => {
         throw new CustomError.BadRequestError('This report can no longer be edited because it is already being processed');
     }
 
-    const { description, address, latitude, longitude } = req.body;
+    // Task 13 replaces this handler with guarded, re-analysing edits.
+    const { description, location } = req.body;
     if (description) complaint.description = description;
-    if (address || latitude !== undefined || longitude !== undefined) {
-        complaint.location = await resolveLocation({
-            latitude: latitude ?? complaint.location?.latitude,
-            longitude: longitude ?? complaint.location?.longitude,
-            address: address || complaint.location?.address,
-        });
-    }
+    if (location) complaint.location = buildLocation(location);
 
     await complaint.save();
     await respondWithComplaint(res, StatusCodes.OK, complaint._id, viewerFromRequest(req));

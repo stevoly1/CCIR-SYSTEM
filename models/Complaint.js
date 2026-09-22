@@ -170,6 +170,7 @@ const complaintSchema = new mongoose.Schema(
             address: { type: String, trim: true },
             latitude: { type: Number, min: -90, max: 90 },
             longitude: { type: Number, min: -180, max: 180 },
+            coordinateSource: { type: String, enum: ['DEVICE', 'SUGGESTION'] },
         },
         category: {
             type: mongoose.Schema.Types.ObjectId,

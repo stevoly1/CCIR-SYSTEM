@@ -147,7 +147,7 @@ describe('canonical validation and error contract', () => {
     const { agent } = await createAuthenticatedAgent();
     vi.spyOn(complaintImageService, 'prepareComplaintImages').mockRejectedValueOnce(failure);
     const response = await unsafeRequest(agent, 'post', '/api/v1/complaints')
-      .send({ description: 'A sufficiently detailed complaint description' });
+      .send({ description: 'A sufficiently detailed complaint description', address: '1 Test Street' });
     expectError(response, { status, code });
     expect(JSON.stringify(response.body)).not.toMatch(/private/);
   });
