@@ -8,6 +8,7 @@ const complaintImageService = require('../../services/complaintImageService');
 const uploadService = require('../../services/uploadService');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createCategoryFixture } = require('../fixtures/category');
+const { postMultipartAllowingEarlyResponse } = require('../helpers/earlyResponseRequest');
 
 const fixture = path.join(__dirname, '..', 'fixtures', 'images', 'valid.jpg');
 const aiResult = {
@@ -21,10 +22,14 @@ const aiResult = {
 
 describe('complaint upload ordering and compensation', () => {
   let agent;
+  let credentials;
   let temporaryDirectory;
 
   beforeEach(async () => {
-    ({ agent } = await createAuthenticatedAgent({ role: 'citizen' }));
+    let user;
+    let password;
+    ({ agent, user, password } = await createAuthenticatedAgent({ role: 'citizen' }));
+    credentials = { email: user.email, password };
     await createCategoryFixture({ name: 'Other' });
     vi.spyOn(aiService, 'classifyComplaint').mockResolvedValue(aiResult);
     temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'ccir-upload-test-'));
@@ -70,10 +75,12 @@ describe('complaint upload ordering and compensation', () => {
       writer.once('finish', () => bytesWritten.push(writer.bytesWritten));
       return writer;
     });
-    let request = complaintRequest();
-    for (const filePath of largePaths) request = request.attach('image', filePath, { contentType: 'image/jpeg' });
-
-    const response = await request;
+    const response = await postMultipartAllowingEarlyResponse({
+      credentials,
+      path: '/api/v1/complaints',
+      fields: { description: 'A detailed complaint with uploaded evidence' },
+      files: largePaths.map((filePath) => ({ field: 'image', path: filePath, contentType: 'image/jpeg' })),
+    });
 
     expect(response.status).toBe(413);
     expect(aiService.classifyComplaint).not.toHaveBeenCalled();
