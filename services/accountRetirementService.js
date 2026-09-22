@@ -7,7 +7,7 @@ const {
 } = require('./accountLifecycleGuard');
 const { BadRequestError, ConflictError, ForbiddenError, NotFoundError } = require('../errors');
 
-const TERMINAL_STATUSES = new Set(['RESOLVED', 'REJECTED']);
+const TERMINAL_STATUSES = new Set(['RESOLVED', 'REJECTED', 'WITHDRAWN']);
 
 const normalizeReason = (reason) => {
   if (reason === undefined) return undefined;

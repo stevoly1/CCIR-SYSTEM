@@ -25,7 +25,7 @@ const ReportDetailPage = () => {
     const { current, detailStatus } = useSelector((state) => state.complaints);
     const isStaff = user?.role === 'admin' || user?.role === 'agency';
 
-    const [statusForm, setStatusForm] = useState({ status: '', priority: '', note: '' });
+    const [statusForm, setStatusForm] = useState({ status: '', priority: '', publicNote: '' });
     const [updating, setUpdating] = useState(false);
     const [confirmingDelete, setConfirmingDelete] = useState(false);
     const [deleting, setDeleting] = useState(false);
@@ -39,7 +39,7 @@ const ReportDetailPage = () => {
         if (current) {
             // The fetched complaint is the external source for this editable draft.
             // eslint-disable-next-line react-hooks/set-state-in-effect
-            setStatusForm({ status: current.status, priority: current.priority, note: '' });
+            setStatusForm({ status: current.status, priority: current.priority, publicNote: '' });
         }
     }, [current]);
 
@@ -171,7 +171,7 @@ const ReportDetailPage = () => {
                             <div key={entry._id} className="complaint-card" style={{ alignItems: 'flex-start' }}>
                                 <div className="complaint-info">
                                     <StatusBadge status={entry.status} />
-                                    {entry.note && <p style={{ marginTop: 8 }}>{entry.note}</p>}
+                                    {entry.publicNote && <p style={{ marginTop: 8 }}>{entry.publicNote}</p>}
                                     <div className="meta" style={{ marginTop: 6 }}>
                                         {entry.changedBy?.name && <span>{entry.changedBy.name}</span>}
                                         <span>{new Date(entry.createdAt).toLocaleString()}</span>
@@ -199,8 +199,8 @@ const ReportDetailPage = () => {
                                 </select>
                             </div>
                             <div className="field">
-                                <label htmlFor="note">Note (optional)</label>
-                                <textarea id="note" rows={3} value={statusForm.note} onChange={(e) => setStatusForm({ ...statusForm, note: e.target.value })} placeholder="e.g. Crew dispatched, expected fix by Friday" />
+                                <label htmlFor="note">Public note (visible to the reporter)</label>
+                                <textarea id="note" rows={3} value={statusForm.publicNote} onChange={(e) => setStatusForm({ ...statusForm, publicNote: e.target.value })} placeholder="e.g. Crew dispatched, expected fix by Friday" />
                             </div>
                             <button className="btn btn-primary btn-block" type="submit" disabled={updating}>
                                 {updating ? <span className="spinner" /> : 'Save update'}

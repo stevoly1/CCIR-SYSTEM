@@ -146,8 +146,9 @@ const createComplaint = async (req, res) => {
                 reporter: req.user.userId,
                 reporterSnapshot,
                 statusHistory: [{
+                    type: 'CREATED',
                     status: 'PENDING',
-                    note: 'Report submitted',
+                    publicNote: 'Report submitted',
                     changedBy: req.user.userId,
                     changedBySnapshot: reporterSnapshot,
                 }],
@@ -263,7 +264,7 @@ const updateComplaint = async (req, res) => {
 };
 
 const updateComplaintStatus = async (req, res) => {
-    const { status, note, priority } = req.body;
+    const { status, publicNote, internalNote, priority } = req.body;
 
     const [complaint, actor] = await Promise.all([
         Complaint.findById(req.params.id),
@@ -275,8 +276,10 @@ const updateComplaintStatus = async (req, res) => {
     const decision = decideTransition({
         from: complaint.status,
         to: status,
-        reason: note,
+        publicNote,
+        internalNote,
         priority,
+        currentPriority: complaint.priority,
         now: new Date(),
     });
 
@@ -322,7 +325,7 @@ const updateComplaintStatus = async (req, res) => {
             name: updated.reporter.name,
             referenceCode: updated.referenceCode,
             status: updated.status,
-            note,
+            publicNote: decision.historyEntry.publicNote,
             complaintId: updated._id,
         });
     }

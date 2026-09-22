@@ -10,7 +10,7 @@ const {
     sortSchema,
 } = require('./commonValidator');
 
-const STATUSES = ['PENDING', 'IN_REVIEW', 'IN_PROGRESS', 'RESOLVED', 'REJECTED'];
+const STATUSES = ['PENDING', 'IN_REVIEW', 'IN_PROGRESS', 'RESOLVED', 'REJECTED', 'WITHDRAWN'];
 const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
 
 const locationFields = {
@@ -34,7 +34,8 @@ const updateComplaintSchema = z.strictObject({
 
 const updateStatusSchema = z.strictObject({
     status: z.enum(STATUSES),
-    note: z.string().trim().max(500).optional(),
+    publicNote: z.string().trim().max(500).optional(),
+    internalNote: z.string().trim().max(1000).optional(),
     priority: z.enum(PRIORITIES).optional(),
 });
 

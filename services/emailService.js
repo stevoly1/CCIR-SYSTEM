@@ -60,7 +60,7 @@ const sendComplaintFiledEmail = async ({ to, name, referenceCode, complaintId })
     }
 };
 
-const sendStatusUpdateEmail = async ({ to, name, referenceCode, status, note, complaintId }) => {
+const sendStatusUpdateEmail = async ({ to, name, referenceCode, status, publicNote, complaintId }) => {
     if (!resend) return;
 
     try {
@@ -69,7 +69,7 @@ const sendStatusUpdateEmail = async ({ to, name, referenceCode, status, note, co
             `Hi ${escapeHtml(name)},`,
             `Your report <strong>${escapeHtml(referenceCode)}</strong> has been updated to: <strong>${escapeHtml(statusLabel)}</strong>.`,
         ];
-        if (note) lines.push(escapeHtml(note));
+        if (publicNote) lines.push(escapeHtml(publicNote));
 
         await resend.emails.send({
             from: process.env.EMAIL_FROM,

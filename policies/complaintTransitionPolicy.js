@@ -6,9 +6,11 @@ const ALLOWED = Object.freeze({
   IN_PROGRESS: new Set(['IN_REVIEW', 'RESOLVED', 'REJECTED']),
   RESOLVED: new Set(['IN_PROGRESS']),
   REJECTED: new Set(['PENDING']),
+  // Only the reporter's withdraw action enters WITHDRAWN; no staff transition leaves it.
+  WITHDRAWN: new Set(),
 });
 
-const REASON_REQUIRED = new Set([
+const PUBLIC_NOTE_REQUIRED = new Set([
   'IN_REVIEW>PENDING',
   'IN_PROGRESS>IN_REVIEW',
   'RESOLVED>IN_PROGRESS',
@@ -16,22 +18,24 @@ const REASON_REQUIRED = new Set([
 ]);
 const PRIORITIES = new Set(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
 
-const decideTransition = ({ from, to, reason, priority, now = new Date() }) => {
+const normaliseNote = (value, max, label) => {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') throw new BadRequestError(`${label} must be a string`);
+  const trimmed = value.trim();
+  if (trimmed.length > max) throw new BadRequestError(`${label} must be at most ${max} characters`);
+  return trimmed || undefined;
+};
+
+const decideTransition = ({ from, to, publicNote, internalNote, priority, currentPriority, now = new Date() }) => {
   if (!ALLOWED[from]?.has(to)) {
     throw new ConflictError(`Complaint cannot transition from ${from} to ${to}`);
   }
 
-  if (reason !== undefined && typeof reason !== 'string') {
-    throw new BadRequestError('Transition reason must be a string');
-  }
+  const publicText = normaliseNote(publicNote, 500, 'Public note');
+  const internalText = normaliseNote(internalNote, 1000, 'Internal note');
 
-  const normalizedReason = reason?.trim();
-  if (normalizedReason && normalizedReason.length > 500) {
-    throw new BadRequestError('Transition reason must be at most 500 characters');
-  }
-
-  if (REASON_REQUIRED.has(`${from}>${to}`) && !normalizedReason) {
-    throw new ConflictError('A reason is required for this complaint transition');
+  if (PUBLIC_NOTE_REQUIRED.has(`${from}>${to}`) && !publicText) {
+    throw new ConflictError('A public note is required for this complaint transition');
   }
 
   if (priority !== undefined && !PRIORITIES.has(priority)) {
@@ -44,16 +48,14 @@ const decideTransition = ({ from, to, reason, priority, now = new Date() }) => {
       ? 'clear'
       : 'preserve';
 
-  return {
-    status: to,
-    priority,
-    resolvedAtAction,
-    historyEntry: {
-      status: to,
-      note: normalizedReason || undefined,
-      createdAt: now,
-    },
-  };
+  const historyEntry = { type: 'STATUS_CHANGED', status: to, createdAt: now };
+  if (publicText) historyEntry.publicNote = publicText;
+  if (internalText) historyEntry.internalNote = internalText;
+  if (priority !== undefined && currentPriority !== undefined && priority !== currentPriority) {
+    historyEntry.priorityChange = { from: currentPriority, to: priority };
+  }
+
+  return { status: to, priority, resolvedAtAction, historyEntry };
 };
 
-module.exports = { decideTransition };
+module.exports = { ALLOWED, decideTransition };

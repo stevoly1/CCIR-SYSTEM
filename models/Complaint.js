@@ -1,7 +1,8 @@
 const mongoose = require('mongoose');
 const { PRIORITIES } = require('./Category');
 
-const STATUSES = ['PENDING', 'IN_REVIEW', 'IN_PROGRESS', 'RESOLVED', 'REJECTED'];
+const STATUSES = ['PENDING', 'IN_REVIEW', 'IN_PROGRESS', 'RESOLVED', 'REJECTED', 'WITHDRAWN'];
+const TIMELINE_TYPES = ['CREATED', 'STATUS_CHANGED', 'PRIORITY_CHANGED', 'WITHDRAWN'];
 const ASSIGNMENT_EVENT_TYPES = [
     'ASSIGNED',
     'REASSIGNED',
@@ -92,16 +93,40 @@ assignmentHistorySchema.pre('validate', function requireEventAuthor(next) {
     next();
 });
 
+const priorityChangeSchema = new mongoose.Schema(
+    {
+        from: { type: String, enum: PRIORITIES, required: true },
+        to: { type: String, enum: PRIORITIES, required: true },
+    },
+    { _id: false }
+);
+
 const statusHistorySchema = new mongoose.Schema(
     {
+        type: {
+            type: String,
+            enum: TIMELINE_TYPES,
+            required: true,
+            default: 'STATUS_CHANGED',
+        },
         status: {
             type: String,
             enum: STATUSES,
             required: true,
         },
-        note: {
+        priorityChange: {
+            type: priorityChangeSchema,
+            default: undefined,
+        },
+        publicNote: {
             type: String,
             trim: true,
+            maxlength: 500,
+        },
+        internalNote: {
+            type: String,
+            trim: true,
+            maxlength: 1000,
         },
         changedBy: {
             type: mongoose.Schema.Types.ObjectId,
@@ -207,3 +232,4 @@ complaintSchema.index({ status: 1, priority: 1 });
 module.exports = mongoose.model('Complaint', complaintSchema);
 module.exports.STATUSES = STATUSES;
 module.exports.ASSIGNMENT_EVENT_TYPES = ASSIGNMENT_EVENT_TYPES;
+module.exports.TIMELINE_TYPES = TIMELINE_TYPES;
