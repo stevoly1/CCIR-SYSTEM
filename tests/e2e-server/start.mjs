@@ -21,6 +21,10 @@ Object.assign(process.env, {
   AUTH_THROTTLE_HMAC_SECRET: 'e2e-auth-throttle-secret',
 });
 
+// Real provider credentials from a developer shell must never reach the journeys: without a
+// key the email service is a no-op. Read at module load, so cleared before anything requires it.
+delete process.env.RESEND_API_KEY;
+
 const mongoose = require('mongoose');
 const { MongoMemoryReplSet } = require('mongodb-memory-server');
 
