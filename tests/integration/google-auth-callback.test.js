@@ -1,6 +1,6 @@
 const signature = require('cookie-signature');
 const request = require('supertest');
-const app = require('../../app');
+const { testServer } = require('../helpers/testServer');
 const { RefreshToken, User } = require('../../models');
 const googleOAuthService = require('../../services/googleOAuthService');
 const { establishGoogleIdentitySession } = require('../../services/googleIdentityService');
@@ -55,7 +55,7 @@ describe('Google authentication callback', () => {
 
   it('creates a new account only from a verified unused identity', async () => {
     vi.spyOn(googleOAuthService, 'exchangeCodeForProfile').mockResolvedValue(successProfile());
-    const agent = request.agent(app);
+    const agent = request.agent(testServer());
     const { state } = await beginGoogle(agent);
 
     const response = await callback(agent, state);
@@ -80,7 +80,7 @@ describe('Google authentication callback', () => {
     vi.spyOn(googleOAuthService, 'exchangeCodeForProfile').mockResolvedValue(successProfile({
       email: 'new@example.test',
     }));
-    const agent = request.agent(app);
+    const agent = request.agent(testServer());
     const { state } = await beginGoogle(agent);
 
     const response = await callback(agent, state);
@@ -159,7 +159,7 @@ describe('Google authentication callback', () => {
   ])('fails generically without linking or sessions for %s', async (_label, arrange) => {
     await arrange();
     vi.spyOn(googleOAuthService, 'exchangeCodeForProfile').mockResolvedValue(successProfile());
-    const agent = request.agent(app);
+    const agent = request.agent(testServer());
     const { state } = await beginGoogle(agent);
 
     const response = await callback(agent, state);
@@ -175,7 +175,7 @@ describe('Google authentication callback', () => {
     ['missing subject', { googleId: undefined }],
   ])('rejects provider profile with %s without issuing sessions', async (_label, override) => {
     vi.spyOn(googleOAuthService, 'exchangeCodeForProfile').mockResolvedValue(successProfile(override));
-    const agent = request.agent(app);
+    const agent = request.agent(testServer());
     const { state } = await beginGoogle(agent);
 
     const response = await callback(agent, state);
@@ -193,14 +193,14 @@ describe('Google authentication callback', () => {
     }],
     ['expired state', async (agent) => {
       const state = '0123456789abcdef0123456789abcdef';
-      return request(app)
+      return request(testServer())
         .get('/api/v1/auth/google/callback')
         .set('Cookie', signedStateCookie(state, Date.now() - (6 * 60 * 1000)))
         .query({ code: 'code', state });
     }],
   ])('rejects %s before calling the provider', async (_label, invoke) => {
     const exchange = vi.spyOn(googleOAuthService, 'exchangeCodeForProfile');
-    const response = await invoke(request.agent(app));
+    const response = await invoke(request.agent(testServer()));
 
     expect(response.headers.location).toBe(`${process.env.BROWSER_ORIGIN}/login?error=google_auth_failed`);
     expect(exchange).not.toHaveBeenCalled();
@@ -209,7 +209,7 @@ describe('Google authentication callback', () => {
 
   it('makes state single-use and rejects replay without issuing another session', async () => {
     vi.spyOn(googleOAuthService, 'exchangeCodeForProfile').mockResolvedValue(successProfile());
-    const agent = request.agent(app);
+    const agent = request.agent(testServer());
     const { state } = await beginGoogle(agent);
     const first = await callback(agent, state);
     const replay = await callback(agent, state);
@@ -222,11 +222,11 @@ describe('Google authentication callback', () => {
   it('allows only one concurrent callback to consume the same state', async () => {
     const exchange = vi.spyOn(googleOAuthService, 'exchangeCodeForProfile')
       .mockResolvedValue(successProfile());
-    const agent = request.agent(app);
+    const agent = request.agent(testServer());
     const { response: authorization, state } = await beginGoogle(agent);
     const oauthCookie = authorization.headers['set-cookie'].find((header) => header.startsWith('oauthState='));
 
-    const invoke = () => request(app)
+    const invoke = () => request(testServer())
       .get('/api/v1/auth/google/callback')
       .set('Cookie', oauthCookie)
       .query({ code: 'authorization-code', state });
@@ -242,7 +242,7 @@ describe('Google authentication callback', () => {
   it('uses one generic redirect and stable log code for provider failure', async () => {
     vi.spyOn(googleOAuthService, 'exchangeCodeForProfile').mockRejectedValue(new Error('secret provider body'));
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const agent = request.agent(app);
+    const agent = request.agent(testServer());
     const { state } = await beginGoogle(agent);
 
     const response = await callback(agent, state);

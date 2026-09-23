@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 const signature = require('cookie-signature');
 const request = require('supertest');
-const app = require('../../app');
+const { testServer } = require('../helpers/testServer');
 const { RefreshToken, User } = require('../../models');
 const { retireAccount } = require('../../services/accountRetirementService');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
@@ -14,7 +14,7 @@ const cookieValue = (response, name) => {
 };
 
 const loginWithoutAgent = async (user, password = 'fixture-password') => unsafeRequest(
-  request(app),
+  request(testServer()),
   'post',
   '/api/v1/auth/login',
 ).send({ email: user.email, password });
@@ -70,7 +70,7 @@ describe('current persisted user authority', () => {
   it('uses the same public login failure for inactive and invalid accounts', async () => {
     const inactive = await createUserFixture({ isActive: false });
     const inactiveResponse = await loginWithoutAgent(inactive);
-    const invalidResponse = await unsafeRequest(request(app), 'post', '/api/v1/auth/login').send({
+    const invalidResponse = await unsafeRequest(request(testServer()), 'post', '/api/v1/auth/login').send({
       email: 'missing-user@example.test',
       password: 'fixture-password',
     });
@@ -86,7 +86,7 @@ describe('current persisted user authority', () => {
     const refreshCookie = cookieValue(login, 'refreshToken');
     await RefreshToken.updateOne({}, { $set: { user: otherUser._id } });
 
-    const response = await request(app)
+    const response = await request(testServer())
       .get('/api/v1/users/profile')
       .set('Cookie', refreshCookie);
 
@@ -98,7 +98,7 @@ describe('current persisted user authority', () => {
     const login = await loginWithoutAgent(owner);
     const refreshCookie = cookieValue(login, 'refreshToken');
 
-    const response = await request(app)
+    const response = await request(testServer())
       .get('/api/v1/users/profile')
       .set('Cookie', refreshCookie);
 
@@ -117,7 +117,7 @@ describe('current persisted user authority', () => {
     const refreshCookie = cookieValue(login, 'refreshToken');
     await mutateSession(owner);
 
-    const response = await request(app)
+    const response = await request(testServer())
       .get('/api/v1/users/profile')
       .set('Cookie', refreshCookie);
 

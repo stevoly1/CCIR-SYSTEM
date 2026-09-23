@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const request = require('supertest');
-const app = require('../../app');
+const { testServer } = require('../helpers/testServer');
 const { Category } = require('../../models');
 const complaintImageService = require('../../services/complaintImageService');
 const CustomError = require('../../errors');
@@ -28,7 +28,7 @@ const expectError = (response, { status, code, path, message }) => {
 
 describe('canonical validation and error contract', () => {
   it.each([
-    ['unknown login body field', async () => unsafeRequest(request(app), 'post', '/api/v1/auth/login')
+    ['unknown login body field', async () => unsafeRequest(request(testServer()), 'post', '/api/v1/auth/login')
       .send({ email: 'person@example.test', password: 'valid-password', role: 'admin' }), 'body.role'],
     ['invalid category id', async () => {
       const { agent } = await createAuthenticatedAgent();
@@ -94,7 +94,7 @@ describe('canonical validation and error contract', () => {
   });
 
   it('maps malformed JSON without echoing parser input', async () => {
-    const response = await unsafeRequest(request(app), 'post', '/api/v1/auth/login')
+    const response = await unsafeRequest(request(testServer()), 'post', '/api/v1/auth/login')
       .set('Content-Type', 'application/json')
       .send('{"email":"person@example.test",');
     expectError(response, { status: 400, code: 'VALIDATION_ERROR', path: 'body', message: 'Request validation failed' });
@@ -115,7 +115,7 @@ describe('canonical validation and error contract', () => {
 
   it('uses the same conflict class for a duplicate found before persistence', async () => {
     const existing = await createUserFixture();
-    const response = await unsafeRequest(request(app), 'post', '/api/v1/auth/signup').send({
+    const response = await unsafeRequest(request(testServer()), 'post', '/api/v1/auth/signup').send({
       name: 'Duplicate Person',
       email: existing.email,
       password: 'valid-password',
@@ -154,7 +154,7 @@ describe('canonical validation and error contract', () => {
   it('returns a stable throttling envelope', async () => {
     let response;
     for (let attempt = 0; attempt < 6; attempt += 1) {
-      response = await unsafeRequest(request(app), 'post', '/api/v1/auth/login').send({
+      response = await unsafeRequest(request(testServer()), 'post', '/api/v1/auth/login').send({
         email: 'rate-contract@example.test',
         password: 'valid-password',
       });

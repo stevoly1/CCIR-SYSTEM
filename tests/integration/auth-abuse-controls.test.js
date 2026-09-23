@@ -1,4 +1,5 @@
 const request = require('supertest');
+const { testServer } = require('../helpers/testServer');
 const app = require('../../app');
 const { AuthThrottle } = require('../../models');
 const { createThrottleService } = require('../../services/authThrottleService');
@@ -6,13 +7,13 @@ const { createUserFixture } = require('../fixtures/user');
 const { unsafeRequest } = require('../helpers/auth');
 
 const login = (email, password = 'wrong-password', forwardedFor) => {
-  let test = unsafeRequest(request(app), 'post', '/api/v1/auth/login');
+  let test = unsafeRequest(request(testServer()), 'post', '/api/v1/auth/login');
   if (forwardedFor) test = test.set('X-Forwarded-For', forwardedFor);
   return test.send({ email, password });
 };
 
 const refresh = (rawCookie, forwardedFor) => {
-  let test = request(app).get('/api/v1/users/profile').set('Cookie', `refreshToken=${rawCookie}`);
+  let test = request(testServer()).get('/api/v1/users/profile').set('Cookie', `refreshToken=${rawCookie}`);
   if (forwardedFor) test = test.set('X-Forwarded-For', forwardedFor);
   return test;
 };
@@ -87,7 +88,7 @@ describe('distributed authentication abuse controls', () => {
       await throttle.consume('refresh-token', fingerprintSubject, { limit: 10, windowMs: 15 * 60 * 1000 });
     }
 
-    const response = await request(app)
+    const response = await request(testServer())
       .get('/api/v1/users/profile')
       .set('Cookie', refreshHeader);
 

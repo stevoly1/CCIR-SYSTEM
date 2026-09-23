@@ -1,5 +1,5 @@
 const request = require('supertest');
-const app = require('../../app');
+const { testServer } = require('./testServer');
 const { createUserFixture } = require('../fixtures/user');
 
 const unsafeRequest = (agent, method, path) => agent[method](path)
@@ -8,7 +8,7 @@ const unsafeRequest = (agent, method, path) => agent[method](path)
 const createAuthenticatedAgent = async ({ role = 'citizen', isActive = true, ...overrides } = {}) => {
   const password = overrides.password || 'fixture-password';
   const user = await createUserFixture({ role, isActive, ...overrides, password });
-  const agent = request.agent(app);
+  const agent = request.agent(testServer());
   const response = await unsafeRequest(agent, 'post', '/api/v1/auth/login')
     .send({ email: user.email, password });
 

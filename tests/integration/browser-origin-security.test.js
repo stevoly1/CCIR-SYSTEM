@@ -1,5 +1,5 @@
 const request = require('supertest');
-const app = require('../../app');
+const { testServer } = require('../helpers/testServer');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createUserFixture } = require('../fixtures/user');
 
@@ -7,11 +7,11 @@ const cookieAttributes = (header) => header.split(';').slice(1).map((part) => pa
 
 describe('browser origin security', () => {
   it('rejects unsafe requests with a missing or disallowed origin', async () => {
-    const missing = await request(app).post('/api/v1/auth/login').send({
+    const missing = await request(testServer()).post('/api/v1/auth/login').send({
       email: 'nobody@example.com',
       password: 'irrelevant-password',
     });
-    const disallowed = await request(app)
+    const disallowed = await request(testServer())
       .post('/api/v1/auth/login')
       .set('Origin', 'http://localhost:51730')
       .set('X-Forwarded-Host', 'localhost:3000')
@@ -23,10 +23,10 @@ describe('browser origin security', () => {
   });
 
   it('emits credentialed CORS headers only for the exact configured origin', async () => {
-    const allowed = await request(app)
+    const allowed = await request(testServer())
       .get('/api/v1/health')
       .set('Origin', process.env.BROWSER_ORIGIN);
-    const disallowed = await request(app)
+    const disallowed = await request(testServer())
       .get('/api/v1/health')
       .set('Origin', 'http://localhost:51730');
 
@@ -38,7 +38,7 @@ describe('browser origin security', () => {
   });
 
   it('allows exact-origin preflight without treating OPTIONS as a state change', async () => {
-    const response = await request(app)
+    const response = await request(testServer())
       .options('/api/v1/complaints')
       .set('Origin', process.env.BROWSER_ORIGIN)
       .set('Access-Control-Request-Method', 'POST');
@@ -49,8 +49,8 @@ describe('browser origin security', () => {
   });
 
   it('allows safe reads and the state-protected Google callback without Origin', async () => {
-    const health = await request(app).get('/api/v1/health');
-    const callback = await request(app).get('/api/v1/auth/google/callback');
+    const health = await request(testServer()).get('/api/v1/health');
+    const callback = await request(testServer()).get('/api/v1/auth/google/callback');
 
     expect(health.status).toBe(200);
     expect(callback.status).toBe(302);
@@ -59,7 +59,7 @@ describe('browser origin security', () => {
   it('issues signed HttpOnly Lax cookies and clears them with matching attributes', async () => {
     const password = 'origin-test-password';
     const user = await createUserFixture({ password });
-    const agent = request.agent(app);
+    const agent = request.agent(testServer());
     const login = await unsafeRequest(agent, 'post', '/api/v1/auth/login')
       .send({ email: user.email, password });
 
