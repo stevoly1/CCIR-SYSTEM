@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import ComplaintCard from './ComplaintCard';
 
-vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn() }));
+vi.mock('react-router', () => ({ useNavigate: () => vi.fn() }));
 
 const summary = {
     _id: 'c1', referenceCode: 'CCIR-1', status: 'PENDING', priority: 'HIGH', description: 'Pothole',

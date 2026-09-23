@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter } from 'react-router';
 import ReportsListPage from './ReportsListPage';
 import { fetchComplaints } from '../../slices/complaintSlice';
 

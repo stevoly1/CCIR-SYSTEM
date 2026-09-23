@@ -1,5 +1,5 @@
 import { useSelector } from 'react-redux';
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate, Outlet } from 'react-router';
 
 const ProtectedRoute = () => {
     const { user, authChecked } = useSelector((state) => state.auth);

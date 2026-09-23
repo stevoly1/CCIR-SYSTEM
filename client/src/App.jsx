@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router';
 import { useDispatch } from 'react-redux';
 import { Toaster } from 'react-hot-toast';
 

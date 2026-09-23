@@ -1,5 +1,5 @@
 import {} from 'react';
-import { Link, NavLink, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useNavigate } from 'react-router';
 import { Home, PlusCircle, FileText, Users, Tags, Settings, LogOut, X } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import { logout } from '../slices/authSlice';

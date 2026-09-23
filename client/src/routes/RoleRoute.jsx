@@ -1,5 +1,5 @@
 import { useSelector } from 'react-redux';
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate, Outlet } from 'react-router';
 
 const RoleRoute = ({ roles }) => {
     const { user } = useSelector((state) => state.auth);

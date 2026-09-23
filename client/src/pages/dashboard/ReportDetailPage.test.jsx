@@ -3,7 +3,7 @@ import ReportDetailPage from './ReportDetailPage';
 
 let state;
 vi.mock('react-redux', () => ({ useDispatch: () => vi.fn(), useSelector: (select) => select(state) }));
-vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn(), useParams: () => ({ id: 'c1' }) }));
+vi.mock('react-router', () => ({ useNavigate: () => vi.fn(), useParams: () => ({ id: 'c1' }) }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('../../components/Topbar', () => ({ default: ({ title }) => <h1>{title}</h1> }));
 vi.mock('../../slices/complaintSlice', () => ({

@@ -7,7 +7,7 @@ vi.mock('react-redux', () => ({
     useDispatch: () => vi.fn(),
     useSelector: () => ({ createStatus: 'idle', error: null }),
 }));
-vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn() }));
+vi.mock('react-router', () => ({ useNavigate: () => vi.fn() }));
 vi.mock('react-hot-toast', () => ({
     default: { error: vi.fn(), success: vi.fn() },
 }));

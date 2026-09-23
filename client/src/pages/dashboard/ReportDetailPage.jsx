@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router';
 import { ArrowLeft } from 'lucide-react';
 import Topbar from '../../components/Topbar';
 import StatusBadge from '../../components/StatusBadge';

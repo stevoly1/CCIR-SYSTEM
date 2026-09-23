@@ -1,5 +1,5 @@
 import {} from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { Menu } from 'lucide-react';
 import ccirLogo from '../assets/images/CCIR LOGO.svg';
 

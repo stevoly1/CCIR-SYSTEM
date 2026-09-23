@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router';
 import { Search } from 'lucide-react';
 import Topbar from '../../components/Topbar';
 import ComplaintCard from '../../components/ComplaintCard';
