@@ -14,7 +14,7 @@ const {
 const { buildUserSnapshot } = require('../services/userSnapshotService');
 const { buildLocation } = require('../validators/locationValidator');
 const { chooseCategory } = require('../policies/complaintCategoryPolicy');
-const { categoryInactive } = require('../errors/domainErrors');
+const { categoryInactive, complaintWithdrawn } = require('../errors/domainErrors');
 const { versionFilter } = require('../services/complaintVersionGuard');
 const { notAssignedToYou, staleComplaint } = require('../errors/domainErrors');
 const generateReferenceCode = require('../utils/referenceCode');
@@ -206,6 +206,9 @@ const updateComplaintStatus = async (req, res) => {
     if (!complaint) throw new CustomError.NotFoundError(`No complaint found with id ${req.params.id}`);
     if (!actor) throw new CustomError.UnauthenticatedError('Not authenticated');
     if (!authority.canManageStatus(viewer, complaint)) throw notAssignedToYou();
+    // A priority-only change must honour the same rule the presenter reports; the status
+    // pinned in the write filter below still catches a withdrawal that races this request.
+    if (status === undefined && !authority.canChangePriority(viewer, complaint)) throw complaintWithdrawn();
     const matchVersion = versionFilter(complaint, expectedVersion);
     const now = new Date();
 

@@ -91,6 +91,21 @@ describe('POST /api/v1/complaints/:id/withdraw', () => {
     expect(staffView.body.complaint).toMatchObject({ allowedTransitions: [], canAssign: false, canChangePriority: false });
   });
 
+  // The endpoint must enforce the same canChangePriority the presenter reports as false.
+  it('refuses a priority-only change afterwards, keeping WITHDRAWN the last timeline entry', async () => {
+    const complaint = await createComplaintFixture({ reporter: user, priority: 'LOW' });
+    await withdraw(complaint);
+    const { agent: admin } = await createAuthenticatedAgent({ role: 'admin' });
+    const priority = await unsafeRequest(admin, 'patch', `/api/v1/complaints/${complaint.id}/status`).send({ priority: 'HIGH' });
+    expect(priority.status).toBe(409);
+    expect(priority.body.error.code).toBe('COMPLAINT_WITHDRAWN');
+    const stored = await Complaint.findById(complaint.id);
+    expect(stored.priority).toBe('LOW');
+    expect(stored.statusHistory.at(-1).type).toBe('WITHDRAWN');
+    const retry = await withdraw(complaint);
+    expect(retry.status).toBe(200);
+  });
+
   it('shows the withdrawal in the owner timeline', async () => {
     const complaint = await createComplaintFixture({ reporter: user });
     await withdraw(complaint, { reason: 'Already fixed' });
