@@ -43,7 +43,8 @@ const scrubFields = (value, depth = 0) => {
 const serializeError = (err) => {
   if (!err || typeof err !== 'object') return err;
   return {
-    type: err.name || 'Error',
+    // `type` covers errors already shaped by pino's standard serializer (pino-http wraps ours).
+    type: err.name || err.type || 'Error',
     message: scrubSecrets(String(err.message ?? '')),
     ...(typeof err.code === 'string' || typeof err.code === 'number' ? { code: err.code } : {}),
     ...(err.stack ? { stack: scrubSecrets(err.stack) } : {}),

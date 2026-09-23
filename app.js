@@ -3,19 +3,20 @@ const express = require('express');
 const path = require('path');
 const { rateLimit } = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
-const morgan = require('morgan');
 const helmet = require('helmet');
 const compression = require('compression');
 const cors = require('cors');
 const { getBrowserSecurityConfig } = require('./config/browserSecurity');
 const requireApprovedOrigin = require('./middleware/originGuard');
 const multipartUpload = require('./middleware/multipartUpload');
+const { requestLogger } = require('./middleware/requestLogger');
 
 const browserSecurity = getBrowserSecurityConfig(process.env);
 
 // Express app and server initialization
 const app = express();
 app.set('trust proxy', browserSecurity.trustProxy === 0 ? false : browserSecurity.trustProxy);
+app.use(requestLogger);
 
 // Rate limit setup
 const limiter = rateLimit({
@@ -47,7 +48,6 @@ app.use(multipartUpload);
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser(process.env.COOKIE));
-app.use(morgan('tiny'));
 
 // Importing and using routers
 const AuthRouter = require('./routes/authRoute');

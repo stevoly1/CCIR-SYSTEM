@@ -73,6 +73,7 @@ describe('browser security configuration', () => {
     await expect(corsDecision(corsOptions, 'http://localhost:5173')).resolves.toEqual({ error: null, allowed: true });
     await expect(corsDecision(corsOptions, 'http://localhost:51730')).resolves.toEqual({ error: null, allowed: false });
     expect(corsOptions.credentials).toBe(true);
+    expect(corsOptions.exposedHeaders).toEqual(['X-Request-Id']);
   });
 
   it.each(['POST', 'PUT', 'PATCH', 'DELETE'])('guards unsafe %s requests with exact origin equality', (method) => {

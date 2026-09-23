@@ -66,6 +66,7 @@ const getBrowserSecurityConfig = (env = process.env) => {
     cookieOptions,
     corsOptions: {
       credentials: true,
+      exposedHeaders: ['X-Request-Id'],
       origin(origin, callback) {
         callback(null, !origin || origin === browserOrigin);
       },
