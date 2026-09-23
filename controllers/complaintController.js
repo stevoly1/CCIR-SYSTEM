@@ -131,6 +131,10 @@ const createComplaint = async (req, res) => {
 const getAllComplaints = async (req, res) => {
     const { page, limit, sort } = req.query;
     const viewer = viewerFromRequest(req);
+    // Citizens may not probe which staff member handles their complaints.
+    if (req.query.assignedTo && !authority.isStaff(viewer)) {
+        throw new CustomError.ForbiddenError('You do not have permission to filter by assignee');
+    }
 
     const filter = {};
     if (!authority.isStaff(viewer)) {

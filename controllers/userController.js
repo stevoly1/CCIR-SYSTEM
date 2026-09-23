@@ -103,7 +103,20 @@ const logout = async (req, res) => {
     res.status(StatusCodes.OK).json({ msg: 'Logged out' });
 };
 
+// Assignment targets for administrators: active, non-retired agency users only, as
+// contact-free identities, so the picker cannot offer a target the policy would reject.
+const listAssignableUsers = async (req, res) => {
+    const users = await User.find({ role: 'agency', isActive: true, retiredAt: null })
+        .sort({ name: 1 })
+        .limit(200)
+        .select('name');
+    res.status(StatusCodes.OK).json({
+        users: users.map((user) => ({ userId: user._id, displayName: user.name })),
+    });
+};
+
 module.exports = {
+    listAssignableUsers,
     getProfile,
     updateProfile,
     deleteProfile,

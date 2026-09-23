@@ -4,6 +4,7 @@ const {
     updateProfile,
     deleteProfile,
     listAllUsers,
+    listAssignableUsers,
     updateUser,
     deleteUser,
     logout
@@ -17,6 +18,7 @@ const { emptyQuerySchema, idParamsSchema, retirementBodySchema } = require('../v
 
 
 UserRouter.route("/").get(authentication, restrictTo('admin'), validate({ query: userListQuerySchema }), listAllUsers);
+UserRouter.route("/assignable").get(authentication, restrictTo('admin'), validate({ query: emptyQuerySchema }), listAssignableUsers);
 UserRouter.route("/profile").get(authentication, validate({ query: emptyQuerySchema }), getProfile)
 .patch(authentication, validate({ body: updateProfileSchema, query: emptyQuerySchema }), updateProfile)
 .delete(authentication, validate({ body: retirementBodySchema, query: emptyQuerySchema }), deleteProfile);
