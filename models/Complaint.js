@@ -177,6 +177,11 @@ const complaintSchema = new mongoose.Schema(
             ref: 'Category',
             required: true,
         },
+        // The category as filed, so renames and deletions never rewrite history.
+        categorySnapshot: {
+            categoryId: { type: mongoose.Schema.Types.ObjectId },
+            name: { type: String, trim: true },
+        },
         status: {
             type: String,
             enum: STATUSES,

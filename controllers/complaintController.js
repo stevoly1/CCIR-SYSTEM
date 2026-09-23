@@ -13,6 +13,8 @@ const {
 } = require('../presenters/complaintPresenter');
 const { buildUserSnapshot } = require('../services/userSnapshotService');
 const { buildLocation } = require('../validators/locationValidator');
+const { chooseCategory } = require('../policies/complaintCategoryPolicy');
+const { categoryInactive } = require('../errors/domainErrors');
 const { versionFilter } = require('../services/complaintVersionGuard');
 const { staleComplaint } = require('../errors/domainErrors');
 const generateReferenceCode = require('../utils/referenceCode');
@@ -41,6 +43,14 @@ const createComplaint = async (req, res) => {
 
     let imageFiles = [];
     try {
+        // A client category hint must name an existing, active category; checked before
+        // any image work or provider call so a rejected hint costs nothing.
+        let hint = null;
+        if (categoryId) {
+            hint = await Category.findOne({ _id: categoryId, isActive: true });
+            if (!hint) throw categoryInactive();
+        }
+
         const unexpectedFields = Object.keys(req.files || {}).filter((field) => field !== 'image');
         if (unexpectedFields.length > 0) {
             throw new CustomError.UnsupportedMediaTypeError('Only the image upload field is supported');
@@ -60,14 +70,7 @@ const createComplaint = async (req, res) => {
             categoryNames: activeCategories.map((c) => c.name),
         });
 
-        let category = ai.error ? fallbackCategory : null;
-        if (!category && categoryId) {
-            category = await Category.findById(categoryId);
-        }
-        if (!category) {
-            category = activeCategories.find((c) => c.name.toLowerCase() === ai.category?.toLowerCase());
-        }
-        if (!category) category = fallbackCategory;
+        const category = chooseCategory({ ai, activeCategories, hint });
 
         const reporter = await User.findById(req.user.userId);
         if (!reporter) throw new CustomError.UnauthenticatedError('Not authenticated');
@@ -82,6 +85,7 @@ const createComplaint = async (req, res) => {
                 images,
                 location,
                 category: category._id,
+                categorySnapshot: { categoryId: category._id, name: category.name },
                 priority: ai.error ? category.defaultPriority : ai.priority,
                 ai: {
                     suggestedCategory: ai.category,
