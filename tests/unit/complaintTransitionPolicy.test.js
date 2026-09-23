@@ -1,5 +1,5 @@
 const { ConflictError, BadRequestError } = require('../../errors');
-const { decideTransition } = require('../../policies/complaintTransitionPolicy');
+const { decideTransition, decidePriorityChange } = require('../../policies/complaintTransitionPolicy');
 
 describe('complaint transition policy', () => {
   const STATUSES = ['PENDING', 'IN_REVIEW', 'IN_PROGRESS', 'RESOLVED', 'REJECTED', 'WITHDRAWN'];
@@ -20,6 +20,9 @@ describe('complaint transition policy', () => {
     'IN_PROGRESS>IN_REVIEW',
     'RESOLVED>IN_PROGRESS',
     'REJECTED>PENDING',
+    'PENDING>REJECTED',
+    'IN_REVIEW>REJECTED',
+    'IN_PROGRESS>REJECTED',
   ]);
   const now = new Date('2026-09-20T01:00:00.000Z');
 
@@ -107,6 +110,26 @@ describe('complaint transition policy', () => {
     ['PENDING', 'UNKNOWN'],
   ])('rejects an unknown transition endpoint %s -> %s', (from, to) => {
     expect(() => decideTransition({ from, to, publicNote: 'Nope', now })).toThrow(ConflictError);
+  });
+
+  it('records a priority-only change with optional notes', () => {
+    expect(decidePriorityChange({ status: 'IN_REVIEW', currentPriority: 'LOW', priority: 'HIGH', internalNote: ' ops ', now })).toEqual({
+      priority: 'HIGH',
+      historyEntry: {
+        type: 'PRIORITY_CHANGED',
+        status: 'IN_REVIEW',
+        priorityChange: { from: 'LOW', to: 'HIGH' },
+        internalNote: 'ops',
+        createdAt: now,
+      },
+    });
+  });
+
+  it('refuses a priority-only no-op and an invalid priority', () => {
+    expect(() => decidePriorityChange({ status: 'IN_REVIEW', currentPriority: 'LOW', priority: 'LOW', now }))
+      .toThrow(expect.objectContaining({ code: 'NO_CHANGE' }));
+    expect(() => decidePriorityChange({ status: 'IN_REVIEW', currentPriority: 'LOW', priority: 'URGENT', now }))
+      .toThrow(BadRequestError);
   });
 
   it('never allows staff transitions into or out of WITHDRAWN', () => {

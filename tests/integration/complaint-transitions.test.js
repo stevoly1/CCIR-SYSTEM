@@ -22,6 +22,7 @@ describe('PATCH /api/v1/complaints/:id/status', () => {
     const { agent, user } = await createAuthenticatedAgent({ role: 'agency' });
     const complaint = await createComplaintFixture({
       status,
+      assignedTo: user._id,
       resolvedAt: status === 'RESOLVED' ? new Date('2026-09-19T00:00:00.000Z') : undefined,
       statusHistory: [{ status, publicNote: 'Fixture starting state', changedBy: user._id }],
     });
@@ -44,6 +45,9 @@ describe('PATCH /api/v1/complaints/:id/status', () => {
     ['IN_PROGRESS', 'IN_REVIEW'],
     ['RESOLVED', 'IN_PROGRESS'],
     ['REJECTED', 'PENDING'],
+    ['PENDING', 'REJECTED'],
+    ['IN_REVIEW', 'REJECTED'],
+    ['IN_PROGRESS', 'REJECTED'],
   ])('requires a reason for %s -> %s without mutating', async (from, to) => {
     const { agent, complaint, path } = await setup(from);
     const originalVersion = complaint.__v;
@@ -171,7 +175,7 @@ describe('PATCH /api/v1/complaints/:id/status', () => {
     const { agent, complaint, path } = await setup('PENDING');
     const [a, b] = await Promise.all([
       unsafeRequest(agent, 'patch', path).send({ status: 'IN_REVIEW' }),
-      unsafeRequest(agent, 'patch', path).send({ status: 'REJECTED' }),
+      unsafeRequest(agent, 'patch', path).send({ status: 'REJECTED', publicNote: 'Duplicate report' }),
     ]);
 
     expect([a.status, b.status].sort()).toEqual([200, 409]);

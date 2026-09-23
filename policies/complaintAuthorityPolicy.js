@@ -8,8 +8,9 @@ const isStaff = (viewer) => STAFF_ROLES.has(viewer?.role);
 const isReporter = (viewer, complaint) => Boolean(viewer) && idString(complaint.reporter) === String(viewer.userId);
 const canViewComplaint = (viewer, complaint) => isStaff(viewer) || isReporter(viewer, complaint);
 
-// Task 17 narrows agency authority to the current assignee.
-const canManageStatus = (viewer) => isStaff(viewer);
+// Administrators act on any complaint; agency staff only on complaints assigned to them.
+const canManageStatus = (viewer, complaint) => viewer?.role === 'admin'
+  || (viewer?.role === 'agency' && idString(complaint.assignedTo) === String(viewer.userId));
 const allowedTransitions = (viewer, complaint) => (
   canManageStatus(viewer, complaint) ? [...(ALLOWED[complaint.status] ?? [])] : []
 );

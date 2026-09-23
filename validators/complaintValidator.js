@@ -44,11 +44,15 @@ const updateComplaintSchema = z.strictObject({
 });
 
 const updateStatusSchema = z.strictObject({
-    status: z.enum(STATUSES),
+    status: z.enum(STATUSES).optional(),
     publicNote: z.string().trim().max(500).optional(),
     internalNote: z.string().trim().max(1000).optional(),
     priority: z.enum(PRIORITIES).optional(),
     expectedVersion: expectedVersionSchema,
+}).superRefine((value, context) => {
+    if (value.status === undefined && value.priority === undefined) {
+        context.addIssue({ code: 'custom', path: ['status'], message: 'Provide a status or a priority' });
+    }
 });
 
 const assignComplaintSchema = z.strictObject({

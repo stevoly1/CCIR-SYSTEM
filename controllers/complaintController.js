@@ -1,7 +1,7 @@
 const { StatusCodes } = require('http-status-codes');
 const { Complaint, Category, User } = require('../models');
 const CustomError = require('../errors');
-const { decideTransition } = require('../policies/complaintTransitionPolicy');
+const { decideTransition, decidePriorityChange } = require('../policies/complaintTransitionPolicy');
 const authority = require('../policies/complaintAuthorityPolicy');
 const {
     COMPLAINT_POPULATE,
@@ -16,7 +16,7 @@ const { buildLocation } = require('../validators/locationValidator');
 const { chooseCategory } = require('../policies/complaintCategoryPolicy');
 const { categoryInactive } = require('../errors/domainErrors');
 const { versionFilter } = require('../services/complaintVersionGuard');
-const { staleComplaint } = require('../errors/domainErrors');
+const { notAssignedToYou, staleComplaint } = require('../errors/domainErrors');
 const generateReferenceCode = require('../utils/referenceCode');
 const aiService = require('../services/aiService');
 const emailService = require('../services/emailService');
@@ -188,8 +188,12 @@ const updateComplaint = async (req, res) => {
     res.status(StatusCodes.OK).json({ complaint: presentComplaint(populated, viewer, { identities }), reanalysed });
 };
 
+// Staff status and/or priority update. Agency authority is checked against the current
+// assignee both before the write and inside its filter, so a reassignment mid-request
+// cannot slip through.
 const updateComplaintStatus = async (req, res) => {
     const { status, publicNote, internalNote, priority, expectedVersion } = req.body;
+    const viewer = viewerFromRequest(req);
 
     const [complaint, actor] = await Promise.all([
         Complaint.findById(req.params.id),
@@ -197,30 +201,45 @@ const updateComplaintStatus = async (req, res) => {
     ]);
     if (!complaint) throw new CustomError.NotFoundError(`No complaint found with id ${req.params.id}`);
     if (!actor) throw new CustomError.UnauthenticatedError('Not authenticated');
+    if (!authority.canManageStatus(viewer, complaint)) throw notAssignedToYou();
     const matchVersion = versionFilter(complaint, expectedVersion);
+    const now = new Date();
 
-    const decision = decideTransition({
-        from: complaint.status,
-        to: status,
-        publicNote,
-        internalNote,
-        priority,
-        currentPriority: complaint.priority,
-        now: new Date(),
-    });
+    const decision = status !== undefined
+        ? decideTransition({
+            from: complaint.status,
+            to: status,
+            publicNote,
+            internalNote,
+            priority,
+            currentPriority: complaint.priority,
+            now,
+        })
+        : decidePriorityChange({
+            status: complaint.status,
+            currentPriority: complaint.priority,
+            priority,
+            publicNote,
+            internalNote,
+            now,
+        });
 
     const update = {
-        $set: { status: decision.status },
+        $set: {},
         $push: {
             statusHistory: {
                 ...decision.historyEntry,
-                changedBy: req.user.userId,
+                changedBy: actor._id,
                 changedBySnapshot: buildUserSnapshot(actor),
             },
         },
         $inc: { __v: 1 },
     };
-    if (decision.priority !== undefined) update.$set.priority = decision.priority;
+    if (decision.status !== undefined) update.$set.status = decision.status;
+    if (decision.historyEntry.priorityChange) {
+        update.$set.priority = decision.historyEntry.priorityChange.to;
+        update.$set.prioritySource = 'STAFF';
+    }
     if (decision.resolvedAtAction === 'set') {
         update.$set.resolvedAt = decision.historyEntry.createdAt;
         update.$set.resolvedAtEstimated = false;
@@ -230,15 +249,19 @@ const updateComplaintStatus = async (req, res) => {
         update.$unset = { resolvedAt: 1 };
     }
 
-    const updated = await Complaint.findOneAndUpdate(
-        { _id: complaint._id, status: complaint.status, __v: matchVersion },
-        update,
-        { new: true, runValidators: true }
-    ).populate({ path: 'reporter', select: 'name email' });
+    const filter = { _id: complaint._id, status: complaint.status, __v: matchVersion };
+    if (viewer.role === 'agency') filter.assignedTo = complaint.assignedTo;
+    const updated = await Complaint.findOneAndUpdate(filter, update, { new: true, runValidators: true })
+        .populate({ path: 'reporter', select: 'name email' });
 
-    if (!updated) throw staleComplaint();
+    if (!updated) {
+        const current = await Complaint.findById(complaint._id).select('assignedTo');
+        if (viewer.role === 'agency' && String(current?.assignedTo) !== viewer.userId) throw notAssignedToYou();
+        throw staleComplaint();
+    }
 
-    if (updated.reporter) {
+    // Only status changes notify the reporter, and only ever with the public note.
+    if (decision.status !== undefined && updated.reporter) {
         emailService.sendStatusUpdateEmail({
             to: updated.reporter.email,
             name: updated.reporter.name,
@@ -249,7 +272,7 @@ const updateComplaintStatus = async (req, res) => {
         });
     }
 
-    await respondWithComplaint(res, StatusCodes.OK, updated._id, viewerFromRequest(req));
+    await respondWithComplaint(res, StatusCodes.OK, updated._id, viewer);
 };
 
 const assignComplaint = async (req, res) => {

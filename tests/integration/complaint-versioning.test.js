@@ -64,7 +64,7 @@ describe('expectedVersion', () => {
     const complaint = await createComplaintFixture();
     const [a, b] = await Promise.all([
       unsafeRequest(agent, 'patch', `/api/v1/complaints/${complaint.id}/status`).send({ status: 'IN_REVIEW' }),
-      unsafeRequest(agent, 'patch', `/api/v1/complaints/${complaint.id}/status`).send({ status: 'REJECTED' }),
+      unsafeRequest(agent, 'patch', `/api/v1/complaints/${complaint.id}/status`).send({ status: 'REJECTED', publicNote: 'Duplicate report' }),
     ]);
     const loser = [a, b].find((response) => response.status === 409);
     expect(loser.body.error.code).toBe('STALE_COMPLAINT');
