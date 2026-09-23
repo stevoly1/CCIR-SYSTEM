@@ -48,4 +48,15 @@ describe('AdminDeleteDialog', () => {
         expect(onConflict).not.toHaveBeenCalled();
         expect(screen.getByLabelText('Reason (required)')).toHaveValue('  Spam  ');
     });
+
+    it('cannot be dismissed while the deletion is in flight', async () => {
+        dispatch.mockReturnValue(new Promise(() => {}));
+        const onClose = vi.fn();
+        const user = userEvent.setup();
+        render(<AdminDeleteDialog complaint={complaint} onClose={onClose} onDeleted={vi.fn()} onConflict={vi.fn()} />);
+        await submit();
+        await user.keyboard('{Escape}');
+        await user.click(screen.getByRole('button', { name: 'Close' }));
+        expect(onClose).not.toHaveBeenCalled();
+    });
 });

@@ -27,7 +27,7 @@ const AdminDeleteDialog = ({ complaint, onClose, onDeleted, onConflict }) => {
     };
 
     return (
-        <Modal title="Delete permanently" onClose={onClose} width={420}>
+        <Modal title="Delete permanently" onClose={busy ? () => {} : onClose} width={420}>
             <form onSubmit={confirm}>
                 <p style={{ marginBottom: 12 }}>This removes the report for everyone. Use it only for spam, abuse, or test data.</p>
                 <div className="field">
