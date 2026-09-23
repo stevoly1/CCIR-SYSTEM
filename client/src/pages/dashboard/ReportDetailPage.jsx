@@ -60,6 +60,7 @@ const ReportDetailPage = () => {
                     complaint={current}
                     onClose={() => setConfirmingDelete(false)}
                     onDeleted={() => navigate('/dashboard/reports')}
+                    onConflict={() => { setConfirmingDelete(false); reload(); }}
                 />
             )}
 

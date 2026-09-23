@@ -2,10 +2,10 @@ import { useState } from 'react';
 import { useDispatch } from 'react-redux';
 import toast from 'react-hot-toast';
 import Modal from '../Modal';
-import { deleteComplaint } from '../../slices/complaintSlice';
+import { deleteComplaint, RELOAD_CODES } from '../../slices/complaintSlice';
 
 // Administrator-only permanent deletion; the server records the required reason.
-const AdminDeleteDialog = ({ complaint, onClose, onDeleted }) => {
+const AdminDeleteDialog = ({ complaint, onClose, onDeleted, onConflict }) => {
     const dispatch = useDispatch();
     const [reason, setReason] = useState('');
     const [busy, setBusy] = useState(false);
@@ -18,6 +18,9 @@ const AdminDeleteDialog = ({ complaint, onClose, onDeleted }) => {
         if (deleteComplaint.fulfilled.match(result)) {
             toast.success('Report permanently deleted');
             onDeleted();
+        } else if (RELOAD_CODES.includes(result.payload?.code)) {
+            toast.error('This report changed — reloaded');
+            onConflict();
         } else {
             toast.error(result.payload?.message || 'Failed to delete report');
         }
