@@ -13,4 +13,11 @@ describe('StatusBadge', () => {
 
     expect(screen.getByText('Pending')).toBeInTheDocument();
   });
+
+  it('labels a withdrawn report as withdrawn, not pending', () => {
+    render(<StatusBadge status="WITHDRAWN" />);
+
+    expect(screen.getByText('Withdrawn')).toBeInTheDocument();
+    expect(screen.queryByText('Pending')).not.toBeInTheDocument();
+  });
 });

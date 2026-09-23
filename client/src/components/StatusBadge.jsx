@@ -5,6 +5,7 @@ const STATUS_STYLES = {
     IN_PROGRESS: { bg: '#FFF3E0', color: 'var(--color-status-progress)', label: 'In Progress' },
     RESOLVED: { bg: 'var(--color-accent-mint)', color: 'var(--color-status-resolved)', label: 'Resolved' },
     REJECTED: { bg: '#FDECEE', color: 'var(--color-status-rejected)', label: 'Rejected' },
+    WITHDRAWN: { bg: '#F1F1F1', color: 'var(--color-text-muted)', label: 'Withdrawn' },
 };
 
 const StatusBadge = ({ status }) => {

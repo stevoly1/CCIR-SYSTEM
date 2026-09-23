@@ -39,6 +39,8 @@ test('J1 citizen reports, edits, and withdraws', async ({ page }) => {
   await page.getByLabel(/reason/i).fill('Fixed this morning');
   await page.getByRole('button', { name: /^withdraw$/i }).click();
   await expect(page.getByLabel('Report timeline')).toContainText('Fixed this morning');
+  await expect(page.locator('.badge', { hasText: 'Withdrawn' }).first()).toBeVisible();
+  await expect(page.locator('.badge', { hasText: 'Pending' })).toHaveCount(1); // only the original filing entry
   await expect(page.getByRole('button', { name: 'Edit report' })).toHaveCount(0);
 });
 
