@@ -1,5 +1,9 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
-import axiosClient, { extractErrorMessage } from '../api/axiosClient';
+import axiosClient, { extractErrorCode, extractErrorMessage } from '../api/axiosClient';
+
+// Server codes after which the page should reload the complaint instead of retrying blindly.
+export const RELOAD_CODES = ['STALE_COMPLAINT', 'COMPLAINT_NOT_EDITABLE'];
+const rejection = (error) => ({ message: extractErrorMessage(error), code: extractErrorCode(error) });
 
 export const fetchComplaints = createAsyncThunk('complaints/fetchAll', async (params = {}, { rejectWithValue }) => {
     try {
@@ -54,12 +58,30 @@ export const assignComplaint = createAsyncThunk(
     }
 );
 
-export const deleteComplaint = createAsyncThunk('complaints/delete', async (id, { rejectWithValue }) => {
+export const editComplaint = createAsyncThunk('complaints/edit', async ({ id, ...body }, { rejectWithValue }) => {
     try {
-        await axiosClient.delete(`/complaints/${id}`);
+        const { data } = await axiosClient.patch(`/complaints/${id}`, body);
+        return data;
+    } catch (error) {
+        return rejectWithValue(rejection(error));
+    }
+});
+
+export const withdrawComplaint = createAsyncThunk('complaints/withdraw', async ({ id, ...body }, { rejectWithValue }) => {
+    try {
+        const { data } = await axiosClient.post(`/complaints/${id}/withdraw`, body);
+        return data.complaint;
+    } catch (error) {
+        return rejectWithValue(rejection(error));
+    }
+});
+
+export const deleteComplaint = createAsyncThunk('complaints/delete', async ({ id, reason, expectedVersion }, { rejectWithValue }) => {
+    try {
+        await axiosClient.delete(`/complaints/${id}`, { data: { reason, expectedVersion } });
         return id;
     } catch (error) {
-        return rejectWithValue(extractErrorMessage(error));
+        return rejectWithValue(rejection(error));
     }
 });
 
@@ -107,6 +129,12 @@ const complaintSlice = createSlice({
             .addCase(assignComplaint.fulfilled, (state, action) => {
                 state.current = action.payload;
                 state.items = state.items.map((c) => (c._id === action.payload._id ? action.payload : c));
+            })
+            .addCase(editComplaint.fulfilled, (state, action) => {
+                state.current = action.payload.complaint;
+            })
+            .addCase(withdrawComplaint.fulfilled, (state, action) => {
+                state.current = action.payload;
             })
             .addCase(deleteComplaint.fulfilled, (state, action) => {
                 state.items = state.items.filter((c) => c._id !== action.payload);

@@ -2,18 +2,18 @@ import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { ArrowLeft, MapPin, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowLeft, MapPin, Sparkles } from 'lucide-react';
 import Topbar from '../../components/Topbar';
 import StatusBadge from '../../components/StatusBadge';
 import PriorityBadge from '../../components/PriorityBadge';
-import ConfirmModal from '../../components/ConfirmModal';
+import OwnerActionsPanel from '../../components/complaint/OwnerActionsPanel';
+import AdminDeleteDialog from '../../components/complaint/AdminDeleteDialog';
 import ComplaintTimeline from '../../components/complaint/ComplaintTimeline';
 import { categoryLabel } from '../../components/complaint/categoryLabel';
 import {
     fetchComplaint,
     clearCurrentComplaint,
     updateComplaintStatus,
-    deleteComplaint,
 } from '../../slices/complaintSlice';
 
 const STATUS_OPTIONS = ['PENDING', 'IN_REVIEW', 'IN_PROGRESS', 'RESOLVED', 'REJECTED'];
@@ -30,7 +30,6 @@ const ReportDetailPage = () => {
     const [statusForm, setStatusForm] = useState({ status: '', priority: '', publicNote: '' });
     const [updating, setUpdating] = useState(false);
     const [confirmingDelete, setConfirmingDelete] = useState(false);
-    const [deleting, setDeleting] = useState(false);
 
     useEffect(() => {
         dispatch(fetchComplaint(id));
@@ -57,25 +56,17 @@ const ReportDetailPage = () => {
         }
     };
 
-    const handleDelete = async () => {
-        setDeleting(true);
-        const result = await dispatch(deleteComplaint(id));
-        setDeleting(false);
-        if (deleteComplaint.fulfilled.match(result)) {
-            toast.success('Report deleted');
-            navigate('/dashboard/reports');
-        } else {
-            toast.error(result.payload || 'Failed to delete report');
-            setConfirmingDelete(false);
-        }
-    };
+    const reload = () => dispatch(fetchComplaint(id));
 
-    if (detailStatus === 'loading' || !current) {
+    // Only a first load shows the placeholder; background refreshes keep the report
+    // (and any panel state such as notices) on screen.
+    if (!current && detailStatus === 'failed') {
+        return <div className="empty-state">This report could not be loaded.</div>;
+    }
+    if (!current) {
         return <div className="empty-state">Loading report…</div>;
     }
 
-    // Server-computed permissions; Task 16 replaces citizen deletion with withdrawal.
-    const canDelete = Boolean(current.canDelete || current.canEdit);
 
     return (
         <div>
@@ -86,21 +77,18 @@ const ReportDetailPage = () => {
             <Topbar
                 title={current.referenceCode}
                 subtitle={isStaff ? `Reported by ${current.reporter?.displayName}` : 'Your report'}
-                actions={canDelete ? (
-                    <button className="icon-btn" onClick={() => setConfirmingDelete(true)} aria-label="Delete report">
-                        <Trash2 size={16} />
+                actions={current.canDelete ? (
+                    <button type="button" className="btn btn-outline" onClick={() => setConfirmingDelete(true)}>
+                        Delete permanently
                     </button>
                 ) : null}
             />
 
             {confirmingDelete && (
-                <ConfirmModal
-                    title="Delete report"
-                    message="Delete this report? This cannot be undone."
-                    confirmLabel="Delete"
-                    loading={deleting}
-                    onConfirm={handleDelete}
+                <AdminDeleteDialog
+                    complaint={current}
                     onClose={() => setConfirmingDelete(false)}
+                    onDeleted={() => navigate('/dashboard/reports')}
                 />
             )}
 
@@ -168,6 +156,13 @@ const ReportDetailPage = () => {
                         <h2>Timeline</h2>
                     </div>
                     <ComplaintTimeline entries={current.timeline} staffView={isStaff} />
+                    {!isStaff && (
+                        <OwnerActionsPanel
+                            complaint={current}
+                            onUpdated={reload}
+                            onConflict={reload}
+                        />
+                    )}
                 </div>
 
                 {isStaff && (

@@ -12,4 +12,6 @@ export const extractErrorMessage = (error) => {
         || 'Something went wrong';
 };
 
+export const extractErrorCode = (error) => error?.response?.data?.error?.code;
+
 export default axiosClient;
