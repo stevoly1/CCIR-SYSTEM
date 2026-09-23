@@ -2,7 +2,8 @@ import Modal from './Modal';
 
 const ConfirmModal = ({ title = 'Are you sure?', message, confirmLabel = 'Delete', onConfirm, onClose, loading }) => {
     return (
-        <Modal title={title} onClose={onClose} width={380}>
+        // While the action is in flight the dialog cannot be dismissed (Escape, backdrop, or Close).
+        <Modal title={title} onClose={loading ? () => {} : onClose} width={380}>
             <p style={{ color: 'var(--color-text-muted)', marginBottom: 20 }}>{message}</p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button type="button" className="btn btn-outline" onClick={onClose} disabled={loading}>
