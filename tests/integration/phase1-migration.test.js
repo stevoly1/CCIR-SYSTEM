@@ -1,3 +1,5 @@
+const path = require('node:path');
+const { execFile } = require('node:child_process');
 const mongoose = require('mongoose');
 const { Complaint, User } = require('../../models');
 const { createComplaintFixture } = require('../fixtures/complaint');
@@ -105,5 +107,30 @@ describe('Phase 1 legacy migration', () => {
       now,
     });
     expect(secondApply.totalChanges).toBe(0);
+  });
+
+  // Deploy scripts read stdout as JSON and trust the exit code. Asynchronous on purpose: this
+  // process hosts the in-memory mongod, and a blocking spawn can stall it.
+  it('prints only the JSON report and fails verify with a non-zero exit code', async () => {
+    const { host, port, name } = mongoose.connection;
+    const run = (...args) => new Promise((resolve) => {
+      execFile(process.execPath, [path.join(__dirname, '../../scripts/migratePhase1.js'), ...args], {
+        env: { ...process.env, MONGO_URL: `mongodb://${host}:${port}/${name}?directConnection=true` },
+        timeout: 30000,
+      }, (error, stdout) => resolve({ status: error ? error.code : 0, stdout }));
+    });
+    await User.collection.insertOne({ name: 'Legacy User', email: 'cli-legacy@example.test', role: 'citizen' });
+
+    const failing = await run('--verify');
+    expect(failing.status).toBe(2);
+    expect(JSON.parse(failing.stdout).invariantFailures).toContainEqual(expect.objectContaining({ invariant: 'USER_ACTIVITY_MISSING' }));
+
+    const applied = await run('--apply', '--backup-reference=phase1-cli');
+    expect(applied.status).toBe(0);
+    expect(JSON.parse(applied.stdout)).toMatchObject({ mode: 'apply', backupReference: 'phase1-cli' });
+
+    const passing = await run('--verify');
+    expect(passing.status).toBe(0);
+    expect(JSON.parse(passing.stdout).invariantFailures).toEqual([]);
   });
 });

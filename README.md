@@ -90,7 +90,7 @@ npm run migrate:phase2 -- --apply --backup-reference=<your-backup-label>
 npm run migrate:phase2 -- --verify
 ```
 
-`migrate:phase2` prints a JSON report, and `--verify` exits with code 2 while any invariant fails. Case-duplicate category names and category names outside 2–60 characters are reported for manual correction, never changed automatically. Rolling back after `--apply` means restoring the backup together with the previous code; older code cannot read the migrated data.
+Each script prints a single JSON report, and `--verify` exits with code 2 while any invariant fails. Case-duplicate category names and category names outside 2–60 characters are reported for manual correction, never changed automatically. Rolling back after `--apply` means restoring the backup together with the previous code; older code cannot read the migrated data.
 
 ## License
 

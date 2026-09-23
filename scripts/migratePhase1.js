@@ -152,13 +152,17 @@ const runPhase1Migration = async ({ mode, backupReference, now = new Date() }) =
 };
 
 const runCli = async () => {
-  require('dotenv').config();
-  const connectDB = require('../config/db');
+  // Quiet: stdout carries only the JSON report, so dotenv's banner must not reach it.
+  require('dotenv').config({ quiet: true });
   const options = parseMigrationArgs(process.argv.slice(2));
-  await connectDB();
+  if (!process.env.MONGO_URL) throw new Error('MONGO_URL is required');
+  // Connect directly rather than through config/db, whose connection log would reach stdout.
+  await mongoose.connect(process.env.MONGO_URL);
   try {
     const report = await runPhase1Migration(options);
     process.stdout.write(`${JSON.stringify(report)}\n`);
+    // A failed verify must stop a deploy script, so it exits non-zero (2, distinct from errors).
+    if (report.mode === 'verify' && report.invariantFailures.length) process.exitCode = 2;
   } finally {
     await mongoose.disconnect();
   }
