@@ -75,10 +75,22 @@ All routes are prefixed with `/api/v1`.
 | Area | Base path | Notes |
 |---|---|---|
 | Auth | `/auth` | signup, login, Google OAuth redirect/callback |
-| Users | `/users` | profile management; admin-only user listing/edit/delete |
-| Categories | `/categories` | complaint categories and their default priority |
-| Complaints | `/complaints` | create/list/view/update reports; status updates and assignment are restricted to `admin`/`agency` |
-| Location | `/location` | address autocomplete, forward/reverse geocoding |
+| Users | `/users` | profile management; admin-only user listing/edit/retirement; admin-only `/users/assignable` |
+| Categories | `/categories` | admin-only create/edit/activate/deactivate; delete only inactive, unused categories; `Other` is protected |
+| Complaints | `/complaints` | reports need an address (coordinates optional); reporters edit or withdraw pending reports; staff update status and priority (agency only when assigned); admins assign and may permanently delete with a reason |
+| Location | `/location` | address autocomplete and geocoding with a bounded timeout (`LOCATION_TIMEOUT_MS`) |
+
+### Upgrading an existing database
+
+Deployments with data from earlier versions run each migration they have not yet applied, in order (`migrate:phase1`, then `migrate:phase2`), after deploying the code. Each script supports `--dry-run`, `--apply --backup-reference=<label>` (take and label a backup first), and `--verify`:
+
+```bash
+npm run migrate:phase2 -- --dry-run
+npm run migrate:phase2 -- --apply --backup-reference=<your-backup-label>
+npm run migrate:phase2 -- --verify
+```
+
+`migrate:phase2` prints a JSON report, and `--verify` exits with code 2 while any invariant fails. Case-duplicate category names and category names outside 2–60 characters are reported for manual correction, never changed automatically. Rolling back after `--apply` means restoring the backup together with the previous code; older code cannot read the migrated data.
 
 ## License
 
