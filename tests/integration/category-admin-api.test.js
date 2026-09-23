@@ -48,6 +48,20 @@ describe('category administration API', () => {
     expect(configured.status).toBe(200);
   });
 
+  // Complaint filing and re-analysis look the fallback up by its exact name, so even a
+  // re-casing would make every submission fail.
+  it('refuses to re-case or re-space Other, while a no-op name is accepted', async () => {
+    const other = await createCategoryFixture({ name: 'Other' });
+    for (const name of ['OTHER', 'other', ' other ']) {
+      const response = await unsafeRequest(admin, 'patch', `/api/v1/categories/${other.id}`).send({ name });
+      expect(response.status, name).toBe(409);
+      expect(response.body.error.code).toBe('CATEGORY_PROTECTED');
+    }
+    const same = await unsafeRequest(admin, 'patch', `/api/v1/categories/${other.id}`).send({ name: 'Other', description: 'Fallback' });
+    expect(same.status).toBe(200);
+    expect((await Category.findById(other.id)).name).toBe('Other');
+  });
+
   it('deletes only inactive, unreferenced categories', async () => {
     const active = await createCategoryFixture({ name: 'Bridges' });
     const activeResponse = await unsafeRequest(admin, 'delete', `/api/v1/categories/${active.id}`);

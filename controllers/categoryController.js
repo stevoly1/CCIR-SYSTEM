@@ -3,7 +3,7 @@ const { StatusCodes } = require('http-status-codes');
 const { Category, Complaint } = require('../models');
 const CustomError = require('../errors');
 const { categoryInUse, categoryNameConflict, categoryProtected } = require('../errors/domainErrors');
-const { normaliseCategoryName } = require('../utils/categoryName');
+const { cleanCategoryName, normaliseCategoryName } = require('../utils/categoryName');
 
 const FALLBACK_KEY = 'other';
 const isFallback = (category) => normaliseCategoryName(category.name) === FALLBACK_KEY;
@@ -57,7 +57,9 @@ const updateCategory = async (req, res) => {
     const category = await Category.findById(req.params.id);
     if (!category) throw new CustomError.NotFoundError(`No category found with id ${req.params.id}`);
     if (isFallback(category)) {
-        const renamesAway = Object.hasOwn(req.body, 'name') && normaliseCategoryName(req.body.name) !== FALLBACK_KEY;
+        // Exact comparison: complaint filing finds the fallback by its exact name, so even a
+        // re-casing ("OTHER") would break every submission.
+        const renamesAway = Object.hasOwn(req.body, 'name') && cleanCategoryName(req.body.name) !== category.name;
         if (renamesAway || req.body.isActive === false) throw categoryProtected();
     }
 
