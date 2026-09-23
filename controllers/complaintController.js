@@ -19,12 +19,12 @@ const { versionFilter } = require('../services/complaintVersionGuard');
 const { staleComplaint } = require('../errors/domainErrors');
 const generateReferenceCode = require('../utils/referenceCode');
 const aiService = require('../services/aiService');
-const uploadService = require('../services/uploadService');
 const emailService = require('../services/emailService');
 const complaintImageService = require('../services/complaintImageService');
 // Module-object access keeps the edit service replaceable in tests.
 const complaintEditService = require('../services/complaintEditService');
 const { assignComplaintTransaction } = require('../services/complaintAssignmentService');
+const { deleteComplaintPermanently } = require('../services/complaintDeletionService');
 
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -275,23 +275,14 @@ const withdrawComplaint = async (req, res) => {
     await respondWithComplaint(res, StatusCodes.OK, complaint._id, viewer);
 };
 
+// Administrator-only (route-restricted); citizens withdraw instead.
 const deleteComplaint = async (req, res) => {
-    const complaint = await Complaint.findById(req.params.id);
-    if (!complaint) throw new CustomError.NotFoundError(`No complaint found with id ${req.params.id}`);
-
-    const viewer = viewerFromRequest(req);
-    const isOwner = authority.isReporter(viewer, complaint);
-    const isStaff = authority.isStaff(viewer);
-    if (!isOwner && !isStaff) {
-        throw new CustomError.ForbiddenError('You do not have access to this complaint');
-    }
-    if (isOwner && !isStaff && complaint.status !== 'PENDING') {
-        throw new CustomError.BadRequestError('This report can no longer be deleted because it is already being processed');
-    }
-
-    await uploadService.deleteComplaintImages(complaint.images.map((img) => img.publicId));
-    await complaint.deleteOne();
-
+    await deleteComplaintPermanently({
+        complaintId: req.params.id,
+        viewer: viewerFromRequest(req),
+        reason: req.body.reason,
+        expectedVersion: req.body.expectedVersion,
+    });
     res.status(StatusCodes.OK).json({ msg: 'Complaint deleted' });
 };
 

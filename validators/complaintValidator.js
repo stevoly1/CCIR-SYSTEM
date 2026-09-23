@@ -21,6 +21,13 @@ const createComplaintSchema = z.strictObject({
 
 const expectedVersionSchema = z.number().int().min(0).optional();
 
+const deleteComplaintSchema = z.strictObject({
+    reason: z.string().trim()
+        .min(1, { message: 'A reason is required to delete a report permanently' })
+        .max(500),
+    expectedVersion: expectedVersionSchema,
+});
+
 const withdrawComplaintSchema = z.strictObject({
     reason: z.string().trim().min(1).max(500).optional(),
     expectedVersion: expectedVersionSchema,
@@ -64,6 +71,7 @@ const complaintListQuerySchema = z.strictObject({
 module.exports = {
     expectedVersionSchema,
     withdrawComplaintSchema,
+    deleteComplaintSchema,
     createComplaintSchema,
     updateComplaintSchema,
     updateStatusSchema,

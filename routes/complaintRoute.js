@@ -9,6 +9,7 @@ const {
     updateStatusSchema,
     assignComplaintSchema,
     withdrawComplaintSchema,
+    deleteComplaintSchema,
     complaintListQuerySchema,
 } = require('../validators/complaintValidator');
 const { emptyQuerySchema, idParamsSchema } = require('../validators/commonValidator');
@@ -30,7 +31,7 @@ ComplaintRouter.route('/')
 ComplaintRouter.route('/:id')
     .get(authentication, validate({ params: idParamsSchema, query: emptyQuerySchema }), getSingleComplaint)
     .patch(authentication, validate({ params: idParamsSchema, body: updateComplaintSchema, query: emptyQuerySchema }), updateComplaint)
-    .delete(authentication, validate({ params: idParamsSchema, query: emptyQuerySchema }), deleteComplaint);
+    .delete(authentication, restrictTo('admin'), validate({ params: idParamsSchema, body: deleteComplaintSchema, query: emptyQuerySchema }), deleteComplaint);
 
 ComplaintRouter.route('/:id/status')
     .patch(authentication, restrictTo('admin', 'agency'), validate({ params: idParamsSchema, body: updateStatusSchema, query: emptyQuerySchema }), updateComplaintStatus);
