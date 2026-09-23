@@ -101,4 +101,63 @@ const editComplaint = async ({ complaintId, viewer, changes }) => {
   return { complaint: updated, reanalysed: material };
 };
 
-module.exports = { editComplaint, loadOwnedComplaint, explainMissedWrite };
+const isOwnWithdrawal = (entry, viewer) => entry?.type === 'WITHDRAWN'
+  && String(entry.changedBy) === String(viewer.userId);
+
+// The reporter withdraws a PENDING complaint: terminal WITHDRAWN status, history kept,
+// any assignee released (recorded), no email. Retrying after success returns success.
+const withdrawComplaint = async ({ complaintId, viewer, reason, expectedVersion }) => {
+  const complaint = await loadOwnedComplaint(complaintId, viewer);
+  if (complaint.status === 'WITHDRAWN' && isOwnWithdrawal(complaint.statusHistory.at(-1), viewer)) return complaint;
+  if (complaint.status !== 'PENDING') throw complaintNotEditable();
+  assertExpectedVersion(complaint, expectedVersion);
+
+  const now = new Date();
+  const reporter = await User.findById(viewer.userId);
+  const reporterSnapshot = buildUserSnapshot(reporter);
+  const update = {
+    $set: { status: 'WITHDRAWN' },
+    $push: {
+      statusHistory: {
+        type: 'WITHDRAWN',
+        status: 'WITHDRAWN',
+        publicNote: reason || 'Withdrawn by reporter',
+        changedBy: reporter._id,
+        changedBySnapshot: reporterSnapshot,
+        createdAt: now,
+      },
+    },
+    $inc: { __v: 1 },
+  };
+  if (complaint.assignedTo) {
+    const assignee = await User.findById(complaint.assignedTo);
+    update.$set.assignedTo = null;
+    update.$push.assignmentHistory = {
+      type: 'WITHDRAWAL_UNASSIGNMENT',
+      previous: buildUserSnapshot(assignee)
+        ?? { userId: complaint.assignedTo, displayName: 'Unavailable account', role: 'agency' },
+      next: null,
+      changedBy: reporterSnapshot,
+      createdAt: now,
+    };
+  }
+
+  const updated = await Complaint.findOneAndUpdate(
+    {
+      _id: complaint._id,
+      reporter: complaint.reporter,
+      status: 'PENDING',
+      __v: complaint.__v,
+      assignedTo: complaint.assignedTo ?? null,
+    },
+    update,
+    { new: true, runValidators: true },
+  );
+  if (updated) return updated;
+
+  const current = await Complaint.findById(complaint._id);
+  if (current?.status === 'WITHDRAWN' && isOwnWithdrawal(current.statusHistory.at(-1), viewer)) return current;
+  return explainMissedWrite(complaint._id);
+};
+
+module.exports = { editComplaint, withdrawComplaint, loadOwnedComplaint, explainMissedWrite };

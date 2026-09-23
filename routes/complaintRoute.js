@@ -8,6 +8,7 @@ const {
     updateComplaintSchema,
     updateStatusSchema,
     assignComplaintSchema,
+    withdrawComplaintSchema,
     complaintListQuerySchema,
 } = require('../validators/complaintValidator');
 const { emptyQuerySchema, idParamsSchema } = require('../validators/commonValidator');
@@ -18,6 +19,7 @@ const {
     updateComplaint,
     updateComplaintStatus,
     assignComplaint,
+    withdrawComplaint,
     deleteComplaint,
 } = require('../controllers/complaintController');
 
@@ -35,5 +37,8 @@ ComplaintRouter.route('/:id/status')
 
 ComplaintRouter.route('/:id/assign')
     .patch(authentication, restrictTo('admin'), validate({ params: idParamsSchema, body: assignComplaintSchema, query: emptyQuerySchema }), assignComplaint);
+
+ComplaintRouter.route('/:id/withdraw')
+    .post(authentication, validate({ params: idParamsSchema, body: withdrawComplaintSchema, query: emptyQuerySchema }), withdrawComplaint);
 
 module.exports = ComplaintRouter;

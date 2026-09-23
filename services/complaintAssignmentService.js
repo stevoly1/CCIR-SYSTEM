@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const { Complaint, User } = require('../models');
 const { NotFoundError, ConflictError } = require('../errors');
-const { staleComplaint } = require('../errors/domainErrors');
+const { complaintWithdrawn, staleComplaint } = require('../errors/domainErrors');
 const { assertExpectedVersion } = require('./complaintVersionGuard');
 const { decideAssignment } = require('../policies/assignmentPolicy');
 const {
@@ -10,8 +10,9 @@ const {
 } = require('./accountLifecycleGuard');
 
 const assignComplaintTransaction = async ({ complaintId, actorUserId, assignedTo, reason, expectedVersion }) => {
-  const expectedComplaint = await Complaint.findById(complaintId).select('assignedTo __v');
+  const expectedComplaint = await Complaint.findById(complaintId).select('assignedTo status __v');
   if (!expectedComplaint) throw new NotFoundError(`No complaint found with id ${complaintId}`);
+  if (expectedComplaint.status === 'WITHDRAWN') throw complaintWithdrawn();
   assertExpectedVersion(expectedComplaint, expectedVersion);
   await ensureAccountLifecycleGuard();
   const session = await mongoose.startSession();

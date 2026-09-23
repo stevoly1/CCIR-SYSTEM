@@ -21,6 +21,11 @@ const createComplaintSchema = z.strictObject({
 
 const expectedVersionSchema = z.number().int().min(0).optional();
 
+const withdrawComplaintSchema = z.strictObject({
+    reason: z.string().trim().min(1).max(500).optional(),
+    expectedVersion: expectedVersionSchema,
+});
+
 const updateComplaintSchema = z.strictObject({
     description: z.string().trim().min(10).max(2000).optional(),
     location: locationObjectSchema.optional(),
@@ -58,6 +63,7 @@ const complaintListQuerySchema = z.strictObject({
 
 module.exports = {
     expectedVersionSchema,
+    withdrawComplaintSchema,
     createComplaintSchema,
     updateComplaintSchema,
     updateStatusSchema,

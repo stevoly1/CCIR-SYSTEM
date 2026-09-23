@@ -264,6 +264,17 @@ const assignComplaint = async (req, res) => {
     await respondWithComplaint(res, StatusCodes.OK, updated._id, viewerFromRequest(req));
 };
 
+const withdrawComplaint = async (req, res) => {
+    const viewer = viewerFromRequest(req);
+    const complaint = await complaintEditService.withdrawComplaint({
+        complaintId: req.params.id,
+        viewer,
+        reason: req.body.reason,
+        expectedVersion: req.body.expectedVersion,
+    });
+    await respondWithComplaint(res, StatusCodes.OK, complaint._id, viewer);
+};
+
 const deleteComplaint = async (req, res) => {
     const complaint = await Complaint.findById(req.params.id);
     if (!complaint) throw new CustomError.NotFoundError(`No complaint found with id ${req.params.id}`);
@@ -291,5 +302,6 @@ module.exports = {
     updateComplaint,
     updateComplaintStatus,
     assignComplaint,
+    withdrawComplaint,
     deleteComplaint,
 };

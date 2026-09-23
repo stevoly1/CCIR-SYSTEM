@@ -132,6 +132,7 @@ describe('assignment policy', () => {
       'REASSIGNED',
       'UNASSIGNED',
       'RETIREMENT_UNASSIGNMENT',
+      'WITHDRAWAL_UNASSIGNMENT',
       'LEGACY_STATE_IMPORT',
     ]);
     expect(reason.options.maxlength).toBe(500);

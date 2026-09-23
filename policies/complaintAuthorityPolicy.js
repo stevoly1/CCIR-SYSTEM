@@ -19,7 +19,7 @@ const canAssign = (viewer, complaint) => viewer?.role === 'admin' && complaint.s
 const canEdit = (viewer, complaint) => isReporter(viewer, complaint)
   && complaint.status === 'PENDING'
   && (complaint.editHistory?.length ?? 0) < MAX_EDITS;
-const canWithdraw = () => false;
+const canWithdraw = (viewer, complaint) => isReporter(viewer, complaint) && complaint.status === 'PENDING';
 const canDelete = (viewer, complaint) => isStaff(viewer) || (isReporter(viewer, complaint) && complaint.status === 'PENDING');
 
 module.exports = {
