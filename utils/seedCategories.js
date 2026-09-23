@@ -14,11 +14,21 @@ const DEFAULT_CATEGORIES = [
 // without them the rows collide on the unique `slug` index and escape the unique `nameKey`.
 // The exact-name match also finds legacy rows that predate `nameKey` (the server starts
 // before `migrate:phase2` runs), so they are never duplicated.
-const upsertDefault = (category) => Category.updateOne(
-    { $or: [{ nameKey: normaliseCategoryName(category.name) }, { name: category.name }] },
-    { $setOnInsert: { ...category, nameKey: normaliseCategoryName(category.name), slug: categorySlug(category.name), isActive: true } },
-    { upsert: true }
-);
+// A duplicate key after which the default exists means another instance inserted it first.
+// (The server does not retry $or upserts the way it retries equality-filter upserts.)
+// A different row holding the slug is a real conflict and still fails startup loudly.
+const upsertDefault = async (category) => {
+    const match = { $or: [{ nameKey: normaliseCategoryName(category.name) }, { name: category.name }] };
+    try {
+        await Category.updateOne(
+            match,
+            { $setOnInsert: { ...category, nameKey: normaliseCategoryName(category.name), slug: categorySlug(category.name), isActive: true } },
+            { upsert: true }
+        );
+    } catch (error) {
+        if (error?.code !== 11000 || !(await Category.exists(match))) throw error;
+    }
+};
 
 // Safe to call on every startup. `Other` (the protected AI fallback) is always ensured. The
 // other defaults are seeded only into an empty collection, so a default an administrator

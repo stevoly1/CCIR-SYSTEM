@@ -58,4 +58,27 @@ describe('default category seeding', () => {
     expect(await Category.countDocuments({ name: 'Other' })).toBe(1);
     expect(await Category.countDocuments()).toBe(2);
   });
+
+  // Two instances starting together on an empty database race to insert the same default;
+  // an $or upsert filter is not retried by the server, so the loser sees a duplicate key.
+  it('treats losing a concurrent insert race as already seeded', async () => {
+    const realUpdateOne = Category.updateOne.bind(Category);
+    const spy = vi.spyOn(Category, 'updateOne');
+    spy.mockImplementationOnce(async (...args) => {
+      await realUpdateOne(...args);
+      throw Object.assign(new Error('E11000 duplicate key error'), { code: 11000 });
+    });
+    await expect(seedDefaultCategories()).resolves.toBeUndefined();
+    expect(await Category.countDocuments()).toBe(6);
+  });
+
+  it('lets several instances seed an empty database at once', async () => {
+    await expect(Promise.all([seedDefaultCategories(), seedDefaultCategories(), seedDefaultCategories()])).resolves.toBeDefined();
+    expect(await Category.countDocuments()).toBe(6);
+  });
+
+  it('still fails loudly when a different category blocks Other from being created', async () => {
+    await Category.collection.insertOne({ name: 'Other!', nameKey: 'other!', slug: 'other', isActive: true });
+    await expect(seedDefaultCategories()).rejects.toMatchObject({ code: 11000 });
+  });
 });
