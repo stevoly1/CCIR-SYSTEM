@@ -37,6 +37,14 @@ describe('domain errors', () => {
     expect(Object.keys(domainErrors).sort()).toEqual(Object.keys(EXPECTED).sort());
   });
 
+  it('still maps an unhandled duplicate-key error to a generic conflict without key values', () => {
+    const duplicate = Object.assign(new Error('E11000 dup secret-key'), { code: 11000, keyValue: { email: 'secret-key' } });
+    const { status, body } = respond(duplicate);
+    expect(status).toBe(409);
+    expect(body.error).toEqual({ code: 'CONFLICT', message: 'Resource already exists' });
+    expect(JSON.stringify(body)).not.toContain('secret-key');
+  });
+
   it('returns a fresh error instance on every call', () => {
     expect(domainErrors.staleComplaint()).not.toBe(domainErrors.staleComplaint());
   });

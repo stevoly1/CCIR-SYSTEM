@@ -102,7 +102,6 @@ describe('canonical validation and error contract', () => {
 
   it('maps duplicate-key errors without exposing key values', async () => {
     const { agent } = await createAuthenticatedAgent({ role: 'admin' });
-    vi.spyOn(Category, 'findOne').mockResolvedValueOnce(null);
     const duplicate = Object.assign(new Error('E11000 duplicate private-slug'), {
       code: 11000,
       keyValue: { slug: 'private-slug' },
@@ -110,7 +109,7 @@ describe('canonical validation and error contract', () => {
     vi.spyOn(Category, 'create').mockRejectedValueOnce(duplicate);
 
     const response = await unsafeRequest(agent, 'post', '/api/v1/categories').send({ name: 'Roads' });
-    expectError(response, { status: 409, code: 'CONFLICT', message: 'Resource already exists' });
+    expectError(response, { status: 409, code: 'CATEGORY_NAME_CONFLICT', message: 'A category with this name already exists' });
     expect(JSON.stringify(response.body)).not.toContain('private-slug');
   });
 

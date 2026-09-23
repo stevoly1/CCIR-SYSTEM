@@ -1,31 +1,50 @@
+const mongoose = require('mongoose');
 const { StatusCodes } = require('http-status-codes');
 const { Category, Complaint } = require('../models');
 const CustomError = require('../errors');
+const { categoryInUse, categoryNameConflict, categoryProtected } = require('../errors/domainErrors');
+const { normaliseCategoryName } = require('../utils/categoryName');
 
-const SYSTEM_FALLBACK_CATEGORY = 'Other';
+const FALLBACK_KEY = 'other';
+const isFallback = (category) => normaliseCategoryName(category.name) === FALLBACK_KEY;
 
-const protectSystemFallback = (category, changes = {}) => {
-    if (category.name !== SYSTEM_FALLBACK_CATEGORY) return;
-    if (
-        (Object.hasOwn(changes, 'name') && changes.name !== SYSTEM_FALLBACK_CATEGORY)
-        || changes.isActive === false
-    ) {
-        throw new CustomError.ConflictError('Other is the required active fallback category');
+// Uniqueness is enforced by the unique `nameKey` index, so concurrent creates and
+// renames cannot both succeed; the duplicate-key error becomes a specific conflict.
+const mapNameConflicts = async (operation) => {
+    try {
+        return await operation();
+    } catch (error) {
+        if (error?.code === 11000) throw categoryNameConflict();
+        throw error;
     }
 };
 
 const createCategory = async (req, res) => {
-    const existing = await Category.findOne({ name: req.body.name });
-    if (existing) throw new CustomError.ConflictError('A category with this name already exists');
-
-    const category = await Category.create(req.body);
+    const category = await mapNameConflicts(() => Category.create(req.body));
     res.status(StatusCodes.CREATED).json({ category });
 };
 
 const getAllCategories = async (req, res) => {
-    const filter = req.user?.role === 'citizen' ? { isActive: true } : {};
-    const categories = await Category.find(filter).sort({ name: 1 });
-    res.status(StatusCodes.OK).json({ categories });
+    if (req.user.role === 'citizen') {
+        const categories = await Category.find({ isActive: true }).sort({ name: 1 }).select('name description');
+        return res.status(StatusCodes.OK).json({
+            categories: categories.map((category) => ({
+                _id: category._id,
+                name: category.name,
+                description: category.description ?? '',
+            })),
+        });
+    }
+
+    const categories = await Category.find({}).sort({ name: 1 }).lean();
+    if (req.user.role === 'admin') {
+        const counts = await Complaint.aggregate([{ $group: { _id: '$category', count: { $sum: 1 } } }]);
+        const countById = new Map(counts.map((row) => [String(row._id), row.count]));
+        categories.forEach((category) => {
+            category.complaintCount = countById.get(String(category._id)) ?? 0;
+        });
+    }
+    return res.status(StatusCodes.OK).json({ categories });
 };
 
 const getSingleCategory = async (req, res) => {
@@ -37,29 +56,34 @@ const getSingleCategory = async (req, res) => {
 const updateCategory = async (req, res) => {
     const category = await Category.findById(req.params.id);
     if (!category) throw new CustomError.NotFoundError(`No category found with id ${req.params.id}`);
-    protectSystemFallback(category, req.body);
+    if (isFallback(category)) {
+        const renamesAway = Object.hasOwn(req.body, 'name') && normaliseCategoryName(req.body.name) !== FALLBACK_KEY;
+        if (renamesAway || req.body.isActive === false) throw categoryProtected();
+    }
 
     Object.assign(category, req.body);
-    await category.save();
+    await mapNameConflicts(() => category.save());
 
     res.status(StatusCodes.OK).json({ category });
 };
 
+// Only an inactive, unreferenced category may be deleted. Requiring deactivation first
+// closes the race where a complaint being filed picks an active category that is then
+// removed; the reference check and delete share one transaction.
 const deleteCategory = async (req, res) => {
-    const category = await Category.findById(req.params.id);
-    if (!category) throw new CustomError.NotFoundError(`No category found with id ${req.params.id}`);
-    if (category.name === SYSTEM_FALLBACK_CATEGORY) {
-        throw new CustomError.ConflictError('Other is the required active fallback category');
+    const session = await mongoose.startSession();
+    try {
+        await session.withTransaction(async () => {
+            const category = await Category.findById(req.params.id).session(session);
+            if (!category) throw new CustomError.NotFoundError(`No category found with id ${req.params.id}`);
+            if (isFallback(category)) throw categoryProtected();
+            if (category.isActive !== false) throw categoryInUse();
+            if (await Complaint.exists({ category: category._id }).session(session)) throw categoryInUse();
+            await category.deleteOne({ session });
+        });
+    } finally {
+        await session.endSession();
     }
-
-    const inUse = await Complaint.exists({ category: req.params.id });
-    if (inUse) {
-        throw new CustomError.BadRequestError(
-            'This category is in use by existing complaints. Deactivate it instead of deleting it'
-        );
-    }
-
-    await category.deleteOne();
 
     res.status(StatusCodes.OK).json({ msg: 'Category deleted' });
 };
