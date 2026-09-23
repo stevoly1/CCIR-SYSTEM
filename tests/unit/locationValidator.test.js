@@ -24,6 +24,12 @@ describe('location contract', () => {
     ['unknown source', { address: '12 Market Road', latitude: 6.6, longitude: 3.3, coordinateSource: 'IP' }, 'coordinateSource'],
     ['out of range', { address: '12 Market Road', latitude: 91, longitude: 3.3, coordinateSource: 'DEVICE' }, 'latitude'],
     ['non-numeric', { address: '12 Market Road', latitude: 'north', longitude: 3.3, coordinateSource: 'DEVICE' }, 'latitude'],
+    // z.coerce.number would turn these into 0 or 1 and store a fabricated position.
+    ['null latitude', { address: '12 Market Road', latitude: null, longitude: 3.3, coordinateSource: 'DEVICE' }, 'latitude'],
+    ['empty-string latitude', { address: '12 Market Road', latitude: '', longitude: 3.3, coordinateSource: 'DEVICE' }, 'latitude'],
+    ['blank-string latitude', { address: '12 Market Road', latitude: '  ', longitude: 3.3, coordinateSource: 'DEVICE' }, 'latitude'],
+    ['boolean latitude', { address: '12 Market Road', latitude: true, longitude: 3.3, coordinateSource: 'DEVICE' }, 'latitude'],
+    ['array latitude', { address: '12 Market Road', latitude: [6.6], longitude: 3.3, coordinateSource: 'DEVICE' }, 'latitude'],
     ['unknown field', { address: '12 Market Road', city: 'Ikeja' }, undefined],
   ])('rejects %s', (_label, value, field) => {
     const result = parse(value);

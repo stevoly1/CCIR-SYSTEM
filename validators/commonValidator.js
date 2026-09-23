@@ -25,8 +25,14 @@ const addCoordinatePairIssue = (value, context) => {
   });
 };
 
-const latitudeSchema = z.coerce.number().min(-90).max(90);
-const longitudeSchema = z.coerce.number().min(-180).max(180);
+// Numbers pass through; only non-blank numeric strings (query strings, multipart fields) are
+// converted. z.coerce.number would turn null, '' or true into 0 or 1 — a fabricated position.
+const coordinate = (min, max) => z.preprocess(
+  (value) => (typeof value === 'string' && value.trim() !== '' ? Number(value) : value),
+  z.number().finite().min(min).max(max),
+);
+const latitudeSchema = coordinate(-90, 90);
+const longitudeSchema = coordinate(-180, 180);
 
 const retirementBodySchema = z.strictObject({
   reason: z.string().trim().min(1).max(500).optional(),
