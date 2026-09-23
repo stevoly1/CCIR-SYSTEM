@@ -1,5 +1,6 @@
 const { StatusCodes } = require('http-status-codes');
 const CustomAPIError = require('../errors/customError');
+const { getLogger } = require('../utils/logger');
 
 const validationDetail = (path) => ({
     path,
@@ -58,12 +59,30 @@ const knownError = (err) => {
     return null;
 };
 
+// Every error is logged with the request id. Unexpected errors are logged in full (stack
+// included) and return the request id so a report can be matched to its log line; known,
+// expected rejections are logged briefly, without a stack.
 const errorHandlerMiddleware = (err, req, res, next) => {
-    const mapped = knownError(err) || {
-        status: StatusCodes.INTERNAL_SERVER_ERROR,
-        code: 'INTERNAL_ERROR',
-        message: 'Something went wrong',
-    };
+    const log = req.log || getLogger();
+
+    // Too late for an error body: log it and end the connection so the client sees a cut-off
+    // response. (Handing it to Express would print it to the console instead of the logger.)
+    if (res.headersSent) {
+        log.error({ err, requestId: req.id }, 'Unhandled error');
+        res.destroy();
+        return undefined;
+    }
+
+    const mapped = knownError(err);
+
+    if (!mapped) {
+        log.error({ err, requestId: req.id }, 'Unhandled error');
+        const error = { code: 'INTERNAL_ERROR', message: 'Something went wrong', ...(req.id ? { requestId: req.id } : {}) };
+        return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ error, msg: error.message });
+    }
+
+    const level = mapped.status >= 500 ? 'warn' : 'info';
+    log[level]({ requestId: req.id, code: mapped.code, status: mapped.status }, 'Request rejected');
     const error = {
         code: mapped.code,
         message: mapped.message,
@@ -71,6 +90,5 @@ const errorHandlerMiddleware = (err, req, res, next) => {
     };
     return res.status(mapped.status).json({ error, msg: mapped.message });
 };
-
 
 module.exports = errorHandlerMiddleware

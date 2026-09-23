@@ -1,7 +1,6 @@
 const fs = require('fs');
 const express = require('express');
 const path = require('path');
-const { rateLimit } = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
 const compression = require('compression');
@@ -10,6 +9,7 @@ const { getBrowserSecurityConfig } = require('./config/browserSecurity');
 const requireApprovedOrigin = require('./middleware/originGuard');
 const multipartUpload = require('./middleware/multipartUpload');
 const { requestLogger } = require('./middleware/requestLogger');
+const { apiRateLimit } = require('./middleware/apiRateLimit');
 
 const browserSecurity = getBrowserSecurityConfig(process.env);
 
@@ -18,15 +18,8 @@ const app = express();
 app.set('trust proxy', browserSecurity.trustProxy === 0 ? false : browserSecurity.trustProxy);
 app.use(requestLogger);
 
-// Rate limit setup
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: process.env.NODE_ENV === 'test' ? 10000 : 100,
-  message: 'Too many requests from this IP, please try again later.',
-  validate: { xForwardedForHeader: false },
-});
-
-app.use(limiter);
+// Rate limit setup: over-limit requests get the standard 429 JSON error.
+app.use(apiRateLimit);
 
 // Helmet security setup
 app.use(helmet());

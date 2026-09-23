@@ -55,7 +55,7 @@ describe('complaint AI fallback invariant', () => {
 
     expect(response.status).toBe(500);
     expect(response.body).toEqual({
-      error: { code: 'INTERNAL_ERROR', message: 'Something went wrong' },
+      error: { code: 'INTERNAL_ERROR', message: 'Something went wrong', requestId: response.headers['x-request-id'] },
       msg: 'Something went wrong',
     });
     expect(classify).not.toHaveBeenCalled();

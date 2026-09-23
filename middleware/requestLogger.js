@@ -16,6 +16,15 @@ const requestIdFor = (req) => {
 
 const withUserId = (req, value) => ({ ...value, ...(req.user?.userId ? { userId: String(req.user.userId) } : {}) });
 
+// For any 5xx without an attached error, pino-http invents one ("failed with status code 500")
+// whose stack is its own internals. The error handler has already logged the real error under
+// the same requestId, so the invented one is dropped; a genuinely attached error is kept.
+const withoutSyntheticError = (res, err, value) => {
+  if (err?.message !== `failed with status code ${res.statusCode}`) return value;
+  const { err: _synthetic, ...rest } = value;
+  return rest;
+};
+
 const build = (logger) => pinoHttp({
   logger,
   genReqId: (req, res) => {
@@ -44,7 +53,7 @@ const build = (logger) => pinoHttp({
     err: serializeError,
   },
   customSuccessObject: (req, res, value) => withUserId(req, value),
-  customErrorObject: (req, res, err, value) => withUserId(req, value),
+  customErrorObject: (req, res, err, value) => withUserId(req, withoutSyntheticError(res, err, value)),
 });
 
 // Rebuilt only when the process logger changes (tests swap it), so production builds it once.

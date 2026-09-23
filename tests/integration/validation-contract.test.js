@@ -20,6 +20,8 @@ const expectError = (response, { status, code, path, message }) => {
           expect.objectContaining({ path }),
         ]),
       } : {}),
+      // Only unexpected failures carry the request id, so a report can be matched to its log line.
+      ...(status === 500 ? { requestId: response.headers['x-request-id'] } : {}),
     },
     msg: message || expect.any(String),
   });
