@@ -1,4 +1,5 @@
 const { Category } = require('../models');
+const { categorySlug, normaliseCategoryName } = require('./categoryName');
 
 const DEFAULT_CATEGORIES = [
     { name: 'Pothole', description: 'Damaged or eroded road surfaces', defaultPriority: 'HIGH' },
@@ -9,15 +10,23 @@ const DEFAULT_CATEGORIES = [
     { name: 'Other', description: 'Issues that do not fit another category', defaultPriority: 'LOW' },
 ];
 
-// Idempotent — safe to call on every startup. Ensures a fresh deployment always has a
-// usable category set for the AI classifier and citizen-facing forms to target.
+// Upserts bypass the model's validate hook, so the identity fields are written here too;
+// without them the rows collide on the unique `slug` index and escape the unique `nameKey`.
+// The exact-name match also finds legacy rows that predate `nameKey` (the server starts
+// before `migrate:phase2` runs), so they are never duplicated.
+const upsertDefault = (category) => Category.updateOne(
+    { $or: [{ nameKey: normaliseCategoryName(category.name) }, { name: category.name }] },
+    { $setOnInsert: { ...category, nameKey: normaliseCategoryName(category.name), slug: categorySlug(category.name), isActive: true } },
+    { upsert: true }
+);
+
+// Safe to call on every startup. `Other` (the protected AI fallback) is always ensured. The
+// other defaults are seeded only into an empty collection, so a default an administrator
+// has renamed or deleted is not brought back by the next restart.
 const seedDefaultCategories = async () => {
+    const firstRun = (await Category.estimatedDocumentCount()) === 0;
     for (const category of DEFAULT_CATEGORIES) {
-        await Category.updateOne(
-            { name: category.name },
-            { $setOnInsert: category },
-            { upsert: true }
-        );
+        if (firstRun || category.name === 'Other') await upsertDefault(category);
     }
 };
 

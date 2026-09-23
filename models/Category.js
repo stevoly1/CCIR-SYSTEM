@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { cleanCategoryName, normaliseCategoryName } = require('../utils/categoryName');
+const { categorySlug, cleanCategoryName, normaliseCategoryName } = require('../utils/categoryName');
 
 const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
 
@@ -49,9 +49,7 @@ categorySchema.pre('validate', function normaliseName(next) {
     if (this.name) {
         this.name = cleanCategoryName(this.name);
         this.nameKey = normaliseCategoryName(this.name);
-        this.slug = this.nameKey
-            .replace(/[^a-z0-9]+/g, '-')
-            .replace(/(^-|-$)/g, '');
+        this.slug = categorySlug(this.name);
     }
     next();
 });

@@ -1,4 +1,4 @@
-const { normaliseCategoryName, cleanCategoryName } = require('../../utils/categoryName');
+const { normaliseCategoryName, cleanCategoryName, categorySlug } = require('../../utils/categoryName');
 
 describe('category names', () => {
   it.each([
@@ -12,5 +12,13 @@ describe('category names', () => {
 
   it('cleans display names without changing case', () => {
     expect(cleanCategoryName('  Street   Lights ')).toBe('Street Lights');
+  });
+
+  it.each([
+    ['Waste Accumulation', 'waste-accumulation'],
+    ['  Street   Lights ', 'street-lights'],
+    ['Roads & Bridges!', 'roads-bridges'],
+  ])('derives the slug for %j', (input, slug) => {
+    expect(categorySlug(input)).toBe(slug);
   });
 });
