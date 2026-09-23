@@ -1,9 +1,10 @@
 import { afterAll, afterEach, beforeAll } from 'vitest';
 import mongoose from 'mongoose';
+import { createRequire } from 'node:module';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 
 let mongoServer;
-const MONGODB_VERSION = '8.2.6';
+const { MONGODB_TEST_VERSION: MONGODB_VERSION } = createRequire(import.meta.url)('./mongoVersion.cjs');
 
 process.env.JWT_TOKEN ||= 'integration-access-secret';
 process.env.JWT_REFRESH_TOKEN ||= 'integration-refresh-secret';

@@ -29,7 +29,7 @@ const mongoose = require('mongoose');
 const { MongoMemoryReplSet } = require('mongodb-memory-server');
 
 const replSet = await MongoMemoryReplSet.create({
-  binary: { version: '8.2.6' },
+  binary: { version: require('../setup/mongoVersion.cjs').MONGODB_TEST_VERSION },
   replSet: { count: 1, storageEngine: 'wiredTiger' },
 });
 await mongoose.connect(replSet.getUri(), { dbName: 'ccir-e2e' });
