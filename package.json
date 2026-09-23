@@ -20,7 +20,7 @@
     },
     "keywords": [],
     "author": "",
-    "license": "ISC",
+    "license": "MIT",
     "type": "commonjs",
     "packageManager": "npm@11.19.1",
     "engines": {
