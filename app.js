@@ -20,7 +20,7 @@ app.set('trust proxy', browserSecurity.trustProxy === 0 ? false : browserSecurit
 // Rate limit setup
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === 'test' ? 10000 : 100,
+  limit: process.env.NODE_ENV === 'test' ? 10000 : 100,
   message: 'Too many requests from this IP, please try again later.',
   validate: { xForwardedForHeader: false },
 });
