@@ -1,7 +1,7 @@
 const NODE_MINIMUM = [26, 9, 0];
 const NODE_MAXIMUM = [27, 0, 0];
-const NPM_MINIMUM = [11, 19, 1];
-const NPM_MAXIMUM = [12, 0, 0];
+const NPM_MINIMUM = [12, 1, 0];
+const NPM_MAXIMUM = [13, 0, 0];
 
 const parseVersion = (value) => {
   const match = String(value || '').trim().match(/^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
@@ -16,6 +16,8 @@ const compareVersions = (left, right) => {
   }
   return 0;
 };
+
+const describeRange = (minimum, maximum) => `>=${minimum.join('.')} <${maximum[0]}`;
 
 const satisfies = (version, minimum, maximum) => {
   const parsed = parseVersion(version);
@@ -39,11 +41,11 @@ const npmVersion = argumentValue('--npm') || npmVersionFromEnvironment();
 const errors = [];
 
 if (!satisfies(nodeVersion, NODE_MINIMUM, NODE_MAXIMUM)) {
-  errors.push(`Unsupported Node.js ${nodeVersion}; required >=26.9.0 <27.`);
+  errors.push(`Unsupported Node.js ${nodeVersion}; required ${describeRange(NODE_MINIMUM, NODE_MAXIMUM)}.`);
 }
 
 if (!satisfies(npmVersion, NPM_MINIMUM, NPM_MAXIMUM)) {
-  errors.push(`Unsupported npm ${npmVersion || 'unknown'}; required >=11.19.1 <12.`);
+  errors.push(`Unsupported npm ${npmVersion || 'unknown'}; required ${describeRange(NPM_MINIMUM, NPM_MAXIMUM)}.`);
 }
 
 if (errors.length > 0) {

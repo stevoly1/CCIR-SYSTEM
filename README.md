@@ -24,7 +24,7 @@ The AI classification feature uses a pretrained, general-purpose multimodal mode
 
 ## Prerequisites
 
-- Node.js 26 (26.9.0 or a later 26.x release) and npm 11.19.1 or later 11.x (`.nvmrc` records the verified version)
+- Node.js 26 (26.9.0 or a later 26.x release) and npm 12.1.0 or later 12.x (`.nvmrc` records the verified version)
 - A MongoDB instance (local, self-hosted, or a managed service)
 - A [Google AI Studio](https://aistudio.google.com/) API key (for AI classification — optional but recommended)
 - A [Cloudinary](https://cloudinary.com/) account (only required if citizens will attach photos to complaints — a text-only complaint never calls Cloudinary. Unlike the AI and email services, image upload has no fallback: a complaint submitted *with* a photo will fail without valid Cloudinary credentials)
