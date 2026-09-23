@@ -41,19 +41,19 @@ export const updateComplaintStatus = createAsyncThunk(
             const { data } = await axiosClient.patch(`/complaints/${id}/status`, payload);
             return data.complaint;
         } catch (error) {
-            return rejectWithValue(extractErrorMessage(error));
+            return rejectWithValue(rejection(error));
         }
     }
 );
 
 export const assignComplaint = createAsyncThunk(
     'complaints/assign',
-    async ({ id, assignedTo }, { rejectWithValue }) => {
+    async ({ id, ...body }, { rejectWithValue }) => {
         try {
-            const { data } = await axiosClient.patch(`/complaints/${id}/assign`, { assignedTo });
+            const { data } = await axiosClient.patch(`/complaints/${id}/assign`, body);
             return data.complaint;
         } catch (error) {
-            return rejectWithValue(extractErrorMessage(error));
+            return rejectWithValue(rejection(error));
         }
     }
 );

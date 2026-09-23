@@ -13,6 +13,7 @@ const STATUS_FILTERS = [
     { label: 'In Progress', value: 'IN_PROGRESS' },
     { label: 'Resolved', value: 'RESOLVED' },
     { label: 'Rejected', value: 'REJECTED' },
+    { label: 'Withdrawn', value: 'WITHDRAWN' },
 ];
 
 const ReportsListPage = () => {
@@ -22,6 +23,8 @@ const ReportsListPage = () => {
     const [searchParams, setSearchParams] = useSearchParams();
     const status = searchParams.get('status') || '';
     const search = searchParams.get('search') || '';
+    const mine = searchParams.get('mine') === '1';
+    const isAgency = user?.role === 'agency';
     const isStaff = user?.role === 'admin' || user?.role === 'agency';
 
     const [searchInput, setSearchInput] = useState(search);
@@ -31,8 +34,15 @@ const ReportsListPage = () => {
         const params = { limit: 50 };
         if (status) params.status = status;
         if (search) params.search = search;
+        if (isAgency && mine && user?._id) params.assignedTo = user._id;
         dispatch(fetchComplaints(params));
-    }, [dispatch, status, search]);
+    }, [dispatch, status, search, isAgency, mine, user?._id]);
+
+    const toggleMine = () => {
+        const next = new URLSearchParams(searchParams);
+        if (mine) next.delete('mine'); else next.set('mine', '1');
+        setSearchParams(next);
+    };
 
     const setStatusFilter = (value) => {
         const next = new URLSearchParams(searchParams);
@@ -78,6 +88,16 @@ const ReportsListPage = () => {
                         {f.label}
                     </button>
                 ))}
+                {isAgency && (
+                    <button
+                        type="button"
+                        className={`filter-chip${mine ? ' active' : ''}`}
+                        aria-pressed={mine}
+                        onClick={toggleMine}
+                    >
+                        Assigned to me
+                    </button>
+                )}
             </div>
 
             {listStatus === 'loading' && <div className="empty-state">Loading reports…</div>}
