@@ -101,6 +101,20 @@ const priorityChangeSchema = new mongoose.Schema(
     { _id: false }
 );
 
+const editHistorySchema = new mongoose.Schema(
+    {
+        editedAt: { type: Date, required: true },
+        editedBy: { type: userSnapshotSchema, required: true },
+        fields: {
+            type: [{ type: String, enum: ['description', 'location'] }],
+            required: true,
+        },
+        reanalysed: { type: Boolean, required: true },
+        aiError: { type: String },
+    },
+    { _id: false }
+);
+
 const statusHistorySchema = new mongoose.Schema(
     {
         type: {
@@ -192,6 +206,11 @@ const complaintSchema = new mongoose.Schema(
             enum: PRIORITIES,
             default: 'MEDIUM',
         },
+        // Where the current priority came from; re-analysis never overwrites STAFF.
+        prioritySource: {
+            type: String,
+            enum: ['AI', 'CATEGORY_DEFAULT', 'STAFF'],
+        },
         ai: {
             suggestedCategory: { type: String },
             confidence: { type: Number, min: 0, max: 1 },
@@ -199,6 +218,8 @@ const complaintSchema = new mongoose.Schema(
             tags: { type: [String], default: [] },
             classifiedAt: { type: Date },
             error: { type: String },
+            inputMode: { type: String, enum: ['TEXT_AND_IMAGE', 'TEXT_ONLY'] },
+            analysisCount: { type: Number, min: 1 },
         },
         reporter: {
             type: mongoose.Schema.Types.ObjectId,
@@ -218,6 +239,10 @@ const complaintSchema = new mongoose.Schema(
         },
         assignmentHistory: {
             type: [assignmentHistorySchema],
+            default: [],
+        },
+        editHistory: {
+            type: [editHistorySchema],
             default: [],
         },
         resolvedAt: {

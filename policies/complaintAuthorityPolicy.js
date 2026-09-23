@@ -1,4 +1,5 @@
 const { ALLOWED } = require('./complaintTransitionPolicy');
+const { MAX_EDITS } = require('./complaintEditPolicy');
 
 const STAFF_ROLES = new Set(['admin', 'agency']);
 const idString = (value) => (value === null || value === undefined ? null : String(value._id ?? value));
@@ -15,7 +16,9 @@ const allowedTransitions = (viewer, complaint) => (
 const canChangePriority = (viewer, complaint) => canManageStatus(viewer, complaint) && complaint.status !== 'WITHDRAWN';
 const canAssign = (viewer, complaint) => viewer?.role === 'admin' && complaint.status !== 'WITHDRAWN';
 // Tasks 13-15 refine editing, withdrawal, and deletion.
-const canEdit = (viewer, complaint) => isReporter(viewer, complaint) && complaint.status === 'PENDING';
+const canEdit = (viewer, complaint) => isReporter(viewer, complaint)
+  && complaint.status === 'PENDING'
+  && (complaint.editHistory?.length ?? 0) < MAX_EDITS;
 const canWithdraw = () => false;
 const canDelete = (viewer, complaint) => isStaff(viewer) || (isReporter(viewer, complaint) && complaint.status === 'PENDING');
 

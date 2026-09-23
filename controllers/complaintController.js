@@ -22,6 +22,8 @@ const aiService = require('../services/aiService');
 const uploadService = require('../services/uploadService');
 const emailService = require('../services/emailService');
 const complaintImageService = require('../services/complaintImageService');
+// Module-object access keeps the edit service replaceable in tests.
+const complaintEditService = require('../services/complaintEditService');
 const { assignComplaintTransaction } = require('../services/complaintAssignmentService');
 
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -87,6 +89,7 @@ const createComplaint = async (req, res) => {
                 category: category._id,
                 categorySnapshot: { categoryId: category._id, name: category.name },
                 priority: ai.error ? category.defaultPriority : ai.priority,
+                prioritySource: ai.error ? 'CATEGORY_DEFAULT' : 'AI',
                 ai: {
                     suggestedCategory: ai.category,
                     confidence: ai.confidence,
@@ -94,6 +97,8 @@ const createComplaint = async (req, res) => {
                     tags: ai.tags,
                     classifiedAt: new Date(),
                     error: ai.error,
+                    inputMode: imageFiles.length ? 'TEXT_AND_IMAGE' : 'TEXT_ONLY',
+                    analysisCount: 1,
                 },
                 reporter: req.user.userId,
                 reporterSnapshot,
@@ -172,23 +177,15 @@ const getSingleComplaint = async (req, res) => {
 };
 
 const updateComplaint = async (req, res) => {
-    const complaint = await Complaint.findById(req.params.id);
-    if (!complaint) throw new CustomError.NotFoundError(`No complaint found with id ${req.params.id}`);
-
-    if (complaint.reporter.toString() !== req.user.userId) {
-        throw new CustomError.ForbiddenError('You do not have access to this complaint');
-    }
-    if (complaint.status !== 'PENDING') {
-        throw new CustomError.BadRequestError('This report can no longer be edited because it is already being processed');
-    }
-
-    // Task 13 replaces this handler with guarded, re-analysing edits.
-    const { description, location } = req.body;
-    if (description) complaint.description = description;
-    if (location) complaint.location = buildLocation(location);
-
-    await complaint.save();
-    await respondWithComplaint(res, StatusCodes.OK, complaint._id, viewerFromRequest(req));
+    const viewer = viewerFromRequest(req);
+    const { complaint, reanalysed } = await complaintEditService.editComplaint({
+        complaintId: req.params.id,
+        viewer,
+        changes: req.body,
+    });
+    const populated = await Complaint.findById(complaint._id).populate(COMPLAINT_POPULATE);
+    const identities = await loadPresentationIdentities([populated]);
+    res.status(StatusCodes.OK).json({ complaint: presentComplaint(populated, viewer, { identities }), reanalysed });
 };
 
 const updateComplaintStatus = async (req, res) => {
