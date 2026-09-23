@@ -258,7 +258,7 @@ const updateComplaintStatus = async (req, res) => {
 
     const filter = { _id: complaint._id, status: complaint.status, __v: matchVersion };
     if (viewer.role === 'agency') filter.assignedTo = complaint.assignedTo;
-    const updated = await Complaint.findOneAndUpdate(filter, update, { new: true, runValidators: true })
+    const updated = await Complaint.findOneAndUpdate(filter, update, { returnDocument: 'after', runValidators: true })
         .populate({ path: 'reporter', select: 'name email' });
 
     if (!updated) {

@@ -85,13 +85,12 @@ const assignmentHistorySchema = new mongoose.Schema(
     { _id: false }
 );
 
-assignmentHistorySchema.pre('validate', function requireEventAuthor(next) {
+assignmentHistorySchema.pre('validate', function requireEventAuthor() {
     const hasActor = Boolean(this.changedBy);
     const hasMigrationMarker = Boolean(this.migrationMarker);
     if (hasActor === hasMigrationMarker) {
         this.invalidate('changedBy', 'Assignment history requires exactly one actor or migration marker');
     }
-    next();
 });
 
 const priorityChangeSchema = new mongoose.Schema(

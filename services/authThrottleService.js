@@ -47,7 +47,7 @@ const createThrottleService = ({ model, hmacSecret, now = () => new Date() }) =>
           },
         },
       }],
-      { new: true, upsert: true },
+      { returnDocument: 'after', upsert: true, updatePipeline: true },
     );
     const result = { count: record.count, resetAt: record.resetAt };
     if (record.count > limit) throw new TooManyRequestsError();

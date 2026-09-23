@@ -95,7 +95,7 @@ const editComplaint = async ({ complaintId, viewer, changes }) => {
       },
       $inc: { __v: 1 },
     },
-    { new: true, runValidators: true },
+    { returnDocument: 'after', runValidators: true },
   );
   if (!updated) await explainMissedWrite(complaint._id);
   return { complaint: updated, reanalysed: material };
@@ -151,7 +151,7 @@ const withdrawComplaint = async ({ complaintId, viewer, reason, expectedVersion 
       assignedTo: complaint.assignedTo ?? null,
     },
     update,
-    { new: true, runValidators: true },
+    { returnDocument: 'after', runValidators: true },
   );
   if (updated) return updated;
 

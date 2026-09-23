@@ -40,7 +40,7 @@
         "helmet": "^8.3.0",
         "http-status-codes": "^2.3.0",
         "jsonwebtoken": "^9.0.3",
-        "mongoose": "^8.24.4",
+        "mongoose": "^9.10.2",
         "morgan": "^1.12.1",
         "resend": "^6.28.1",
         "sharp": "0.35.4",

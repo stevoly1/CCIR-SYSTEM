@@ -45,13 +45,12 @@ const categorySchema = new mongoose.Schema(
     { timestamps: true }
 );
 
-categorySchema.pre('validate', function normaliseName(next) {
+categorySchema.pre('validate', function normaliseName() {
     if (this.name) {
         this.name = cleanCategoryName(this.name);
         this.nameKey = normaliseCategoryName(this.name);
         this.slug = categorySlug(this.name);
     }
-    next();
 });
 
 module.exports = mongoose.model('Category', categorySchema);

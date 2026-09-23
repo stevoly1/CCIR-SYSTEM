@@ -53,7 +53,7 @@ const assignComplaintTransaction = async ({ complaintId, actorUserId, assignedTo
           $push: { assignmentHistory: decision.event },
           $inc: { __v: 1 },
         },
-        { new: true, runValidators: true, session },
+        { returnDocument: 'after', runValidators: true, session },
       );
       if (!assignedComplaint) {
         throw staleComplaint();
