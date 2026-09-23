@@ -1,5 +1,12 @@
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { execFile } = require('node:child_process');
+
+// Asynchronous on purpose: this test process hosts the in-memory mongod and drains its output
+// pipe; a blocking spawnSync can let that pipe fill and stall the database mid-command.
+const runCli = (env, ...args) => new Promise((resolve) => {
+  execFile(process.execPath, [path.join(__dirname, '../../scripts/migratePhase2.js'), ...args], { env: { ...process.env, ...env }, timeout: 30000 },
+    (error, stdout, stderr) => resolve({ status: error ? error.code : 0, stdout, stderr }));
+});
 const mongoose = require('mongoose');
 const { Category, Complaint } = require('../../models');
 const { runPhase2Migration } = require('../../scripts/migratePhase2');
@@ -132,39 +139,29 @@ describe('Phase 2 migration', () => {
   });
 
   it('runs end to end from the command line and fails verify with a non-zero exit code', async () => {
-    const script = path.join(__dirname, '../../scripts/migratePhase2.js');
     const { host, port, name } = mongoose.connection;
-    const run = (...args) => spawnSync(process.execPath, [script, ...args], {
-      encoding: 'utf8',
-      env: { ...process.env, MONGO_URL: `mongodb://${host}:${port}/${name}?directConnection=true` },
-      timeout: 30000,
-    });
+    const run = (...args) => runCli({ MONGO_URL: `mongodb://${host}:${port}/${name}?directConnection=true` }, ...args);
     await Category.collection.insertOne({ name: 'Roads', slug: 'roads', isActive: true });
 
-    const failing = run('--verify');
+    const failing = await run('--verify');
     expect(failing.status).toBe(2);
     expect(JSON.parse(failing.stdout).invariantFailures).toContainEqual(expect.objectContaining({ invariant: 'CATEGORY_NAME_KEY_MISSING' }));
 
-    const applied = run('--apply', '--backup-reference=cli-rehearsal');
+    const applied = await run('--apply', '--backup-reference=cli-rehearsal');
     expect(applied.status).toBe(0);
     expect(JSON.parse(applied.stdout)).toMatchObject({ mode: 'apply', backupReference: 'cli-rehearsal', changes: { categoryNameKeys: 1 } });
 
-    const passing = run('--verify');
+    const passing = await run('--verify');
     expect(passing.status).toBe(0);
     expect(JSON.parse(passing.stdout).invariantFailures).toEqual([]);
   });
 
-  it('rejects invalid command lines before connecting to a database', () => {
-    const script = path.join(__dirname, '../../scripts/migratePhase2.js');
-    const run = (...args) => spawnSync(process.execPath, [script, ...args], {
-      encoding: 'utf8',
-      env: { ...process.env, MONGO_URL: 'mongodb://127.0.0.1:1/unreachable' },
-      timeout: 15000,
-    });
-    const unknown = run('--dry-run', '--everything');
+  it('rejects invalid command lines before connecting to a database', async () => {
+    const run = (...args) => runCli({ MONGO_URL: 'mongodb://127.0.0.1:1/unreachable' }, ...args);
+    const unknown = await run('--dry-run', '--everything');
     expect(unknown.status).toBe(1);
     expect(unknown.stderr).toMatch(/Unknown migration argument: --everything/);
-    const noBackup = run('--apply');
+    const noBackup = await run('--apply');
     expect(noBackup.status).toBe(1);
     expect(noBackup.stderr).toMatch(/backup reference/i);
   });
