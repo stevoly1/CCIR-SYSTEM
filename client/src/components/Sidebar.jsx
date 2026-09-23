@@ -1,6 +1,6 @@
 import {} from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
-import { Home, PlusCircle, FileText, Users, Settings, LogOut, X } from 'lucide-react';
+import { Home, PlusCircle, FileText, Users, Tags, Settings, LogOut, X } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import { logout } from '../slices/authSlice';
 import toast from 'react-hot-toast';
@@ -50,9 +50,14 @@ const Sidebar = ({ open, onClose }) => {
                     <FileText size={18} /> {isStaff ? 'All Reports' : 'My Reports'}
                 </NavLink>
                 {user?.role === 'admin' && (
-                    <NavLink to="/dashboard/users" className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`} onClick={onClose}>
-                        <Users size={18} /> Users
-                    </NavLink>
+                    <>
+                        <NavLink to="/dashboard/users" className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`} onClick={onClose}>
+                            <Users size={18} /> Users
+                        </NavLink>
+                        <NavLink to="/dashboard/categories" className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`} onClick={onClose}>
+                            <Tags size={18} /> Categories
+                        </NavLink>
+                    </>
                 )}
                 <NavLink to="/dashboard/profile" className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`} onClick={onClose}>
                     <Settings size={18} /> Profile

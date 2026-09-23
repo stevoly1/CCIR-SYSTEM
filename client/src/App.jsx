@@ -19,6 +19,7 @@ import ReportsListPage from './pages/dashboard/ReportsListPage';
 import ReportDetailPage from './pages/dashboard/ReportDetailPage';
 import ProfilePage from './pages/dashboard/ProfilePage';
 import UsersPage from './pages/dashboard/UsersPage';
+import CategoriesPage from './pages/dashboard/CategoriesPage';
 
 const App = () => {
     const dispatch = useDispatch();
@@ -45,6 +46,7 @@ const App = () => {
                         <Route path="profile" element={<ProfilePage />} />
                         <Route element={<RoleRoute roles={['admin']} />}>
                             <Route path="users" element={<UsersPage />} />
+                            <Route path="categories" element={<CategoriesPage />} />
                         </Route>
                     </Route>
                 </Route>
