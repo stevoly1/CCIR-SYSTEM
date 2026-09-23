@@ -42,7 +42,7 @@
         "jsonwebtoken": "^9.0.3",
         "mongoose": "^8.24.4",
         "morgan": "^1.12.1",
-        "resend": "^4.8.0",
+        "resend": "^6.28.1",
         "sharp": "0.35.4",
         "zod": "^4.6.5"
     },

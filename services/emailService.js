@@ -8,6 +8,7 @@ const STATUS_LABELS = {
     IN_PROGRESS: 'In Progress',
     RESOLVED: 'Resolved',
     REJECTED: 'Rejected',
+    WITHDRAWN: 'Withdrawn',
 };
 
 const escapeHtml = (value = '') =>
@@ -35,12 +36,14 @@ const wrapEmail = ({ heading, lines, linkUrl, linkLabel }) => `
 </div>`;
 
 // Best-effort notifications — never throw, so a mail provider outage never blocks a citizen or staff action.
+// Each resolves to true when the provider accepted the message and false otherwise. The Resend SDK
+// returns provider and network failures as { error } instead of throwing, so both paths are checked.
 
 const sendComplaintFiledEmail = async ({ to, name, referenceCode, complaintId }) => {
-    if (!resend) return;
+    if (!resend) return false;
 
     try {
-        await resend.emails.send({
+        const { error } = await resend.emails.send({
             from: process.env.EMAIL_FROM,
             to,
             subject: `Your report ${referenceCode} has been filed`,
@@ -55,13 +58,19 @@ const sendComplaintFiledEmail = async ({ to, name, referenceCode, complaintId })
                 linkLabel: 'View your report',
             }),
         });
+        if (error) {
+            console.error('Failed to send report filed email:', error.name || 'provider_error');
+            return false;
+        }
+        return true;
     } catch (error) {
         console.error('Failed to send report filed email:', error.message);
+        return false;
     }
 };
 
 const sendStatusUpdateEmail = async ({ to, name, referenceCode, status, publicNote, complaintId }) => {
-    if (!resend) return;
+    if (!resend) return false;
 
     try {
         const statusLabel = STATUS_LABELS[status] || status;
@@ -71,7 +80,7 @@ const sendStatusUpdateEmail = async ({ to, name, referenceCode, status, publicNo
         ];
         if (publicNote) lines.push(escapeHtml(publicNote));
 
-        await resend.emails.send({
+        const { error } = await resend.emails.send({
             from: process.env.EMAIL_FROM,
             to,
             subject: `Update on your report ${referenceCode}`,
@@ -82,8 +91,14 @@ const sendStatusUpdateEmail = async ({ to, name, referenceCode, status, publicNo
                 linkLabel: 'View your report',
             }),
         });
+        if (error) {
+            console.error('Failed to send status update email:', error.name || 'provider_error');
+            return false;
+        }
+        return true;
     } catch (error) {
         console.error('Failed to send status update email:', error.message);
+        return false;
     }
 };
 
