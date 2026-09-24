@@ -117,4 +117,74 @@ describe('UsersPage', () => {
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
     expect(toast.error).toHaveBeenCalledWith('An account with this email already exists');
   });
+
+  describe('account controls', () => {
+    const suspended = { _id: 'u-sus', name: 'Sam Suspended', email: 'sam@example.test', role: 'citizen', isActive: false };
+    const retired = { _id: 'u-ret', name: 'Retired account', email: 'retired+u-ret@invalid.local', role: 'citizen', isActive: false, retiredAt: '2026-09-01T00:00:00.000Z' };
+    const withUsers = (...users) => axiosClient.get.mockResolvedValue({ data: { users, pagination: { page: 1, pages: 1, total: users.length } } });
+
+    it('filters by role from the first page', async () => {
+      const user = userEvent.setup();
+      render(<UsersPage />);
+      await screen.findByText('Ada Citizen');
+      await user.selectOptions(screen.getByRole('combobox', { name: 'Filter by role' }), 'agency');
+      await waitFor(() => expect(axiosClient.get).toHaveBeenLastCalledWith('/users', { params: { role: 'agency', page: 1, limit: 50 } }));
+    });
+
+    it('marks suspended and retired accounts', async () => {
+      withUsers(admin, suspended, retired);
+      render(<UsersPage />);
+      expect(await within(await rowFor('Sam Suspended')).findByText('Suspended')).toBeInTheDocument();
+      expect(within(rowOf('Retired account')).getByText('Retired')).toBeInTheDocument();
+      expect(within(rowOf('Chi Admin (you)')).queryByText(/Suspended|Retired/)).not.toBeInTheDocument();
+    });
+
+    it('offers no action on a retired account, and no suspension of one\'s own', async () => {
+      withUsers(admin, retired);
+      render(<UsersPage />);
+      const row = await rowFor('Retired account');
+      for (const name of ['Edit user', 'Suspend user', 'Delete user']) expect(within(row).getByRole('button', { name })).toBeDisabled();
+      expect(within(rowOf('Chi Admin (you)')).getByRole('button', { name: 'Suspend user' })).toBeDisabled();
+    });
+
+    it('suspends with a reason after confirmation, then reloads from the server', async () => {
+      withUsers(admin, citizen);
+      axiosClient.patch.mockResolvedValue({ data: { user: { ...citizen, isActive: false } } });
+      const user = userEvent.setup();
+      render(<UsersPage />);
+      await user.click(within(await rowFor('Ada Citizen')).getByRole('button', { name: 'Suspend user' }));
+      expect(axiosClient.patch).not.toHaveBeenCalled();
+      await user.type(screen.getByLabelText('Reason (optional)'), 'Abusive reports');
+      axiosClient.get.mockClear();
+      await user.click(screen.getByRole('button', { name: 'Suspend' }));
+      expect(axiosClient.patch).toHaveBeenCalledWith('/users/u-cit', { isActive: false, reason: 'Abusive reports' });
+      await waitFor(() => expect(axiosClient.get).toHaveBeenCalled());
+      expect(toast.success).toHaveBeenCalledWith('Account suspended');
+    });
+
+    it('reactivates a suspended account after confirmation', async () => {
+      withUsers(admin, suspended);
+      axiosClient.patch.mockResolvedValue({ data: { user: { ...suspended, isActive: true } } });
+      const user = userEvent.setup();
+      render(<UsersPage />);
+      await user.click(within(await rowFor('Sam Suspended')).getByRole('button', { name: 'Reactivate user' }));
+      await user.click(screen.getByRole('button', { name: 'Reactivate' }));
+      expect(axiosClient.patch).toHaveBeenCalledWith('/users/u-sus', { isActive: true });
+    });
+
+    it('sends the reason given when deleting', async () => {
+      withUsers(admin, citizen);
+      axiosClient.delete.mockResolvedValue({ data: { msg: 'User retired' } });
+      const user = userEvent.setup();
+      render(<UsersPage />);
+      await user.click(within(await rowFor('Ada Citizen')).getByRole('button', { name: 'Delete user' }));
+      await user.type(screen.getByLabelText('Reason (optional)'), 'Duplicate account');
+      await user.click(screen.getByRole('button', { name: 'Delete' }));
+      expect(axiosClient.delete).toHaveBeenCalledWith('/users/u-cit', { data: { reason: 'Duplicate account' } });
+    });
+  });
 });
+
+async function rowFor(text) {
+  return (await screen.findByText(text)).closest('.user-row');
+}

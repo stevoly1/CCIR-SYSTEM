@@ -452,6 +452,14 @@
     flex-shrink: 0;
 }
 
+/* Search box and filters side by side, wrapping on narrow screens. */
+.list-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 12px;
+    align-items: flex-end;
+}
+
 .user-row-actions {
     display: flex;
     align-items: center;

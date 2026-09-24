@@ -1,21 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
-import { Search, Pencil, Trash2 } from 'lucide-react';
+import { Search, Pencil, Trash2, Ban, RotateCcw } from 'lucide-react';
 import Topbar from '../../components/Topbar';
 import Modal from '../../components/Modal';
-import ConfirmModal from '../../components/ConfirmModal';
+import ReasonDialog from '../../components/ReasonDialog';
 import Pager from '../../components/Pager';
 import axiosClient, { extractErrorMessage } from '../../api/axiosClient';
 import toast from 'react-hot-toast';
 
 const ROLES = ['citizen', 'admin', 'agency'];
+const ROLE_FILTERS = [
+    { value: '', label: 'All roles' },
+    { value: 'citizen', label: 'Citizens' },
+    { value: 'agency', label: 'Agency staff' },
+    { value: 'admin', label: 'Administrators' },
+];
 const PAGE_SIZE = 50;
+
+// A retired account's sign-in and contact details are gone and the server refuses any change;
+// a suspended one is kept but cannot sign in until an administrator reactivates it.
+const accountState = (u) => {
+    if (u.retiredAt) return { label: 'Retired', style: { background: '#F1F1F1', color: 'var(--color-text-muted)' } };
+    if (u.isActive === false) return { label: 'Suspended', style: { background: '#FDECEE', color: 'var(--color-status-rejected)' } };
+    return null;
+};
 
 const UsersPage = () => {
     const { user: currentUser } = useSelector((state) => state.auth);
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
+    const [role, setRole] = useState('');
     const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0 });
     const debounceRef = useRef(null);
 
@@ -23,14 +38,15 @@ const UsersPage = () => {
     const [editForm, setEditForm] = useState({ name: '', phone: '', role: 'citizen' });
     const [saving, setSaving] = useState(false);
 
-    const [deletingUser, setDeletingUser] = useState(null);
-    const [deleting, setDeleting] = useState(false);
+    // One pending account action at a time: { kind: 'delete' | 'suspend' | 'reactivate', user }.
+    const [pending, setPending] = useState(null);
+    const [acting, setActing] = useState(false);
 
     // The server pages the list; the count shown is the total across all pages.
-    const loadUsers = useCallback(async (searchValue, page = 1) => {
+    const loadUsers = useCallback(async (searchValue, page = 1, roleValue = '') => {
         setLoading(true);
         try {
-            const params = { ...(searchValue ? { search: searchValue } : {}), page, limit: PAGE_SIZE };
+            const params = { ...(searchValue ? { search: searchValue } : {}), ...(roleValue ? { role: roleValue } : {}), page, limit: PAGE_SIZE };
             const { data } = await axiosClient.get('/users', { params });
             setUsers(data.users);
             setPagination(data.pagination ?? { page, pages: 1, total: data.users.length });
@@ -52,11 +68,16 @@ const UsersPage = () => {
     const handleSearchChange = (value) => {
         setSearch(value);
         clearTimeout(debounceRef.current);
-        debounceRef.current = setTimeout(() => loadUsers(value), 400);
+        debounceRef.current = setTimeout(() => loadUsers(value, 1, role), 400);
+    };
+
+    const handleRoleChange = (value) => {
+        setRole(value);
+        void loadUsers(search, 1, value);
     };
 
     const goToPage = (page) => {
-        void loadUsers(search, page);
+        void loadUsers(search, page, role);
         document.querySelector('.main-content')?.scrollIntoView?.({ block: 'start' });
     };
 
@@ -80,19 +101,35 @@ const UsersPage = () => {
         }
     };
 
-    const handleConfirmDelete = async () => {
-        setDeleting(true);
+    const ACTIONS = {
+        delete: {
+            run: (u, reason) => (reason ? axiosClient.delete(`/users/${u._id}`, { data: { reason } }) : axiosClient.delete(`/users/${u._id}`)),
+            done: 'User deleted',
+        },
+        suspend: {
+            run: (u, reason) => axiosClient.patch(`/users/${u._id}`, { isActive: false, ...(reason ? { reason } : {}) }),
+            done: 'Account suspended',
+        },
+        reactivate: {
+            run: (u) => axiosClient.patch(`/users/${u._id}`, { isActive: true }),
+            done: 'Account reactivated',
+        },
+    };
+
+    const handleConfirmAction = async (reason) => {
+        const { kind, user: target } = pending;
+        setActing(true);
         try {
-            await axiosClient.delete(`/users/${deletingUser._id}`);
-            toast.success('User deleted');
-            setDeletingUser(null);
-            // Reload rather than drop the row locally, so the page stays in step with the server.
-            const lastOnPage = users.length === 1 && pagination.page > 1;
-            await loadUsers(search, lastOnPage ? pagination.page - 1 : pagination.page);
+            await ACTIONS[kind].run(target, reason);
+            toast.success(ACTIONS[kind].done);
+            setPending(null);
+            // Reload rather than change the row locally, so the page stays in step with the server.
+            const lastOnPage = kind === 'delete' && users.length === 1 && pagination.page > 1;
+            await loadUsers(search, lastOnPage ? pagination.page - 1 : pagination.page, role);
         } catch (error) {
             toast.error(extractErrorMessage(error));
         } finally {
-            setDeleting(false);
+            setActing(false);
         }
     };
 
@@ -100,16 +137,23 @@ const UsersPage = () => {
         <div>
             <Topbar title="Users" subtitle={`${pagination.total} registered account${pagination.total === 1 ? '' : 's'}`} />
 
-            <div className="field" style={{ position: 'relative', maxWidth: 420 }}>
-                <Search size={16} color="var(--color-placeholder)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
-                <input
-                    type="text"
-                    aria-label="Search users"
-                    placeholder="Search by name or email…"
-                    value={search}
-                    onChange={(e) => handleSearchChange(e.target.value)}
-                    style={{ paddingLeft: 38 }}
-                />
+            <div className="list-controls">
+                <div className="field" style={{ position: 'relative', flex: '1 1 260px', maxWidth: 420 }}>
+                    <Search size={16} color="var(--color-placeholder)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
+                    <input
+                        type="text"
+                        aria-label="Search users"
+                        placeholder="Search by name or email…"
+                        value={search}
+                        onChange={(e) => handleSearchChange(e.target.value)}
+                        style={{ paddingLeft: 38 }}
+                    />
+                </div>
+                <div className="field" style={{ flex: '0 1 200px' }}>
+                    <select aria-label="Filter by role" value={role} onChange={(e) => handleRoleChange(e.target.value)}>
+                        {ROLE_FILTERS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                </div>
             </div>
 
             {loading && <div className="empty-state">Loading users…</div>}
@@ -125,6 +169,9 @@ const UsersPage = () => {
                 <div className="card-list">
                     {users.map((u) => {
                         const isSelf = u._id === currentUser?._id;
+                        const state = accountState(u);
+                        const retired = Boolean(u.retiredAt);
+                        const suspended = !retired && u.isActive === false;
                         return (
                             <div key={u._id} className="complaint-card user-row">
                                 <div className="avatar">{u.name?.[0]?.toUpperCase()}</div>
@@ -136,14 +183,30 @@ const UsersPage = () => {
                                     <span className="badge" style={{ background: 'var(--color-primary-light)', color: 'var(--color-primary-dark)' }}>
                                         {u.role}
                                     </span>
+                                    {state && <span className="badge" style={state.style}>{state.label}</span>}
                                     <div style={{ display: 'flex', gap: 8 }}>
-                                        <button className="icon-btn" onClick={() => openEdit(u)} aria-label="Edit user">
+                                        <button className="icon-btn" onClick={() => openEdit(u)} disabled={retired} title={retired ? 'Retired accounts cannot be changed' : 'Edit user'} aria-label="Edit user">
                                             <Pencil size={15} />
                                         </button>
+                                        {suspended ? (
+                                            <button className="icon-btn" onClick={() => setPending({ kind: 'reactivate', user: u })} title="Reactivate user" aria-label="Reactivate user">
+                                                <RotateCcw size={15} />
+                                            </button>
+                                        ) : (
+                                            <button
+                                                className="icon-btn"
+                                                onClick={() => setPending({ kind: 'suspend', user: u })}
+                                                disabled={isSelf || retired}
+                                                title={isSelf ? "You can't suspend your own account" : 'Suspend user'}
+                                                aria-label="Suspend user"
+                                            >
+                                                <Ban size={15} />
+                                            </button>
+                                        )}
                                         <button
                                             className="icon-btn"
-                                            onClick={() => setDeletingUser(u)}
-                                            disabled={isSelf}
+                                            onClick={() => setPending({ kind: 'delete', user: u })}
+                                            disabled={isSelf || retired}
                                             title={isSelf ? "You can't delete your own account here" : 'Delete user'}
                                             aria-label="Delete user"
                                         >
@@ -206,14 +269,37 @@ const UsersPage = () => {
                 </Modal>
             )}
 
-            {deletingUser && (
-                <ConfirmModal
+            {pending?.kind === 'delete' && (
+                <ReasonDialog
                     title="Delete user"
-                    message={`Delete ${deletingUser.name}'s account? This cannot be undone.`}
+                    message={`Delete ${pending.user.name}'s account? Their sign-in and contact details are removed and their reports stay, shown as "Retired account". This cannot be undone.`}
                     confirmLabel="Delete"
-                    loading={deleting}
-                    onConfirm={handleConfirmDelete}
-                    onClose={() => setDeletingUser(null)}
+                    danger
+                    loading={acting}
+                    onConfirm={handleConfirmAction}
+                    onClose={() => setPending(null)}
+                />
+            )}
+            {pending?.kind === 'suspend' && (
+                <ReasonDialog
+                    title="Suspend user"
+                    message={`Suspend ${pending.user.name}? They are signed out now and cannot sign in until an administrator reactivates the account. Their reports and history stay.`}
+                    confirmLabel="Suspend"
+                    danger
+                    loading={acting}
+                    onConfirm={handleConfirmAction}
+                    onClose={() => setPending(null)}
+                />
+            )}
+            {pending?.kind === 'reactivate' && (
+                <ReasonDialog
+                    title="Reactivate user"
+                    message={`Reactivate ${pending.user.name}? They can sign in again straight away.`}
+                    confirmLabel="Reactivate"
+                    withReason={false}
+                    loading={acting}
+                    onConfirm={handleConfirmAction}
+                    onClose={() => setPending(null)}
                 />
             )}
         </div>
