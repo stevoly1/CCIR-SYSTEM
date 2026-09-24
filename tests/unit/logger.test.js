@@ -71,6 +71,18 @@ describe('logger', () => {
       .toBe('a?token=[REDACTED]&signature=[REDACTED]&api_key=[REDACTED]&access_token=[REDACTED]');
   });
 
+  it.each([
+    ['mongodb+srv://ccir-app:S3cret-Pass@cluster0.example.net/ccir?retryWrites=true', 'mongodb+srv://[REDACTED]@cluster0.example.net/ccir?retryWrites=true'],
+    ['connect mongodb://admin:hunter2@10.0.0.5:27017,10.0.0.6:27017/db failed', 'connect mongodb://[REDACTED]@10.0.0.5:27017,10.0.0.6:27017/db failed'],
+    ['https://user:pw@proxy.example.test/path', 'https://[REDACTED]@proxy.example.test/path'],
+  ])('scrubs credentials embedded in a connection string: %s', (input, expected) => {
+    expect(scrubSecrets(input)).toBe(expected);
+  });
+
+  it('keeps a connection string without credentials unchanged', () => {
+    expect(scrubSecrets('mongodb://db.example.net:27017/ccir')).toBe('mongodb://db.example.net:27017/ccir');
+  });
+
   it('serialises non-error values unchanged', () => {
     expect(serializeError('plain')).toBe('plain');
   });

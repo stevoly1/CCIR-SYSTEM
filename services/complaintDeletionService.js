@@ -5,6 +5,7 @@ const { staleComplaint } = require('../errors/domainErrors');
 const uploadService = require('./uploadService');
 const { buildUserSnapshot } = require('./userSnapshotService');
 const { assertExpectedVersion } = require('./complaintVersionGuard');
+const { getLogger } = require('../utils/logger');
 
 // Administrator-only permanent deletion: the audit log entry and the delete commit
 // together or not at all. Cloud images are removed best-effort after the commit.
@@ -38,9 +39,9 @@ const deleteComplaintPermanently = async ({ complaintId, viewer, reason, expecte
   if (publicIds.length === 0) return;
   try {
     const failed = await uploadService.deleteComplaintImages(publicIds);
-    if (failed?.length) console.error('Complaint image cleanup left orphans:', failed.length);
+    if (failed?.length) getLogger().error({ orphanCount: failed.length }, 'Complaint image cleanup left orphans');
   } catch (error) {
-    console.error('Complaint image cleanup failed after deletion:', error.message);
+    getLogger().error({ err: error, orphanCount: publicIds.length }, 'Complaint image cleanup failed after deletion');
   }
 };
 

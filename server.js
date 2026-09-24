@@ -4,6 +4,7 @@ const http = require('http');
 const app = require('./app');
 const connectDB = require('./config/db');
 const seedDefaultCategories = require('./utils/seedCategories');
+const { getLogger } = require('./utils/logger');
 
 const port = process.env.PORT || 8080;
 
@@ -14,12 +15,12 @@ const startApp = async () => {
 
     const server = http.createServer(app);
     server.listen(port, () => {
-      console.log(`App is listening on port ${port}`);
+      getLogger().info({ port: Number(port) }, 'App is listening');
     });
 
     return server;
   } catch (error) {
-    console.error('Failed to start app:', error);
+    getLogger().fatal({ err: error }, 'Failed to start app');
     process.exitCode = 1;
     return null;
   }

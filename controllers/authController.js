@@ -9,6 +9,7 @@ const {
 const googleOAuthService = require('../services/googleOAuthService');
 const { establishGoogleIdentitySession } = require('../services/googleIdentityService');
 const { safeStateEqual } = require('../policies/googleIdentityPolicy');
+const { getLogger } = require('../utils/logger');
 const { getBrowserSecurityConfig } = require('../config/browserSecurity');
 const { createThrottleService } = require('../services/authThrottleService');
 
@@ -32,7 +33,8 @@ const parseOAuthStateCookie = (value) => {
 const digestOAuthState = (state) => crypto.createHash('sha256').update(state).digest('hex');
 
 const googleFailureRedirect = (res, frontendUrl, code) => {
-    console.error('Google sign-in failed:', code);
+    // res.req is the request (set by Express), so the line carries its requestId.
+    (res.req?.log || getLogger()).warn({ reason: code }, 'Google sign-in failed');
     return res.redirect(`${frontendUrl}/login?error=google_auth_failed`);
 };
 

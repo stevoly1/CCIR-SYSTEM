@@ -2,6 +2,7 @@ const fs = require('fs/promises');
 const { PayloadTooLargeError } = require('../errors');
 const imageInspectionService = require('./imageInspectionService');
 const uploadService = require('./uploadService');
+const { getLogger } = require('../utils/logger');
 
 const MAX_IMAGES = 5;
 const MAX_AGGREGATE_BYTES = 25 * 1024 * 1024;
@@ -51,7 +52,7 @@ const cleanupCloudImages = async (images = []) => {
     failedPublicIds = publicIds;
   }
   if (failedPublicIds.length > 0) {
-    console.error('Cloud image cleanup failed:', failedPublicIds);
+    getLogger().error({ failedCount: failedPublicIds.length }, 'Cloud image cleanup failed');
   }
   return failedPublicIds;
 };

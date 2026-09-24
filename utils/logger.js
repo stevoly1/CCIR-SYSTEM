@@ -9,7 +9,12 @@ const REDACT_PATHS = SECRET_KEYS.flatMap((key) => Array.from({ length: MAX_DEPTH
 
 // Gemini puts its API key in the request URL, so URL secrets are scrubbed from any text we log.
 const URL_SECRET = /([?&](?:key|api_key|apikey|token|access_token|signature|code|state)=)[^&\s"'#]+/gi;
-const scrubSecrets = (text) => (typeof text === 'string' ? text.replace(URL_SECRET, '$1[REDACTED]') : text);
+// Database and proxy connection strings can carry credentials before the host
+// (mongodb+srv://user:password@cluster/…); the user-and-password part is replaced.
+const URL_CREDENTIALS = /(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/?#@]+@/gi;
+const scrubSecrets = (text) => (typeof text === 'string'
+  ? text.replace(URL_CREDENTIALS, '$1[REDACTED]@').replace(URL_SECRET, '$1[REDACTED]')
+  : text);
 
 // Key matching that ignores case and punctuation, so header spellings such as `Authorization`,
 // `set-cookie` or `X-Goog-Api-Key` are caught as well as the camelCase field names above.

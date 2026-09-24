@@ -10,6 +10,7 @@ const {
   prepareComplaintImages,
   uploadComplaintImages,
 } = require('../../services/complaintImageService');
+const { captureLogs } = require('../helpers/captureLogs');
 
 const image = (index, size = 1024) => ({
   name: `image-${index}.jpg`,
@@ -84,12 +85,13 @@ describe('complaint image orchestration', () => {
     expect(remove).toHaveBeenCalledWith(['one', 'two']);
   });
 
-  it('logs failed public IDs without throwing from cloud cleanup', async () => {
+  it('logs the failed cleanup count without throwing from cloud cleanup', async () => {
     vi.spyOn(uploadService, 'deleteComplaintImages').mockResolvedValue(['two']);
-    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const logs = captureLogs();
 
     await expect(cleanupCloudImages([{ publicId: 'one' }, { publicId: 'two' }])).resolves.toEqual(['two']);
-    expect(log).toHaveBeenCalledWith('Cloud image cleanup failed:', ['two']);
+    expect(logs.lines).toEqual([expect.objectContaining({ level: 50, failedCount: 1, msg: 'Cloud image cleanup failed' })]);
+    logs.restore();
   });
 
   it('attempts every cloud deletion and returns only failed public IDs', async () => {

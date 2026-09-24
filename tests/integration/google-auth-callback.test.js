@@ -6,6 +6,7 @@ const googleOAuthService = require('../../services/googleOAuthService');
 const { establishGoogleIdentitySession } = require('../../services/googleIdentityService');
 const { retireAccount } = require('../../services/accountRetirementService');
 const { createUserFixture } = require('../fixtures/user');
+const { captureLogs } = require('../helpers/captureLogs');
 
 const successProfile = (overrides = {}) => ({
   googleId: 'google-subject-123',
@@ -241,15 +242,17 @@ describe('Google authentication callback', () => {
 
   it('uses one generic redirect and stable log code for provider failure', async () => {
     vi.spyOn(googleOAuthService, 'exchangeCodeForProfile').mockRejectedValue(new Error('secret provider body'));
-    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const logs = captureLogs();
     const agent = request.agent(testServer());
     const { state } = await beginGoogle(agent);
 
     const response = await callback(agent, state);
+    logs.restore();
 
     expect(response.headers.location).toBe(`${process.env.BROWSER_ORIGIN}/login?error=google_auth_failed`);
     expect(sessionCookies(response)).toHaveLength(0);
-    expect(log).toHaveBeenCalledWith('Google sign-in failed:', 'PROVIDER_ERROR');
-    expect(JSON.stringify(log.mock.calls)).not.toContain('secret provider body');
+    expect(logs.lines.find((line) => line.msg === 'Google sign-in failed'))
+      .toMatchObject({ level: 40, reason: 'PROVIDER_ERROR', requestId: response.headers['x-request-id'] });
+    expect(logs.text()).not.toContain('secret provider body');
   });
 });

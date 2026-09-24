@@ -1,4 +1,5 @@
 const { Resend } = require('resend');
+const { getLogger } = require('../utils/logger');
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
@@ -38,6 +39,10 @@ const wrapEmail = ({ heading, lines, linkUrl, linkLabel }) => `
 // Best-effort notifications — never throw, so a mail provider outage never blocks a citizen or staff action.
 // Each resolves to true when the provider accepted the message and false otherwise. The Resend SDK
 // returns provider and network failures as { error } instead of throwing, so both paths are checked.
+// The log line names the message kind and the provider's reason, never the recipient or content.
+const logSendFailure = (kind, details) => {
+    getLogger().warn({ provider: 'resend', kind, ...details }, 'Email not sent');
+};
 
 const sendComplaintFiledEmail = async ({ to, name, referenceCode, complaintId }) => {
     if (!resend) return false;
@@ -59,12 +64,12 @@ const sendComplaintFiledEmail = async ({ to, name, referenceCode, complaintId })
             }),
         });
         if (error) {
-            console.error('Failed to send report filed email:', error.name || 'provider_error');
+            logSendFailure('report_filed', { reason: error.name || 'provider_error', statusCode: error.statusCode });
             return false;
         }
         return true;
     } catch (error) {
-        console.error('Failed to send report filed email:', error.message);
+        logSendFailure('report_filed', { err: error });
         return false;
     }
 };
@@ -92,12 +97,12 @@ const sendStatusUpdateEmail = async ({ to, name, referenceCode, status, publicNo
             }),
         });
         if (error) {
-            console.error('Failed to send status update email:', error.name || 'provider_error');
+            logSendFailure('status_update', { reason: error.name || 'provider_error', statusCode: error.statusCode });
             return false;
         }
         return true;
     } catch (error) {
-        console.error('Failed to send status update email:', error.message);
+        logSendFailure('status_update', { err: error });
         return false;
     }
 };

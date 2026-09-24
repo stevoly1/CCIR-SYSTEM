@@ -1,5 +1,6 @@
 const fs = require('fs');
 const { z } = require('zod');
+const { getLogger } = require('../utils/logger');
 
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
@@ -145,7 +146,7 @@ const classifyComplaint = async ({ description, imageTempFilePath, imageMimeType
         }
     } catch (error) {
         const errorCode = error instanceof AiFailure ? error.code : 'INVALID_OUTPUT';
-        console.error('AI classification failed:', errorCode);
+        getLogger().warn({ errorCode }, 'AI classification failed; using the fallback');
         return fallbackResult(errorCode);
     } finally {
         clearTimeout(timeout);

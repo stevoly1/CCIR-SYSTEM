@@ -1,3 +1,5 @@
+const { captureLogs } = require('../helpers/captureLogs');
+
 const ORIGINAL_API_KEY = process.env.GOOGLE_API_KEY;
 const ORIGINAL_TIMEOUT = process.env.AI_TIMEOUT_MS;
 
@@ -24,13 +26,15 @@ const validOutput = (overrides = {}) => JSON.stringify({
 });
 
 describe('AI classification contract', () => {
+  let logs;
   beforeEach(() => {
     process.env.GOOGLE_API_KEY = 'test-key';
     delete process.env.AI_TIMEOUT_MS;
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+    logs = captureLogs();
   });
 
   afterEach(() => {
+    logs.restore();
     vi.useRealTimers();
     vi.unstubAllGlobals();
     if (ORIGINAL_API_KEY === undefined) delete process.env.GOOGLE_API_KEY;
@@ -111,7 +115,8 @@ describe('AI classification contract', () => {
 
     await expect(classifyComplaint({ description: 'pothole', categoryNames: ['Roads', 'Other'] }))
       .resolves.toMatchObject({ error: errorCode, category: 'Other', confidence: 0 });
-    expect(console.error).toHaveBeenCalledWith('AI classification failed:', errorCode);
+    expect(logs.lines).toEqual([expect.objectContaining({ level: 40, errorCode, msg: 'AI classification failed; using the fallback' })]);
+    expect(logs.text()).not.toMatch(/private network detail|test-key/);
   });
 
   it('uses a stable provider fallback when the API key is absent', async () => {

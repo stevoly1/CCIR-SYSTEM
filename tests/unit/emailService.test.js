@@ -1,3 +1,5 @@
+const { captureLogs } = require('../helpers/captureLogs');
+
 const ORIGINAL_API_KEY = process.env.RESEND_API_KEY;
 const ORIGINAL_EMAIL_FROM = process.env.EMAIL_FROM;
 
@@ -18,13 +20,17 @@ const filedMessage = { to: 'citizen@example.test', name: 'Ada', referenceCode: '
 const statusMessage = { ...filedMessage, status: 'WITHDRAWN', publicNote: null };
 
 describe('email service', () => {
+  let logs;
   beforeEach(() => {
     process.env.RESEND_API_KEY = 're_unit_fake_key';
     process.env.EMAIL_FROM = 'CCIR <noreply@example.test>';
+    logs = captureLogs();
+    // The SDK itself prints provider errors to the console outside production.
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
+    logs.restore();
     vi.unstubAllGlobals();
     if (ORIGINAL_API_KEY === undefined) delete process.env.RESEND_API_KEY;
     else process.env.RESEND_API_KEY = ORIGINAL_API_KEY;
@@ -33,16 +39,20 @@ describe('email service', () => {
   });
 
   it.each([
-    ['sendComplaintFiledEmail', filedMessage, 'Failed to send report filed email:'],
-    ['sendStatusUpdateEmail', statusMessage, 'Failed to send status update email:'],
-  ])('%s reports a provider error returned without throwing as a failed send', async (fn, message, logLine) => {
+    ['sendComplaintFiledEmail', filedMessage, 'report_filed'],
+    ['sendStatusUpdateEmail', statusMessage, 'status_update'],
+  ])('%s reports a provider error returned without throwing as a failed send', async (fn, message, kind) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(422, {
       name: 'validation_error', message: 'Invalid `from` field.', statusCode: 422,
     })));
     const email = loadService();
 
     await expect(email[fn](message)).resolves.toBe(false);
-    expect(console.error).toHaveBeenCalledWith(logLine, 'validation_error');
+    expect(logs.lines).toEqual([expect.objectContaining({
+      level: 40, msg: 'Email not sent', provider: 'resend', kind, reason: 'validation_error', statusCode: 422,
+    })]);
+    expect(logs.text()).not.toContain('citizen@example.test');
+    expect(logs.text()).not.toContain('Ada');
   });
 
   it.each([
@@ -53,6 +63,8 @@ describe('email service', () => {
     const email = loadService();
 
     await expect(email[fn](message)).resolves.toBe(false);
+    expect(logs.lines.map((line) => line.msg)).toEqual(['Email not sent']);
+    expect(logs.text()).not.toContain('citizen@example.test');
   });
 
   it('reports a successful send and sends to the reporter', async () => {

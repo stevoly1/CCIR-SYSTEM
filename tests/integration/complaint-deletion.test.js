@@ -2,6 +2,7 @@ const { Complaint, ComplaintDeletion } = require('../../models');
 const uploadService = require('../../services/uploadService');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createComplaintFixture } = require('../fixtures/complaint');
+const { captureLogs } = require('../helpers/captureLogs');
 
 const remove = (agent, complaint, body) => unsafeRequest(agent, 'delete', `/api/v1/complaints/${complaint.id}`).send(body);
 
@@ -78,9 +79,13 @@ describe('DELETE /api/v1/complaints/:id', () => {
     const { agent } = await createAuthenticatedAgent({ role: 'admin' });
     const complaint = await createComplaintFixture({ images: [{ url: 'https://img.test/a.jpg', publicId: 'pid-a' }] });
     vi.spyOn(uploadService, 'deleteComplaintImages').mockRejectedValue(new Error('cloud down'));
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const logs = captureLogs();
     const response = await remove(agent, complaint, { reason: 'Test data' });
+    logs.restore();
     expect(response.status).toBe(200);
+    expect(logs.lines.find((line) => line.msg === 'Complaint image cleanup failed after deletion'))
+      .toMatchObject({ level: 50, orphanCount: 1, err: { message: 'cloud down' } });
+    expect(logs.text()).not.toContain('pid-a');
     expect(await Complaint.findById(complaint.id)).toBeNull();
     expect(await ComplaintDeletion.countDocuments()).toBe(1);
   });
