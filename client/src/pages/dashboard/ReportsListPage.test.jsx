@@ -9,11 +9,16 @@ const dispatch = vi.fn();
 vi.mock('react-redux', () => ({ useDispatch: () => dispatch, useSelector: (select) => select(state) }));
 vi.mock('../../components/Topbar', () => ({ default: () => null }));
 vi.mock('../../slices/complaintSlice', () => ({ fetchComplaints: vi.fn((params) => ({ type: 'fetch', params })) }));
+vi.mock('../../slices/categorySlice', () => ({ fetchCategories: vi.fn(() => ({ type: 'fetchCategories' })) }));
+vi.mock('../../api/axiosClient', () => ({
+    default: { get: vi.fn(async () => ({ data: { users: [{ userId: 'a1', displayName: 'Ade Agency' }] } })) },
+}));
 
 const renderAs = (role, { url = '/dashboard/reports', pagination = { total: 0 } } = {}) => {
     state = {
         auth: { user: { _id: 'me-1', role } },
         complaints: { items: [], listStatus: 'succeeded', pagination },
+        categories: { items: [{ _id: 'k1', name: 'Roads' }, { _id: 'k2', name: 'Drainage' }] },
     };
     return render(<MemoryRouter initialEntries={[url]}><ReportsListPage /></MemoryRouter>);
 };
@@ -66,5 +71,36 @@ describe('ReportsListPage paging', () => {
         renderAs('admin', { url: '/dashboard/reports?page=3', pagination: { page: 3, pages: 3, total: 120 } });
         await user.click(screen.getByRole('button', { name: 'Resolved' }));
         await waitFor(() => expect(fetchComplaints).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'RESOLVED', page: 1 })));
+    });
+});
+
+describe('ReportsListPage triage filters', () => {
+    beforeEach(() => { dispatch.mockReset(); vi.mocked(fetchComplaints).mockClear(); });
+
+    it.each([
+        ['Filter by priority', 'HIGH', { priority: 'HIGH' }],
+        ['Filter by category', 'k2', { category: 'k2' }],
+        ['Sort order', 'oldest', { sort: 'oldest' }],
+    ])('passes %s to the server, from the first page', async (label, value, expected) => {
+        const user = userEvent.setup();
+        renderAs('citizen', { url: '/dashboard/reports?page=2', pagination: { page: 2, pages: 3, total: 120 } });
+        await user.selectOptions(screen.getByRole('combobox', { name: label }), value);
+        await waitFor(() => expect(fetchComplaints).toHaveBeenLastCalledWith(expect.objectContaining({ ...expected, page: 1 })));
+    });
+
+    it('lets administrators list one agent\'s reports or the unassigned ones', async () => {
+        const user = userEvent.setup();
+        renderAs('admin');
+        const assignee = screen.getByRole('combobox', { name: 'Filter by assignee' });
+        await screen.findByRole('option', { name: 'Ade Agency' });
+        await user.selectOptions(assignee, 'none');
+        await waitFor(() => expect(fetchComplaints).toHaveBeenLastCalledWith(expect.objectContaining({ assignedTo: 'none' })));
+        await user.selectOptions(assignee, 'a1');
+        await waitFor(() => expect(fetchComplaints).toHaveBeenLastCalledWith(expect.objectContaining({ assignedTo: 'a1' })));
+    });
+
+    it('gives citizens and agency staff no assignee picker', () => {
+        renderAs('citizen');
+        expect(screen.queryByRole('combobox', { name: 'Filter by assignee' })).not.toBeInTheDocument();
     });
 });

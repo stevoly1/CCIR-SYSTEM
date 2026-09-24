@@ -6,6 +6,9 @@ import Topbar from '../../components/Topbar';
 import ComplaintCard from '../../components/ComplaintCard';
 import Pager from '../../components/Pager';
 import { fetchComplaints } from '../../slices/complaintSlice';
+import { fetchCategories } from '../../slices/categorySlice';
+import axiosClient from '../../api/axiosClient';
+import { PRIORITIES, PRIORITY_LABELS } from '../../components/labels';
 
 const STATUS_FILTERS = [
     { label: 'All', value: '' },
@@ -18,11 +21,14 @@ const STATUS_FILTERS = [
 ];
 
 const PAGE_SIZE = 50;
+// Filters kept in the address, so a reload or the back button returns to the same list.
+const FILTER_PARAMS = ['priority', 'category', 'sort', 'assignee'];
 
 const ReportsListPage = () => {
     const dispatch = useDispatch();
     const { user } = useSelector((state) => state.auth);
     const { items, listStatus, pagination } = useSelector((state) => state.complaints);
+    const categories = useSelector((state) => state.categories.items);
     const [searchParams, setSearchParams] = useSearchParams();
     const status = searchParams.get('status') || '';
     const search = searchParams.get('search') || '';
@@ -30,6 +36,23 @@ const ReportsListPage = () => {
     const page = Math.max(1, Number.parseInt(searchParams.get('page'), 10) || 1);
     const isAgency = user?.role === 'agency';
     const isStaff = user?.role === 'admin' || user?.role === 'agency';
+    const isAdmin = user?.role === 'admin';
+    const [priority, category, sort, assignee] = FILTER_PARAMS.map((name) => searchParams.get(name) || '');
+    const [assignable, setAssignable] = useState([]);
+
+    useEffect(() => {
+        dispatch(fetchCategories());
+    }, [dispatch]);
+
+    // Administrators pick an agent, or "Unassigned", to see what each one holds.
+    useEffect(() => {
+        if (!isAdmin) return undefined;
+        let active = true;
+        axiosClient.get('/users/assignable')
+            .then(({ data }) => { if (active) setAssignable(data.users); })
+            .catch(() => {});
+        return () => { active = false; };
+    }, [isAdmin]);
 
     const [searchInput, setSearchInput] = useState(search);
     const debounceRef = useRef(null);
@@ -38,9 +61,13 @@ const ReportsListPage = () => {
         const params = { limit: PAGE_SIZE, page };
         if (status) params.status = status;
         if (search) params.search = search;
+        if (priority) params.priority = priority;
+        if (category) params.category = category;
+        if (sort) params.sort = sort;
         if (isAgency && mine && user?._id) params.assignedTo = user._id;
+        if (isAdmin && assignee) params.assignedTo = assignee;
         dispatch(fetchComplaints(params));
-    }, [dispatch, status, search, isAgency, mine, page, user?._id]);
+    }, [dispatch, status, search, priority, category, sort, assignee, isAgency, isAdmin, mine, page, user?._id]);
 
     // Any change to what is listed starts again from its first page.
     const withoutPage = () => {
@@ -59,6 +86,12 @@ const ReportsListPage = () => {
     const toggleMine = () => {
         const next = withoutPage();
         if (mine) next.delete('mine'); else next.set('mine', '1');
+        setSearchParams(next);
+    };
+
+    const setFilter = (name, value) => {
+        const next = withoutPage();
+        if (value) next.set(name, value); else next.delete(name);
         setSearchParams(next);
     };
 
@@ -85,16 +118,45 @@ const ReportsListPage = () => {
                 subtitle={`${pagination.total} report${pagination.total === 1 ? '' : 's'} found`}
             />
 
-            <div className="field" style={{ position: 'relative', maxWidth: 420 }}>
-                <Search size={16} color="var(--color-placeholder)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
-                <input
-                    type="text"
-                    aria-label="Search reports"
-                    placeholder="Search by issue number, location, or problem…"
-                    value={searchInput}
-                    onChange={(e) => handleSearchChange(e.target.value)}
-                    style={{ paddingLeft: 38 }}
-                />
+            <div className="list-controls">
+                <div className="field" style={{ position: 'relative', flex: '1 1 260px', maxWidth: 420 }}>
+                    <Search size={16} color="var(--color-placeholder)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
+                    <input
+                        type="text"
+                        aria-label="Search reports"
+                        placeholder="Search by issue number, location, or problem…"
+                        value={searchInput}
+                        onChange={(e) => handleSearchChange(e.target.value)}
+                        style={{ paddingLeft: 38 }}
+                    />
+                </div>
+                <div className="field" style={{ flex: '0 1 170px' }}>
+                    <select aria-label="Filter by priority" value={priority} onChange={(e) => setFilter('priority', e.target.value)}>
+                        <option value="">All priorities</option>
+                        {PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_LABELS[p]}</option>)}
+                    </select>
+                </div>
+                <div className="field" style={{ flex: '0 1 190px' }}>
+                    <select aria-label="Filter by category" value={category} onChange={(e) => setFilter('category', e.target.value)}>
+                        <option value="">All categories</option>
+                        {categories.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}
+                    </select>
+                </div>
+                {isAdmin && (
+                    <div className="field" style={{ flex: '0 1 190px' }}>
+                        <select aria-label="Filter by assignee" value={assignee} onChange={(e) => setFilter('assignee', e.target.value)}>
+                            <option value="">Anyone</option>
+                            <option value="none">Unassigned</option>
+                            {assignable.map((a) => <option key={a.userId} value={a.userId}>{a.displayName}</option>)}
+                        </select>
+                    </div>
+                )}
+                <div className="field" style={{ flex: '0 1 160px' }}>
+                    <select aria-label="Sort order" value={sort || 'newest'} onChange={(e) => setFilter('sort', e.target.value === 'newest' ? '' : e.target.value)}>
+                        <option value="newest">Newest first</option>
+                        <option value="oldest">Oldest first</option>
+                    </select>
+                </div>
             </div>
 
             <div className="filter-bar">

@@ -35,6 +35,13 @@ const ComplaintCard = ({ complaint }) => {
                     <span>{complaint.address || 'No address recorded'}</span>
                     <span className="meta-dot">&middot;</span>
                     <span>{timeAgo(complaint.createdAt)}</span>
+                    {/* Only staff summaries carry `assignee` (null when nobody has the report). */}
+                    {'assignee' in complaint && (
+                        <>
+                            <span className="meta-dot">&middot;</span>
+                            <span>{complaint.assignee ? `Assigned to ${complaint.assignee.displayName}` : 'Unassigned'}</span>
+                        </>
+                    )}
                 </div>
             </div>
             <div className="complaint-badges">

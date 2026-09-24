@@ -20,4 +20,17 @@ describe('ComplaintCard', () => {
         render(<ComplaintCard complaint={{ ...summary, thumbnailUrl: 'https://img.test/1.jpg' }} />);
         expect(document.querySelector('img.complaint-thumb')).toHaveAttribute('src', 'https://img.test/1.jpg');
     });
+
+    // Staff summaries carry `assignee` (null when nobody has the report); reporters' do not.
+    it('tells staff who has the report, or that nobody does', () => {
+        const { rerender } = render(<ComplaintCard complaint={{ ...summary, assignee: { userId: 'u9', displayName: 'Ade Agency' } }} />);
+        expect(screen.getByText('Assigned to Ade Agency')).toBeInTheDocument();
+        rerender(<ComplaintCard complaint={{ ...summary, assignee: null }} />);
+        expect(screen.getByText('Unassigned')).toBeInTheDocument();
+    });
+
+    it('says nothing about assignment on a reporter\'s own summary', () => {
+        render(<ComplaintCard complaint={summary} />);
+        expect(screen.queryByText(/Assigned to|Unassigned/)).not.toBeInTheDocument();
+    });
 });
