@@ -91,6 +91,7 @@ const UsersPage = () => {
                 <Search size={16} color="var(--color-placeholder)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
                 <input
                     type="text"
+                    aria-label="Search users"
                     placeholder="Search by name or email…"
                     value={search}
                     onChange={(e) => handleSearchChange(e.target.value)}
@@ -147,8 +148,8 @@ const UsersPage = () => {
                 <Modal title="Edit user" onClose={() => setEditingUser(null)}>
                     <form onSubmit={handleSaveEdit}>
                         <div className="field">
-                            <label>Email</label>
-                            <input value={editingUser.email} disabled />
+                            <label htmlFor="edit-email">Email</label>
+                            <input id="edit-email" value={editingUser.email} disabled />
                         </div>
                         <div className="field">
                             <label htmlFor="edit-name">Full name</label>

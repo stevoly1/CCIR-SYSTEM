@@ -28,12 +28,12 @@ const ProfilePage = () => {
 
             <form onSubmit={handleSubmit} style={{ maxWidth: 480, background: '#fff', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: 24 }}>
                 <div className="field">
-                    <label>Email</label>
-                    <input value={user?.email || ''} disabled />
+                    <label htmlFor="profile-email">Email</label>
+                    <input id="profile-email" value={user?.email || ''} disabled />
                 </div>
                 <div className="field">
-                    <label>Role</label>
-                    <input value={user?.role || ''} disabled style={{ textTransform: 'capitalize' }} />
+                    <label htmlFor="profile-role">Role</label>
+                    <input id="profile-role" value={user?.role || ''} disabled style={{ textTransform: 'capitalize' }} />
                 </div>
                 <div className="field">
                     <label htmlFor="name">Full name</label>
