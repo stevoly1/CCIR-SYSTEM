@@ -96,6 +96,28 @@ describe('app module boundary', () => {
     expect(result.stdout).toBe('false');
   }, 15000);
 
+  // The limiter answers without calling later middleware, so CORS must run first or a browser
+  // on the approved origin sees a CORS failure instead of the 429 JSON error.
+  it('applies CORS before the rate limit', () => {
+    const projectRoot = path.resolve(__dirname, '..', '..');
+    const script = [
+      "const app = require('./app');",
+      "const { apiRateLimit } = require('./middleware/apiRateLimit');",
+      'const stack = (app.router || app._router).stack;',
+      "process.stdout.write(JSON.stringify({ cors: stack.findIndex((l) => l.name === 'corsMiddleware'), limit: stack.findIndex((l) => l.handle === apiRateLimit) }));",
+    ].join('\n');
+    const result = spawnSync(process.execPath, ['-e', script], {
+      cwd: projectRoot,
+      env: { ...process.env, BROWSER_ORIGIN: 'http://localhost:3000', TRUST_PROXY_HOPS: '0', AUTH_THROTTLE_HMAC_SECRET: 'app-load-auth-throttle-secret', NODE_ENV: 'test', MONGO_URL: '' },
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+    expect(result.status).toBe(0);
+    const { cors, limit } = JSON.parse(result.stdout);
+    expect(cors).toBeGreaterThanOrEqual(0);
+    expect(limit).toBeGreaterThan(cors);
+  }, 15000);
+
   it('never loads the contract validator in production, even with contract checking switched on', () => {
     const projectRoot = path.resolve(__dirname, '..', '..');
     const result = spawnSync(

@@ -18,9 +18,6 @@ const app = express();
 app.set('trust proxy', browserSecurity.trustProxy === 0 ? false : browserSecurity.trustProxy);
 app.use(requestLogger);
 
-// Rate limit setup: over-limit requests get the standard 429 JSON error.
-app.use(apiRateLimit);
-
 // Helmet security setup
 app.use(helmet());
 app.use(helmet.contentSecurityPolicy({
@@ -33,6 +30,10 @@ app.use(helmet.contentSecurityPolicy({
 
 // CORS configuration
 app.use(cors(browserSecurity.corsOptions));
+
+// Rate limit setup: over-limit requests get the standard 429 JSON error. It comes after CORS so
+// that a browser on the approved origin can read that error.
+app.use(apiRateLimit);
 
 // Additional middlewares
 app.use(compression());

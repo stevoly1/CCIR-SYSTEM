@@ -40,6 +40,26 @@ describe('API rate limit', () => {
     expect(Number(response.headers['retry-after'])).toBeGreaterThan(0);
   });
 
+  it('lets a browser on the approved origin read the 429 when CORS runs first, as in app.js', async () => {
+    const cors = require('cors');
+    const { getBrowserSecurityConfig } = require('../../config/browserSecurity');
+    const { corsOptions } = getBrowserSecurityConfig({ ...process.env, BROWSER_ORIGIN: 'http://localhost:3000', TRUST_PROXY_HOPS: '0' });
+    const app = express();
+    app.use(cors(corsOptions));
+    app.use(rateLimit({ ...apiRateLimitOptions, limit: 1 }));
+    app.get('/api/v1/categories', (req, res) => res.json({ ok: true }));
+    app.use(errorHandler);
+    server = http.createServer(app);
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const url = `http://127.0.0.1:${server.address().port}`;
+    await request(url).get('/api/v1/categories').set('Origin', 'http://localhost:3000').expect(200);
+    const response = await request(url).get('/api/v1/categories').set('Origin', 'http://localhost:3000');
+    expect(response.status).toBe(429);
+    expect(response.headers['access-control-allow-origin']).toBe('http://localhost:3000');
+    expect(response.body.error.code).toBe('RATE_LIMITED');
+  });
+
   it('never limits health probes, but still limits everything else', async () => {
     const url = await serveWithLimit(2, ['/api/v1/health', '/api/v1/health/ready', '/api/v1/healthy', '/api/v1/categories']);
     for (let i = 0; i < 150; i += 1) {
