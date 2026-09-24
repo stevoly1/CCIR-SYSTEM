@@ -152,10 +152,10 @@ npm run test:integration     # backend integration tests on an in-memory MongoDB
                              # every response is checked against the OpenAPI contract
 npm run test:coverage        # both together, with coverage thresholds
 npm --prefix client run test:unit    # reference client component tests
-npm --prefix client run test:e2e     # browser journeys (Playwright, Chrome)
+npm --prefix client run test:e2e     # browser journeys on the production build, in Chrome, then WebKit
 ```
 
-Tests use in-memory databases and fake providers; they never contact a real database, AI, email, storage or geocoding service. The first run downloads the MongoDB server binary for the in-memory database.
+Tests use in-memory databases and fake providers; they never contact a real database, AI, email, storage or geocoding service. The first run downloads the MongoDB server binary for the in-memory database. The journeys use your installed Google Chrome and Playwright's WebKit (Safari's engine), which is downloaded once with `npm --prefix client exec playwright install webkit` (about 85 MB).
 
 ## License
 
