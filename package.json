@@ -16,7 +16,8 @@
         "pretest:unit": "node scripts/checkRuntime.js",
         "test:unit": "vitest run --config vitest.unit.config.mjs",
         "pretest:integration": "node scripts/checkRuntime.js",
-        "test:integration": "vitest run --config vitest.integration.config.mjs"
+        "test:integration": "vitest run --config vitest.integration.config.mjs",
+        "db:indexes": "node scripts/db/indexes.js"
     },
     "keywords": [],
     "author": "",

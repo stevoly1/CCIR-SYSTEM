@@ -22,6 +22,8 @@ beforeAll(async () => {
     binary: { version: MONGODB_VERSION },
     replSet: { count: 1, storageEngine: 'wiredTiger' },
   });
+  // Tests that start their own processes (CLI scripts, the backup rehearsal) connect here.
+  process.env.TEST_MONGO_URI = mongoServer.getUri();
   await mongoose.connect(mongoServer.getUri(), { dbName: 'ccir-integration' });
 });
 

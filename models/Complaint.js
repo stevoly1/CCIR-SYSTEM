@@ -256,9 +256,12 @@ const complaintSchema = new mongoose.Schema(
     { timestamps: true }
 );
 
-complaintSchema.index({ 'location.latitude': 1, 'location.longitude': 1 });
-complaintSchema.index({ reporter: 1, createdAt: -1 });
-complaintSchema.index({ status: 1, priority: 1 });
+// Each index serves a named query:
+complaintSchema.index({ reporter: 1, createdAt: -1 }); // a citizen's own reports, newest first
+complaintSchema.index({ status: 1, priority: 1 }); // staff list filtered by status and priority
+complaintSchema.index({ createdAt: -1 }); // staff list with no filter, newest first
+complaintSchema.index({ assignedTo: 1, createdAt: -1 }); // "Assigned to me"
+complaintSchema.index({ category: 1 }); // category filter, and the category-in-use check before deletion
 
 module.exports = mongoose.model('Complaint', complaintSchema);
 module.exports.STATUSES = STATUSES;
