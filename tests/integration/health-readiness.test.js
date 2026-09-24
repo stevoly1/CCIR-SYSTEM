@@ -41,7 +41,20 @@ describe('health endpoints', () => {
     expect(response.body.checks.uploads).toEqual({ status: 'ok' });
   });
 
+  it('runs one database check for a burst of readiness requests', async () => {
+    const admin = vi.spyOn(mongoose.connection.db, 'admin');
+    try {
+      const responses = await Promise.all(Array.from({ length: 20 }, () => request(testServer()).get('/api/v1/health/ready')));
+      expect(responses.every((response) => response.status === 200)).toBe(true);
+      // At most one: a result cached by an earlier test may still be fresh.
+      expect(admin.mock.calls.length).toBeLessThanOrEqual(1);
+    } finally {
+      admin.mockRestore();
+    }
+  });
+
   it('reports unavailable when a required unique index is missing', async () => {
+    vi.stubEnv('READINESS_CACHE_MS', '0');
     await Complaint.collection.dropIndex('referenceCode_1');
     try {
       const response = await request(testServer()).get('/api/v1/health/ready');

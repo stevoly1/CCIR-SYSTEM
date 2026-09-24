@@ -55,8 +55,33 @@ const checkDatabase = async ({ connection, models, timeoutMs }) => {
   }
 };
 
-const checkReadiness = async ({ connection = mongoose.connection, models = mongoose.models, env = process.env, timeoutMs = 2000 } = {}) => {
-  const checks = { database: await checkDatabase({ connection, models, timeoutMs }) };
+// /health/ready is public and never rate limited (a probe must not be locked out), so the database
+// check behind it is shared: concurrent calls wait for one check, and its result, unavailable
+// included, is reused for READINESS_CACHE_MS (default 1000; 0 checks on every call).
+const DEFAULT_CACHE_MS = 1000;
+const cacheMsFrom = (env) => {
+  const value = Number(env.READINESS_CACHE_MS ?? DEFAULT_CACHE_MS);
+  return Number.isFinite(value) && value >= 0 ? value : DEFAULT_CACHE_MS;
+};
+const createDatabaseProbe = ({ check = () => checkDatabase({ connection: mongoose.connection, models: mongoose.models, timeoutMs: 2000 }), env = process.env, now = Date.now } = {}) => {
+  let last = null;
+  let inFlight = null;
+  return () => {
+    if (last && now() - last.at < cacheMsFrom(env)) return Promise.resolve(last.result);
+    if (!inFlight) {
+      inFlight = check()
+        .then((result) => { last = { at: now(), result }; return result; })
+        .finally(() => { inFlight = null; });
+    }
+    return inFlight;
+  };
+};
+
+const checkReadiness = async ({
+  connection = mongoose.connection, models = mongoose.models, env = process.env, timeoutMs = 2000,
+  database = () => checkDatabase({ connection, models, timeoutMs }),
+} = {}) => {
+  const checks = { database: await database() };
   for (const [service, names] of Object.entries(SERVICE_SETTINGS)) {
     checks[service] = names.every((name) => Boolean(env[name])) ? { status: 'ok' } : { status: 'not_configured' };
   }
@@ -68,4 +93,4 @@ const checkReadiness = async ({ connection = mongoose.connection, models = mongo
   return { httpStatus: 200, body: { status: degraded ? 'degraded' : 'ready', checks } };
 };
 
-module.exports = { checkReadiness, missingUniqueIndexes };
+module.exports = { checkReadiness, createDatabaseProbe, missingUniqueIndexes };

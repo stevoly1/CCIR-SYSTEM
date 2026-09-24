@@ -2888,7 +2888,8 @@ paths:
         `ready` when the database is a reachable replica set with every unique index and every
         optional service is configured; `degraded` when an optional service (AI, uploads, email,
         Google sign-in) is not configured; `unavailable` (503) when the database check fails. Never
-        exposes setting values or connection details. Never rate-limited.
+        exposes setting values or connection details. Never rate-limited; the database result is
+        shared by concurrent calls and reused for up to `READINESS_CACHE_MS` (default one second).
       operationId: healthReady
       security: []
       responses:
