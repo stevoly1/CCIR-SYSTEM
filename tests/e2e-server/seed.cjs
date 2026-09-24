@@ -7,6 +7,8 @@ const ACCOUNTS = [
   ['agency-a@e2e.test', 'Ade Agency', 'agency'],
   ['agency-b@e2e.test', 'Bisi Agency', 'agency'],
   ['admin@e2e.test', 'Chi Admin', 'admin'],
+  // Journey J7 edits and retires this account.
+  ['retiree@e2e.test', 'Remi Retiree', 'citizen'],
 ];
 const CATEGORIES = [['Other', 'LOW'], ['Roads', 'HIGH'], ['Drainage', 'MEDIUM'], ['Streetlights', 'LOW']];
 
