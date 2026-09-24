@@ -726,10 +726,10 @@ components:
       properties:
         status:
           type: string
-          enum: [ok, unavailable]
+          enum: [ok, degraded, unavailable]
         reason:
           type: string
-          enum: [DATABASE_DISCONNECTED, DATABASE_TIMEOUT, TRANSACTIONS_UNSUPPORTED, INDEXES_MISSING, DATABASE_ERROR]
+          enum: [DATABASE_DISCONNECTED, DATABASE_TIMEOUT, TRANSACTIONS_UNSUPPORTED, INDEXES_MISSING, TTL_INDEXES_MISSING, DATABASE_ERROR]
         serverVersion:
           type: string
 
@@ -2888,7 +2888,9 @@ paths:
       description: >
         `ready` when the database is a reachable replica set with every unique index and every
         optional service is configured; `degraded` when an optional service (AI, uploads, email,
-        Google sign-in) is not configured; `unavailable` (503) when the database check fails. Never
+        Google sign-in) is not configured, or when a TTL index is missing (the database check then
+        reads `TTL_INDEXES_MISSING`: sessions and throttles would stop expiring); `unavailable` (503)
+        when the database check fails. Never
         exposes setting values or connection details. Never rate-limited; the database result is
         shared by concurrent calls and reused for up to `READINESS_CACHE_MS` (default one second).
       operationId: healthReady

@@ -18,10 +18,12 @@ const withTimeout = (promise, ms) => {
 
 // Each entry is "<collection>:<index key as JSON>" for a unique index a model declares but the
 // database lacks. A collection that does not exist yet has no indexes at all.
-const missingUniqueIndexes = async (connection, models) => {
+// Declared indexes of one kind (`isKind` reads the declared options or an existing index) that the
+// database does not have, as `collection:{"field":1}`.
+const missingIndexesOfKind = async (connection, models, isKind) => {
   const missing = [];
   for (const model of Object.values(models)) {
-    const wanted = model.schema.indexes().filter(([, options]) => options?.unique).map(([fields]) => JSON.stringify(fields));
+    const wanted = model.schema.indexes().filter(([, options]) => isKind(options ?? {})).map(([fields]) => JSON.stringify(fields));
     if (wanted.length === 0) continue;
     const name = model.collection.collectionName;
     let existing = [];
@@ -30,11 +32,15 @@ const missingUniqueIndexes = async (connection, models) => {
     } catch (error) {
       if (error.codeName !== 'NamespaceNotFound') throw error;
     }
-    const present = new Set(existing.filter((index) => index.unique).map((index) => JSON.stringify(index.key)));
+    const present = new Set(existing.filter(isKind).map((index) => JSON.stringify(index.key)));
     wanted.filter((key) => !present.has(key)).forEach((key) => missing.push(`${name}:${key}`));
   }
   return missing;
 };
+
+const missingUniqueIndexes = (connection, models) => missingIndexesOfKind(connection, models, (index) => Boolean(index.unique));
+// A TTL index is what expires sessions, throttles and sign-in state; a plain index on the same field is not.
+const missingTtlIndexes = (connection, models) => missingIndexesOfKind(connection, models, (index) => typeof index.expireAfterSeconds === 'number');
 
 // Reasons are stable codes only: never an error message, host, or connection string.
 const checkDatabase = async ({ connection, models, timeoutMs }) => {
@@ -49,7 +55,12 @@ const checkDatabase = async ({ connection, models, timeoutMs }) => {
       return { status: 'unavailable', reason: 'INDEXES_MISSING' };
     }
     const serverVersion = await withTimeout(admin.command({ buildInfo: 1 }), timeoutMs).then((info) => info.version, () => undefined);
-    return { status: 'ok', ...(serverVersion ? { serverVersion } : {}) };
+    const version = serverVersion ? { serverVersion } : {};
+    // Traffic is still safe to serve, but security data would stop expiring: degraded, not unavailable.
+    if ((await withTimeout(missingTtlIndexes(connection, models), timeoutMs)).length > 0) {
+      return { status: 'degraded', reason: 'TTL_INDEXES_MISSING', ...version };
+    }
+    return { status: 'ok', ...version };
   } catch (error) {
     return { status: 'unavailable', reason: error instanceof ReadinessTimeout ? 'DATABASE_TIMEOUT' : 'DATABASE_ERROR' };
   }
@@ -88,9 +99,9 @@ const checkReadiness = async ({
   // Photon is a keyless public service; there is no setting to check.
   checks.geocoding = { status: 'ok' };
 
-  if (checks.database.status !== 'ok') return { httpStatus: 503, body: { status: 'unavailable', checks } };
-  const degraded = Object.values(checks).some((check) => check.status === 'not_configured');
+  if (checks.database.status === 'unavailable') return { httpStatus: 503, body: { status: 'unavailable', checks } };
+  const degraded = Object.values(checks).some((check) => check.status === 'not_configured' || check.status === 'degraded');
   return { httpStatus: 200, body: { status: degraded ? 'degraded' : 'ready', checks } };
 };
 
-module.exports = { checkReadiness, createDatabaseProbe, missingUniqueIndexes };
+module.exports = { checkReadiness, createDatabaseProbe, missingUniqueIndexes, missingTtlIndexes };

@@ -4,6 +4,7 @@ const { MongoMemoryServer } = require('mongodb-memory-server');
 const { testServer } = require('../helpers/testServer');
 const { checkReadiness } = require('../../services/readinessService');
 const Complaint = require('../../models/Complaint');
+const RefreshToken = require('../../models/RefreshToken');
 const { MONGODB_TEST_VERSION } = require('../setup/mongoVersion.cjs');
 const { startWithPortRetry } = require('../setup/memoryMongo.cjs');
 
@@ -64,6 +65,34 @@ describe('health endpoints', () => {
       expect(response.body.checks.database).toEqual({ status: 'unavailable', reason: 'INDEXES_MISSING' });
     } finally {
       await Complaint.createIndexes();
+    }
+  });
+
+  // Without its TTL index, security data (sessions, throttles) silently stops expiring; traffic can
+  // still be served, so this is degraded rather than unavailable.
+  it('reports degraded, naming the cause, when a TTL index is missing', async () => {
+    vi.stubEnv('READINESS_CACHE_MS', '0');
+    await RefreshToken.collection.dropIndex('expiresAt_1');
+    try {
+      const response = await request(testServer()).get('/api/v1/health/ready');
+      expect(response.status).toBe(200);
+      expect(response.body.status).toBe('degraded');
+      expect(response.body.checks.database).toEqual({ status: 'degraded', reason: 'TTL_INDEXES_MISSING', serverVersion: MONGODB_TEST_VERSION });
+    } finally {
+      await RefreshToken.createIndexes();
+    }
+  });
+
+  it('treats a TTL index that no longer expires anything as missing', async () => {
+    vi.stubEnv('READINESS_CACHE_MS', '0');
+    await RefreshToken.collection.dropIndex('expiresAt_1');
+    await RefreshToken.collection.createIndex({ expiresAt: 1 });
+    try {
+      const response = await request(testServer()).get('/api/v1/health/ready');
+      expect(response.body.checks.database.reason).toBe('TTL_INDEXES_MISSING');
+    } finally {
+      await RefreshToken.collection.dropIndex('expiresAt_1');
+      await RefreshToken.createIndexes();
     }
   });
 
