@@ -11,7 +11,7 @@ const { establishGoogleIdentitySession } = require('../services/googleIdentitySe
 const { safeStateEqual } = require('../policies/googleIdentityPolicy');
 const { getLogger } = require('../utils/logger');
 const { getBrowserSecurityConfig } = require('../config/browserSecurity');
-const { createThrottleService } = require('../services/authThrottleService');
+const { createThrottleService, secondsUntil } = require('../services/authThrottleService');
 
 const OAUTH_STATE_MAX_AGE_MS = 5 * 60 * 1000;
 const AUTH_WINDOW_MS = 15 * 60 * 1000;
@@ -61,7 +61,11 @@ const login = async (req, res) => {
 
     await authThrottle.consume('login-ip', req.ip, { limit: 20, windowMs: AUTH_WINDOW_MS });
     const accountFailures = await authThrottle.peek('login-account', accountSubject);
-    if (accountFailures.count >= 5) throw new CustomError.TooManyRequestsError();
+    if (accountFailures.count >= 5) {
+        throw new CustomError.TooManyRequestsError(undefined, {
+            retryAfterSeconds: secondsUntil(accountFailures.resetAt, new Date()),
+        });
+    }
 
     const user = await User.findOne({ email }).select('+password');
     if (

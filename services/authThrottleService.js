@@ -1,6 +1,8 @@
 const crypto = require('crypto');
 const { TooManyRequestsError } = require('../errors');
 
+const secondsUntil = (resetAt, currentTime) => Math.max(1, Math.ceil((resetAt - currentTime) / 1000));
+
 const createThrottleService = ({ model, hmacSecret, now = () => new Date() }) => {
   if (typeof hmacSecret !== 'string' || hmacSecret.length === 0) {
     throw new Error('AUTH_THROTTLE_HMAC_SECRET is required');
@@ -50,7 +52,9 @@ const createThrottleService = ({ model, hmacSecret, now = () => new Date() }) =>
       { returnDocument: 'after', upsert: true, updatePipeline: true },
     );
     const result = { count: record.count, resetAt: record.resetAt };
-    if (record.count > limit) throw new TooManyRequestsError();
+    if (record.count > limit) {
+      throw new TooManyRequestsError(undefined, { retryAfterSeconds: secondsUntil(record.resetAt, currentTime) });
+    }
     return result;
   };
 
@@ -68,4 +72,4 @@ const createThrottleService = ({ model, hmacSecret, now = () => new Date() }) =>
   return { clear, consume, peek };
 };
 
-module.exports = { createThrottleService };
+module.exports = { createThrottleService, secondsUntil };

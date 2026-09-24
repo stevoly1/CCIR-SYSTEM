@@ -110,3 +110,39 @@ describe('error handler', () => {
     });
   });
 });
+
+describe('error handler: waits the caller is told about', () => {
+  const TooManyRequestsError = require('../../errors/tooManyRequestsError');
+  let server;
+  afterEach(async () => {
+    server.closeAllConnections();
+    server.close();
+    await once(server, 'close');
+  });
+
+  const serveError = async (error) => {
+    const app = express();
+    app.get('/probe', (req, res, next) => next(error));
+    app.use(errorHandler);
+    server = http.createServer(app);
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    return request(`http://127.0.0.1:${server.address().port}`).get('/probe');
+  };
+
+  it.each([
+    [61, 'Too many attempts. Please try again in 2 minutes.'],
+    [30, 'Too many attempts. Please try again in 1 minute.'],
+  ])('names the wait and sets Retry-After when a throttle knows it (%is)', async (seconds, message) => {
+    const response = await serveError(new TooManyRequestsError(undefined, { retryAfterSeconds: seconds }));
+    expect(response.status).toBe(429);
+    expect(response.headers['retry-after']).toBe(String(seconds));
+    expect(response.body).toEqual({ error: { code: 'RATE_LIMITED', message }, msg: message });
+  });
+
+  it('keeps the general message when the wait is unknown', async () => {
+    const response = await serveError(new TooManyRequestsError());
+    expect(response.body.error.message).toBe('Too many requests, please try again later');
+    expect(response.headers['retry-after']).toBeUndefined();
+  });
+});

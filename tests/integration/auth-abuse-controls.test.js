@@ -43,6 +43,22 @@ describe('distributed authentication abuse controls', () => {
     expect(failures[0].body).toEqual(missing.body);
   });
 
+  it('tells a locked-out caller how long to wait, the same way for real and nonexistent accounts', async () => {
+    const user = await createUserFixture();
+    for (let attempt = 0; attempt < 5; attempt += 1) await login(user.email);
+    for (let attempt = 0; attempt < 5; attempt += 1) await login('never-registered@example.test');
+    const denied = await login(user.email);
+    const deniedMissing = await login('never-registered@example.test');
+
+    for (const response of [denied, deniedMissing]) {
+      expect(response.status).toBe(429);
+      expect(response.body.error).toEqual({ code: 'RATE_LIMITED', message: 'Too many attempts. Please try again in 15 minutes.' });
+      const retryAfter = Number(response.headers['retry-after']);
+      expect(retryAfter).toBeGreaterThan(14 * 60);
+      expect(retryAfter).toBeLessThanOrEqual(15 * 60);
+    }
+  });
+
   it('clears the account-failure bucket after success without clearing the IP bucket', async () => {
     const user = await createUserFixture();
     for (let attempt = 0; attempt < 4; attempt += 1) expect((await login(user.email)).status).toBe(401);

@@ -17,6 +17,15 @@ const knownError = (err) => {
             return { status: 415, code: err.code, message: 'Unsupported media type' };
         }
         if (err.code === 'RATE_LIMITED') {
+            if (err.retryAfterSeconds) {
+                const minutes = Math.max(1, Math.ceil(err.retryAfterSeconds / 60));
+                return {
+                    status: 429,
+                    code: err.code,
+                    message: `Too many attempts. Please try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`,
+                    retryAfterSeconds: err.retryAfterSeconds,
+                };
+            }
             return { status: 429, code: err.code, message: 'Too many requests, please try again later' };
         }
         return {
@@ -83,6 +92,7 @@ const errorHandlerMiddleware = (err, req, res, next) => {
 
     const level = mapped.status >= 500 ? 'warn' : 'info';
     log[level]({ requestId: req.id, code: mapped.code, status: mapped.status }, 'Request rejected');
+    if (mapped.retryAfterSeconds) res.set('Retry-After', String(mapped.retryAfterSeconds));
     const error = {
         code: mapped.code,
         message: mapped.message,
