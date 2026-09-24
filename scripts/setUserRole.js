@@ -4,8 +4,9 @@
 // Usage: node scripts/setUserRole.js <email> [admin]
 // Example: node scripts/setUserRole.js you@example.com
 
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 const mongoose = require('mongoose');
+const { applyIndexPolicy } = require('../config/indexPolicy');
 const { bootstrapFirstAdministrator } = require('../services/accountRetirementService');
 
 const [, , email, role] = process.argv;
@@ -16,6 +17,7 @@ const run = async () => {
         process.exit(1);
     }
 
+    applyIndexPolicy(mongoose);
     await mongoose.connect(process.env.MONGO_URL);
     const user = await bootstrapFirstAdministrator({ targetEmail: email });
     console.log(`${user.email} is now "${user.role}".`);

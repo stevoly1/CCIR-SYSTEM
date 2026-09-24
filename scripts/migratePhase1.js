@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { applyIndexPolicy } = require('../config/indexPolicy');
 const { Complaint, User } = require('../models');
 
 const parseMigrationArgs = (args) => {
@@ -157,6 +158,7 @@ const runCli = async () => {
   const options = parseMigrationArgs(process.argv.slice(2));
   if (!process.env.MONGO_URL) throw new Error('MONGO_URL is required');
   // Connect directly rather than through config/db, whose connection log would reach stdout.
+  applyIndexPolicy(mongoose);
   await mongoose.connect(process.env.MONGO_URL);
   try {
     const report = await runPhase1Migration(options);

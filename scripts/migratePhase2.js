@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { applyIndexPolicy } = require('../config/indexPolicy');
 const { Category, Complaint } = require('../models');
 const { parseMigrationArgs } = require('./migratePhase1');
 const { cleanCategoryName, normaliseCategoryName } = require('../utils/categoryName');
@@ -105,7 +106,12 @@ const verify = async () => {
   if (duplicateNameKeys.length) failures.push({ invariant: 'CATEGORY_NAME_KEY_DUPLICATE', count: duplicateNameKeys.length, details: duplicateNameKeys });
   const outOfRange = namesOutOfRange(categories);
   if (outOfRange.length) failures.push({ invariant: 'CATEGORY_NAME_OUT_OF_RANGE', count: outOfRange.length, details: outOfRange });
-  const indexes = await Category.collection.indexes();
+  // A database the app never wrote to has no categories collection; that is a missing index to
+  // report, not a crash.
+  const indexes = await Category.collection.indexes().catch((error) => {
+    if (error?.codeName === 'NamespaceNotFound' || error?.code === 26) return [];
+    throw error;
+  });
   if (!indexes.some((index) => index.key?.nameKey === 1 && index.unique)) failures.push({ invariant: 'CATEGORY_NAME_KEY_INDEX_MISSING', count: 1 });
 
   const complaints = await Complaint.collection.find({}).toArray();
@@ -151,6 +157,7 @@ const runCli = async () => {
   const options = parseMigrationArgs(process.argv.slice(2));
   if (!process.env.MONGO_URL) throw new Error('MONGO_URL is required');
   // Connect directly rather than through config/db, whose connection log would reach stdout.
+  applyIndexPolicy(mongoose);
   await mongoose.connect(process.env.MONGO_URL);
   try {
     const report = await runPhase2Migration(options);

@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const { getLogger } = require('../utils/logger');
+const { applyIndexPolicy } = require('./indexPolicy');
 
 const connectDB = async () => {
     mongoose.connection.on('connected', () => {
@@ -9,9 +10,7 @@ const connectDB = async () => {
         getLogger().error({ err: error }, 'MongoDB connection error');
     });
 
-    // Production builds indexes deliberately with `npm run db:indexes -- --apply`; the readiness
-    // check refuses traffic while a unique index is missing.
-    mongoose.set('autoIndex', process.env.NODE_ENV !== 'production');
+    applyIndexPolicy(mongoose);
 
     return mongoose.connect(process.env.MONGO_URL);
 };
