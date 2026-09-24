@@ -120,7 +120,7 @@ const ReportIssuePage = () => {
                         {images.map((img, index) => (
                             <div key={img.previewUrl} style={{ position: 'relative', width: 100, height: 100 }}>
                                 <img src={img.previewUrl} alt="preview" style={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 'var(--radius-sm)' }} />
-                                <button type="button" onClick={() => removeImage(index)} className="icon-btn" style={{ position: 'absolute', top: -8, right: -8, width: 24, height: 24 }}>
+                                <button type="button" onClick={() => removeImage(index)} aria-label={`Remove photo ${index + 1}`} className="icon-btn" style={{ position: 'absolute', top: -8, right: -8, width: 24, height: 24 }}>
                                     <X size={12} />
                                 </button>
                             </div>

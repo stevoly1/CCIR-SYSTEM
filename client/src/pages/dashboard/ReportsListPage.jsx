@@ -89,6 +89,7 @@ const ReportsListPage = () => {
                 <Search size={16} color="var(--color-placeholder)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
                 <input
                     type="text"
+                    aria-label="Search reports"
                     placeholder="Search by issue number, location, or problem…"
                     value={searchInput}
                     onChange={(e) => handleSearchChange(e.target.value)}

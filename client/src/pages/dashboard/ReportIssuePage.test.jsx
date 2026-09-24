@@ -81,4 +81,14 @@ describe('ReportIssuePage image selection', () => {
         expect(toast.error).toHaveBeenCalledWith('Photos must be JPEG, PNG, or WebP');
         expect(screen.queryAllByAltText('preview')).toHaveLength(0);
     });
+
+    it('names each photo remove button and removes that photo', async () => {
+        const input = renderInput();
+        const user = userEvent.setup();
+        await user.upload(input, [fileOfSize('a.jpg', 1), fileOfSize('b.jpg', 1)]);
+        await user.click(screen.getByRole('button', { name: 'Remove photo 1' }));
+        expect(screen.getAllByAltText('preview')).toHaveLength(1);
+        expect(screen.getByRole('button', { name: 'Remove photo 1' })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Remove photo 2' })).not.toBeInTheDocument();
+    });
 });

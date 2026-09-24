@@ -21,6 +21,11 @@ const renderAs = (role, { url = '/dashboard/reports', pagination = { total: 0 } 
 describe('ReportsListPage filters', () => {
     beforeEach(() => { dispatch.mockReset(); vi.mocked(fetchComplaints).mockClear(); });
 
+    it('labels the search box', () => {
+        renderAs('citizen');
+        expect(screen.getByRole('textbox', { name: 'Search reports' })).toBeInTheDocument();
+    });
+
     it('offers a Withdrawn filter', () => {
         renderAs('citizen');
         expect(screen.getByRole('button', { name: 'Withdrawn' })).toBeInTheDocument();
