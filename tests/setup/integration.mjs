@@ -1,3 +1,5 @@
+// Every integration response is checked against the OpenAPI contract (middleware/openapiResponseValidator.js).
+process.env.OPENAPI_VALIDATE = 'true';
 import { afterAll, afterEach, beforeAll } from 'vitest';
 import mongoose from 'mongoose';
 import { createRequire } from 'node:module';

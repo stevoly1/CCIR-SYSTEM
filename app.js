@@ -42,6 +42,11 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser(process.env.COOKIE));
 
+// Test-only contract checking (a no-op unless OPENAPI_VALIDATE=true).
+const { contractTestMiddleware } = require('./middleware/openapiResponseValidator');
+const contractChecks = contractTestMiddleware();
+if (contractChecks.length > 0) app.use(contractChecks);
+
 // Importing and using routers
 const AuthRouter = require('./routes/authRoute');
 const UserRouter = require('./routes/userRoute');

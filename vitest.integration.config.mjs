@@ -13,6 +13,8 @@ export default defineConfig({
     unstubGlobals: true,
     fileParallelism: false,
     setupFiles: ['./tests/setup/integration.mjs'],
+    // Fails the run on any response that breaks the OpenAPI contract.
+    globalSetup: ['./tests/setup/openapiCoverage.mjs'],
     testTimeout: 30000,
     // A clean machine may need to download the pinned MongoDB test binary once.
     hookTimeout: 600000,
