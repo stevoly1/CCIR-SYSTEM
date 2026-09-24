@@ -9,7 +9,12 @@ const DocsRouter = express.Router();
 // API_DOCS_UI=false turns the page off; the JSON contract at /api/v1/openapi.json stays on.
 // The page runs under the application's own security policy (scripts from this server only).
 DocsRouter.use((req, res, next) => (process.env.API_DOCS_UI === 'false' ? next('router') : next()));
-DocsRouter.use('/assets', express.static(swaggerUiPath(), { index: false }));
+// Only the two files the page uses; swagger-ui-dist also ships a stock petstore page, an OAuth
+// redirect page and source maps, none of which this server should publish.
+const ASSETS = new Set(['swagger-ui.css', 'swagger-ui-bundle.js']);
+DocsRouter.get('/assets/:file', (req, res, next) => (ASSETS.has(req.params.file)
+  ? res.sendFile(req.params.file, { root: swaggerUiPath() })
+  : next()));
 DocsRouter.get('/init.js', (req, res) => res.sendFile('init.js', { root: DOCS_DIR }));
 DocsRouter.get('/', (req, res) => res.sendFile('index.html', { root: DOCS_DIR }));
 

@@ -14,6 +14,15 @@ describe('API documentation page', () => {
     }
   });
 
+  // swagger-ui-dist also ships a stock petstore page, an OAuth redirect page and source maps; only
+  // the two files this page uses are served.
+  it.each(['index.html', 'oauth2-redirect.html', 'swagger-initializer.js', 'swagger-ui-bundle.js.map', 'swagger-ui.js', 'package.json'])(
+    'does not serve the unused swagger-ui-dist file %s',
+    async (file) => {
+      expect((await request(testServer()).get(`/api/v1/docs/assets/${file}`)).status).toBe(404);
+    },
+  );
+
   it('runs under the application\'s own security policy: scripts from this server only', async () => {
     const page = await request(testServer()).get('/api/v1/docs');
     const health = await request(testServer()).get('/api/v1/health/live');
