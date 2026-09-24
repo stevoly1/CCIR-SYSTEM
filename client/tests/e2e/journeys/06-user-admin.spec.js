@@ -11,7 +11,7 @@ test('J7 administrator edits and retires a user; the retired user cannot sign in
   await rowFor('retiree@e2e.test').getByRole('button', { name: 'Edit user', exact: true }).click();
   await expect(page.getByLabel('Email')).toHaveValue('retiree@e2e.test');
   await page.getByLabel('Full name').fill('Remi Retiree-Renamed');
-  await page.getByLabel('Role').selectOption('agency');
+  await page.getByLabel('Role', { exact: true }).selectOption('agency');
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   await expect(page.getByText('User updated')).toBeVisible();
   await expect(rowFor('retiree@e2e.test')).toContainText('Remi Retiree-Renamed');
