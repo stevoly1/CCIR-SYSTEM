@@ -30,6 +30,8 @@ describe('API documentation page', () => {
     expect(page.headers['content-security-policy']).toBe(health.headers['content-security-policy']);
     expect(page.headers['content-security-policy']).toMatch(/script-src 'self'(;|$)/);
     expect(page.headers['content-security-policy']).not.toMatch(/unsafe-eval/);
+    // The test origin is plain HTTP, as in development: no upgrade, or Safari fetches the assets over https.
+    expect(page.headers['content-security-policy']).not.toMatch(/upgrade-insecure-requests/);
   });
 
   it('returns the JSON 404 when API_DOCS_UI=false, while the JSON contract stays available', async () => {

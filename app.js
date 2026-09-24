@@ -25,6 +25,7 @@ app.use(helmet.contentSecurityPolicy({
     imgSrc: ["'self'", 'data:', 'blob:', 'https://res.cloudinary.com',
     'https://lh3.googleusercontent.com'
     ],
+    ...(browserSecurity.upgradeInsecureRequests ? {} : { upgradeInsecureRequests: null }),
   },
 }));
 

@@ -63,6 +63,9 @@ const getBrowserSecurityConfig = (env = process.env) => {
   return {
     browserOrigin,
     trustProxy,
+    // Only an HTTPS site may ask browsers to upgrade its requests. On a plain-HTTP development
+    // server, Safari (unlike Chromium) upgrades http://localhost requests too, and they fail.
+    upgradeInsecureRequests: new URL(browserOrigin).protocol === 'https:',
     cookieOptions,
     corsOptions: {
       credentials: true,

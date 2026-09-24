@@ -118,6 +118,26 @@ describe('app module boundary', () => {
     expect(limit).toBeGreaterThan(cors);
   }, 15000);
 
+  it('keeps upgrade-insecure-requests in production, where the origin is HTTPS', () => {
+    const projectRoot = path.resolve(__dirname, '..', '..');
+    const script = [
+      "const http = require('node:http');",
+      "const server = http.createServer(require('./app')).listen(0, '127.0.0.1', async () => {",
+      "  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/v1/health/live`);",
+      "  process.stdout.write(response.headers.get('content-security-policy'));",
+      '  server.close();',
+      '});',
+    ].join('\n');
+    const result = spawnSync(process.execPath, ['-e', script], {
+      cwd: projectRoot,
+      env: { ...process.env, BROWSER_ORIGIN: 'https://ccir.example.test', TRUST_PROXY_HOPS: '0', AUTH_THROTTLE_HMAC_SECRET: 'app-load-auth-throttle-secret', NODE_ENV: 'production', MONGO_URL: '', LOG_LEVEL: 'silent' },
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/upgrade-insecure-requests/);
+  }, 15000);
+
   it('never loads the contract validator in production, even with contract checking switched on', () => {
     const projectRoot = path.resolve(__dirname, '..', '..');
     const result = spawnSync(

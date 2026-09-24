@@ -6,6 +6,16 @@ const corsDecision = (corsOptions, origin) => new Promise((resolve) => {
 });
 
 describe('browser security configuration', () => {
+  // Safari applies upgrade-insecure-requests to http://localhost too, so a plain-HTTP development
+  // server that sent it had every script and stylesheet fetched over https, and failed (a blank page).
+  it.each([
+    ['http://localhost:3000', 'development', false],
+    ['https://app.example', 'development', true],
+    ['https://app.example', 'production', true],
+  ])('asks browsers to upgrade to HTTPS only when the origin %s uses it (%s)', (origin, nodeEnv, expected) => {
+    expect(getBrowserSecurityConfig({ NODE_ENV: nodeEnv, BROWSER_ORIGIN: origin, TRUST_PROXY_HOPS: '0' }).upgradeInsecureRequests).toBe(expected);
+  });
+
   it.each([
     [{ NODE_ENV: 'production', TRUST_PROXY_HOPS: '1' }],
     [{ NODE_ENV: 'production', BROWSER_ORIGIN: 'not a URL', TRUST_PROXY_HOPS: '1' }],
