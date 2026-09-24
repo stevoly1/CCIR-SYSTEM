@@ -133,7 +133,7 @@ npm run db:restore -- --archive backups/ccir-<time>.archive.gz --uri '<target co
 npm run db:rehearse                    # proves backup and restore on a throwaway in-memory database (needs the dev dependencies)
 ```
 
-Restore takes its target only from `--uri`, never from `MONGO_URL`. It refuses an archive that does not match its manifest checksum, and refuses a non-empty target unless both `--drop` and `--confirm-drop` are given. Afterwards it checks every collection's count and checksum against the manifest. Backups contain personal data: `backups/` and `*.archive.gz` are git-ignored; keep them somewhere access-controlled.
+A backup compares the database before and after the dump, so its manifest always matches its archive; if the application wrote in between, that attempt is discarded and retried (three attempts, then it stops and keeps nothing). Restore takes its target only from `--uri`, never from `MONGO_URL`, and the URI must name the target database. It refuses an archive that does not match its manifest checksum, and refuses a non-empty target unless both `--drop` and `--confirm-drop` are given. Afterwards it checks every collection's count and checksum against the manifest. Backups contain personal data: `backups/` and `*.archive.gz` are git-ignored; keep them somewhere access-controlled.
 
 ### Tests
 

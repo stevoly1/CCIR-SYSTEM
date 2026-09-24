@@ -92,5 +92,28 @@ describe('database script helpers', () => {
       fs.writeFileSync(archive.replace(/\.archive\.gz$/, '.manifest.json'), JSON.stringify({ archiveSha256: 'f'.repeat(64), database: 'ccir', collections: {} }));
       await expect(restore({ archive, uri: 'mongodb://127.0.0.1:9/never-contacted' })).rejects.toThrow('does not match its manifest checksum');
     });
+
+    // Without a database in the connection string the driver silently picks "test".
+    it.each([
+      'mongodb://127.0.0.1:9',
+      'mongodb://127.0.0.1:9/',
+      'mongodb://u:p@127.0.0.1:9/?authSource=admin',
+      'mongodb+srv://u:p@cluster.example.test/?retryWrites=true',
+    ])('refuses a target that names no database: %s', async (uri) => {
+      const error = await restore({ archive: path.join(dir, 'x.archive.gz'), uri }).catch((caught) => caught);
+      expect(error.message).toMatch(/--uri must name the target database/);
+      expect(error.message).not.toContain('u:p@');
+    });
+  });
+
+  describe('databaseNameFrom', () => {
+    const { databaseNameFrom } = require('../../scripts/db/common');
+    it.each([
+      ['mongodb://127.0.0.1:27017/ccir', 'ccir'],
+      ['mongodb://a:1,b:2,c:3/ccir-restored?replicaSet=rs0', 'ccir-restored'],
+      ['mongodb+srv://u:p%2Fq@cluster.example.test/ccir?retryWrites=true', 'ccir'],
+      ['mongodb://127.0.0.1:27017/', null],
+      ['mongodb://127.0.0.1:27017?replicaSet=rs0', null],
+    ])('%s → %s', (uri, name) => expect(databaseNameFrom(uri)).toBe(name));
   });
 });

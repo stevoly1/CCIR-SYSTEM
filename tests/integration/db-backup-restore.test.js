@@ -65,6 +65,50 @@ describe.skipIf(!hasTools)('backup and restore rehearsal (needs MongoDB Database
       await expect(restore({ archive, uri: targetUri, drop: true, confirmDrop: true })).resolves.toMatchObject({ database: target.name });
       expect((await target.db.collection('complaints').find({}, { projection: { _id: 0 } }).sort({ ref: 1 }).toArray())).toEqual([{ ref: 'A' }, { ref: 'B' }]);
     }, 120000);
+
+    // A live application keeps writing (every sign-in adds a refresh token), so a write can land
+    // between the manifest snapshot and mongodump. Each wrapped dump inserts one document first.
+    const writeBeforeEachDump = (collection, times) => {
+      const common = require('../../scripts/db/common');
+      const realRunTool = common.runTool;
+      let writes = 0;
+      return vi.spyOn(common, 'runTool').mockImplementation(async (bin, args) => {
+        if (args.some((arg) => arg.startsWith('--archive=')) && writes < times) {
+          writes += 1;
+          await collection.insertOne({ ref: `LIVE-${writes}` });
+        }
+        return realRunTool(bin, args);
+      });
+    };
+
+    it('writes a manifest that matches its archive when the database changes during the dump', async () => {
+      const stamp = Date.now();
+      const source = await open(`ccir-bk-live-${stamp}`);
+      const target = await open(`ccir-bk-live-tgt-${stamp}`);
+      await source.db.collection('complaints').insertMany([{ ref: 'A' }, { ref: 'B' }]);
+      const spy = writeBeforeEachDump(source.db.collection('complaints'), 1);
+      try {
+        const { archive, manifest } = await backup({ uri: withDatabase(process.env.TEST_MONGO_URI, source.name), out });
+        expect(manifest.collections.complaints.count).toBe(3);
+        await expect(restore({ archive, uri: withDatabase(process.env.TEST_MONGO_URI, target.name) })).resolves.toMatchObject({ collections: 1 });
+        expect(fs.readdirSync(out).sort()).toEqual([path.basename(archive), path.basename(archive).replace('.archive.gz', '.manifest.json')].sort());
+      } finally {
+        spy.mockRestore();
+      }
+    }, 120000);
+
+    it('keeps nothing and says why when the database changes during every attempt', async () => {
+      const source = await open(`ccir-bk-busy-${Date.now()}`);
+      await source.db.collection('complaints').insertOne({ ref: 'A' });
+      const spy = writeBeforeEachDump(source.db.collection('complaints'), Infinity);
+      try {
+        await expect(backup({ uri: withDatabase(process.env.TEST_MONGO_URI, source.name), out }))
+          .rejects.toThrow(/changed while it was being backed up \(complaints\).*3 attempts.*No backup was kept/);
+        expect(fs.readdirSync(out)).toEqual([]);
+      } finally {
+        spy.mockRestore();
+      }
+    }, 120000);
   });
 });
 

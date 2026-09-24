@@ -5,10 +5,11 @@
 require('dotenv').config({ quiet: true });
 const fs = require('node:fs');
 const { scrubSecrets } = require('../../utils/logger');
-const { parseArgs, assertRestoreAllowed, requireTool, withToolConfig, runTool, sha256File, databaseSnapshot } = require('./common');
+const { parseArgs, databaseNameFrom, assertRestoreAllowed, requireTool, withToolConfig, runTool, sha256File, databaseSnapshot } = require('./common');
 
 const restore = async ({ archive, uri, drop = false, confirmDrop = false }) => {
   if (!archive || !uri) throw new Error('Both --archive and --uri are required; the target is never taken from MONGO_URL.');
+  if (!databaseNameFrom(uri)) throw new Error('The --uri must name the target database (…/<database>); without one MongoDB would restore into "test".');
   const manifest = JSON.parse(fs.readFileSync(archive.replace(/\.archive\.gz$/, '.manifest.json'), 'utf8'));
   if (sha256File(archive) !== manifest.archiveSha256) throw new Error('The archive does not match its manifest checksum.');
   const mongorestore = requireTool('mongorestore');

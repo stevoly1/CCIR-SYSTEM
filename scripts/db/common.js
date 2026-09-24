@@ -19,6 +19,13 @@ const parseArgs = (argv) => {
   return args;
 };
 
+// The database named in a connection string's path, or null. Without one, the driver silently
+// uses "test", so a restore target must always name its database.
+const databaseNameFrom = (uri) => {
+  const match = /^mongodb(?:\+srv)?:\/\/[^/?]+\/([^/?]+)/.exec(uri);
+  return match ? decodeURIComponent(match[1]) : null;
+};
+
 const assertRestoreAllowed = ({ targetIsEmpty, drop, confirmDrop }) => {
   if (targetIsEmpty) return;
   if (!drop) throw new Error('The target database is not empty. Pass --drop --confirm-drop to replace its collections.');
@@ -82,4 +89,4 @@ const databaseSnapshot = async (uri) => {
   }
 };
 
-module.exports = { parseArgs, assertRestoreAllowed, requireTool, withToolConfig, runTool, sha256File, databaseSnapshot };
+module.exports = { parseArgs, databaseNameFrom, assertRestoreAllowed, requireTool, withToolConfig, runTool, sha256File, databaseSnapshot };
