@@ -17,7 +17,7 @@ const { chooseCategory } = require('../policies/complaintCategoryPolicy');
 const { categoryInactive, complaintWithdrawn } = require('../errors/domainErrors');
 const { versionFilter } = require('../services/complaintVersionGuard');
 const { notAssignedToYou, staleComplaint } = require('../errors/domainErrors');
-const generateReferenceCode = require('../utils/referenceCode');
+const referenceService = require('../services/complaintReferenceService');
 const aiService = require('../services/aiService');
 const emailService = require('../services/emailService');
 const complaintImageService = require('../services/complaintImageService');
@@ -81,8 +81,9 @@ const createComplaint = async (req, res) => {
 
         let complaint;
         try {
-            complaint = await Complaint.create({
-                referenceCode: generateReferenceCode(),
+            // A reference-code collision retries only this insert; uploads and AI are not repeated.
+            complaint = await referenceService.createWithUniqueReference((referenceCode) => Complaint.create({
+                referenceCode,
                 description,
                 images,
                 location,
@@ -109,7 +110,7 @@ const createComplaint = async (req, res) => {
                     changedBy: req.user.userId,
                     changedBySnapshot: reporterSnapshot,
                 }],
-            });
+            }));
         } catch (error) {
             await complaintImageService.cleanupCloudImages(images);
             throw error;
