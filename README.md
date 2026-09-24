@@ -46,7 +46,7 @@ npm run dev
 
 The API will be running at `http://localhost:8080/api/v1`. `GET /api/v1/health/ready` reports whether it is ready to serve traffic, and the interactive API documentation is at `http://localhost:8080/api/v1/docs`.
 
-In production (`NODE_ENV=production`) the API does not build database indexes on start. Build them once on a new database, before the first start, with `npm run db:indexes -- --apply` (see [Operations](#operations)).
+In production (`NODE_ENV=production`) the API, the migrations and `set-role` never build database indexes themselves. Build them once on a new database, before the first start, with `npm run db:indexes -- --apply`, which also seeds the default categories (see [Operations](#operations)).
 
 See [`.env.example`](./.env.example) for the full list of environment variables and what each one is for.
 
@@ -109,9 +109,9 @@ Logs are JSON lines on standard output, one line per request plus one per notabl
 | Endpoint | Answers | Status codes |
 |---|---|---|
 | `GET /api/v1/health/live` | the process is running (never checks the database) | 200 |
-| `GET /api/v1/health/ready` | `ready`, `degraded` (an optional service — AI, uploads, email, Google sign-in — is not configured) or `unavailable` | 200 when ready or degraded; 503 when unavailable |
+| `GET /api/v1/health/ready` | `ready`, `degraded` (an optional service — AI, uploads, email, Google sign-in — is not configured, or a TTL index is missing) or `unavailable` | 200 when ready or degraded; 503 when unavailable |
 
-When unavailable, `checks.database.reason` is one of `DATABASE_DISCONNECTED`, `DATABASE_TIMEOUT`, `TRANSACTIONS_UNSUPPORTED` (not a replica set), `INDEXES_MISSING` (run `db:indexes -- --apply`) or `DATABASE_ERROR`. Readiness needs the database user to be allowed `listIndexes` (the `readWrite` role is). Neither endpoint is rate-limited, and neither reveals a setting value or connection detail; readiness does show which optional services are configured and the MongoDB server version. Because readiness is public, its database check is shared: concurrent probes wait for one check, and the result is reused for `READINESS_CACHE_MS` milliseconds (default `1000`; `0` checks on every call).
+When unavailable, `checks.database.reason` is one of `DATABASE_DISCONNECTED`, `DATABASE_TIMEOUT`, `TRANSACTIONS_UNSUPPORTED` (not a replica set), `INDEXES_MISSING` (run `db:indexes -- --apply`) or `DATABASE_ERROR`. When degraded because `checks.database.reason` is `TTL_INDEXES_MISSING`, sessions and sign-in throttles would stop expiring: run `db:indexes -- --apply`. Readiness needs the database user to be allowed `listIndexes` (the `readWrite` role is). Neither endpoint is rate-limited, and neither reveals a setting value or connection detail; readiness does show which optional services are configured and the MongoDB server version. Because readiness is public, its database check is shared: concurrent probes wait for one check, and the result is reused for `READINESS_CACHE_MS` milliseconds (default `1000`; `0` checks on every call).
 
 ### Database indexes
 
@@ -119,9 +119,10 @@ When unavailable, `checks.database.reason` is one of `DATABASE_DISCONNECTED`, `D
 npm run db:indexes                           # report only: what is missing or extra (changes nothing)
 npm run db:indexes -- --apply                # create missing indexes; never drops anything
 npm run db:indexes -- --apply --drop-extra   # also drop indexes the models do not declare
+npm run db:indexes -- --check                # report, and exit 2 if any declared index is missing
 ```
 
-Run `--apply` on a new database before the first start, and after every release that changes indexes. Upgrading from an earlier release: run the report first. It lists the unused coordinate index `location.latitude_1_location.longitude_1` as extra. Use `--apply --drop-extra` only if that is the only extra index listed, because it drops every index the models do not declare, including any made in a hosted console; otherwise drop that one index by name.
+Run `--apply` on a new database before the first start, and after every release that changes indexes. It also seeds the default categories once their unique indexes exist: in production the API seeds nothing while those indexes are missing, so several instances starting at once cannot create duplicates. `--check` suits a deploy step: it exits `2` while any declared index is missing (`1` means the script itself failed). Upgrading from an earlier release: run the report first. It lists the unused coordinate index `location.latitude_1_location.longitude_1` as extra. Use `--apply --drop-extra` only if that is the only extra index listed, because it drops every index the models do not declare, including any made in a hosted console; otherwise drop that one index by name.
 
 ### Backup and restore
 

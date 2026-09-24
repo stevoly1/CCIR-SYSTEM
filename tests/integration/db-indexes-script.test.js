@@ -11,7 +11,7 @@ const runScript = (uri, ...args) => new Promise((resolve) => {
   let stderr = '';
   child.stdout.on('data', (chunk) => { stdout += chunk; });
   child.stderr.on('data', (chunk) => { stderr += chunk; });
-  child.on('close', (status) => resolve({ status, stdout, stderr, json: status === 0 && stdout ? JSON.parse(stdout) : null }));
+  child.on('close', (status) => resolve({ status, stdout, stderr, json: (status === 0 || status === 2) && stdout ? JSON.parse(stdout) : null }));
 });
 
 describe('npm run db:indexes', () => {
@@ -40,6 +40,16 @@ describe('npm run db:indexes', () => {
     const again = await runScript(uri);
     expect(again.json.missingUnique).toEqual([]);
     for (const entry of Object.values(again.json.report)) expect(entry.toCreate).toEqual([]);
+  });
+
+  // Report mode always exits 0; --check turns missing indexes into a failure a deploy can stop on.
+  it('exits 2 with --check while any declared index is missing, and 0 once all exist', async () => {
+    const before = await runScript(uri, '--check');
+    expect(before.status).toBe(2);
+    await runScript(uri, '--apply');
+    const after = await runScript(uri, '--check');
+    expect(after.status).toBe(0);
+    expect(after.json.missingUnique).toEqual([]);
   });
 
   it('seeds the default categories with --apply, once their unique indexes exist', async () => {
