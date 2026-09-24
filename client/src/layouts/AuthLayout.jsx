@@ -29,7 +29,13 @@ const AuthLayout = ({ children }) => {
             </div>
 
             <div className="auth-panel">
-                <div className="auth-panel-inner">{children}</div>
+                <div className="auth-panel-inner">
+                    <div className="auth-mobile-brand">
+                        <span className="brand-mark"><img src={ccirLogo} alt="" /></span>
+                        CCIR System
+                    </div>
+                    {children}
+                </div>
             </div>
         </div>
     );

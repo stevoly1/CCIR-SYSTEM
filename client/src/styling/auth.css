@@ -198,12 +198,42 @@
     margin-left: 4px;
 }
 
+/* Shown only on phones, where the hero and its brand are hidden. */
+.auth-mobile-brand {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 28px;
+    font-weight: 800;
+    font-size: 1.15rem;
+}
+
+.auth-mobile-brand .brand-mark {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    background: var(--color-primary-light);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5px;
+}
+
+.auth-mobile-brand .brand-mark img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
 @media (max-width: 880px) {
     .auth-screen {
         grid-template-columns: 1fr;
     }
     .auth-hero {
         display: none;
+    }
+    .auth-mobile-brand {
+        display: flex;
     }
     .auth-panel {
         padding: 32px 20px;
