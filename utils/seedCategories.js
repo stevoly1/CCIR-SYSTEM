@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const { Category } = require('../models');
 const { categorySlug, normaliseCategoryName } = require('./categoryName');
 
@@ -33,11 +34,21 @@ const upsertDefault = async (category) => {
 // Safe to call on every startup. `Other` (the protected AI fallback) is always ensured. The
 // other defaults are seeded only into an empty collection, so a default an administrator
 // has renamed or deleted is not brought back by the next restart.
-const seedDefaultCategories = async () => {
+//
+// requireUniqueIndexes (production): seed nothing while the category unique indexes are missing,
+// because several instances starting on a new database could each insert the defaults.
+// `npm run db:indexes -- --apply` seeds them once it has built the indexes.
+const seedDefaultCategories = async ({ requireUniqueIndexes = false } = {}) => {
+    if (requireUniqueIndexes) {
+        const { missingUniqueIndexes } = require('../services/readinessService');
+        const missing = await missingUniqueIndexes(mongoose.connection, { Category });
+        if (missing.length > 0) return { seeded: false, reason: 'UNIQUE_INDEXES_MISSING' };
+    }
     const firstRun = (await Category.estimatedDocumentCount()) === 0;
     for (const category of DEFAULT_CATEGORIES) {
         if (firstRun || category.name === 'Other') await upsertDefault(category);
     }
+    return { seeded: true };
 };
 
 module.exports = seedDefaultCategories;

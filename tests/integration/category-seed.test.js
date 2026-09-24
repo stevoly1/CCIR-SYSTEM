@@ -22,6 +22,25 @@ describe('default category seeding', () => {
     expect((await runPhase2Migration({ mode: 'verify' })).invariantFailures).toEqual([]);
   });
 
+  // Several instances starting on a new production database before `db:indexes` could each insert
+  // the defaults; without the unique indexes nothing stops the duplicates.
+  it('seeds nothing while the category unique indexes are missing, when asked to require them', async () => {
+    await Category.collection.dropIndexes();
+    try {
+      const result = await seedDefaultCategories({ requireUniqueIndexes: true });
+      expect(result).toEqual({ seeded: false, reason: 'UNIQUE_INDEXES_MISSING' });
+      expect(await Category.countDocuments()).toBe(0);
+    } finally {
+      await Category.createIndexes();
+    }
+  });
+
+  it('seeds as usual once the unique indexes exist', async () => {
+    const result = await seedDefaultCategories({ requireUniqueIndexes: true });
+    expect(result).toEqual({ seeded: true });
+    expect(await Category.countDocuments()).toBe(6);
+  });
+
   it('makes seeded names case-insensitively unique', async () => {
     await seedDefaultCategories();
     const { agent: admin } = await createAuthenticatedAgent({ role: 'admin' });
@@ -54,7 +73,7 @@ describe('default category seeding', () => {
       { name: 'Other', slug: 'other', isActive: true, defaultPriority: 'LOW' },
       { name: 'Roads', slug: 'roads', isActive: true, defaultPriority: 'HIGH' },
     ]);
-    await expect(seedDefaultCategories()).resolves.toBeUndefined();
+    await expect(seedDefaultCategories()).resolves.toEqual({ seeded: true });
     expect(await Category.countDocuments({ name: 'Other' })).toBe(1);
     expect(await Category.countDocuments()).toBe(2);
   });
@@ -68,7 +87,7 @@ describe('default category seeding', () => {
       await realUpdateOne(...args);
       throw Object.assign(new Error('E11000 duplicate key error'), { code: 11000 });
     });
-    await expect(seedDefaultCategories()).resolves.toBeUndefined();
+    await expect(seedDefaultCategories()).resolves.toEqual({ seeded: true });
     expect(await Category.countDocuments()).toBe(6);
   });
 

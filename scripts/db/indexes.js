@@ -15,6 +15,7 @@ const run = async ({ uri = process.env.MONGO_URL, apply = false, dropExtra = fal
   mongoose.set('autoCreate', false);
   require('../../models');
   const { missingUniqueIndexes } = require('../../services/readinessService');
+  const seedDefaultCategories = require('../../utils/seedCategories');
   await mongoose.connect(uri);
   try {
     const report = {};
@@ -29,8 +30,11 @@ const run = async ({ uri = process.env.MONGO_URL, apply = false, dropExtra = fal
       report[model.modelName] = { toCreate, toDrop };
     }
     const missingUnique = await missingUniqueIndexes(mongoose.connection, mongoose.models);
-    out.write(`${JSON.stringify({ applied: apply, dropExtra, report, missingUnique }, null, 2)}\n`);
-    return { report, missingUnique };
+    // With the unique indexes in place the defaults can be seeded safely (the server skips them
+    // in production until then); report mode never writes.
+    const seeded = apply ? (await seedDefaultCategories({ requireUniqueIndexes: true })).seeded : false;
+    out.write(`${JSON.stringify({ applied: apply, dropExtra, report, missingUnique, seeded }, null, 2)}\n`);
+    return { report, missingUnique, seeded };
   } finally {
     await mongoose.disconnect();
   }

@@ -42,6 +42,16 @@ describe('npm run db:indexes', () => {
     for (const entry of Object.values(again.json.report)) expect(entry.toCreate).toEqual([]);
   });
 
+  it('seeds the default categories with --apply, once their unique indexes exist', async () => {
+    const result = await runScript(uri, '--apply');
+    expect(result.json.seeded).toBe(true);
+    const names = (await connection.db.collection('categories').find({}).toArray()).map((c) => c.name);
+    expect(names).toEqual(expect.arrayContaining(['Other', 'Pothole']));
+    expect(names).toHaveLength(6);
+    await runScript(uri, '--apply');
+    expect(await connection.db.collection('categories').countDocuments()).toBe(6);
+  });
+
   it('keeps indexes made outside the app unless --drop-extra is given', async () => {
     await runScript(uri, '--apply');
     await connection.db.collection('complaints').createIndex({ description: 1 }, { name: 'console_extra' });

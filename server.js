@@ -11,7 +11,10 @@ const port = process.env.PORT || 8080;
 const startApp = async () => {
   try {
     await connectDB();
-    await seedDefaultCategories();
+    const seeding = await seedDefaultCategories({ requireUniqueIndexes: process.env.NODE_ENV === 'production' });
+    if (!seeding.seeded) {
+      getLogger().warn({ reason: seeding.reason }, 'Default categories not seeded; run npm run db:indexes -- --apply');
+    }
 
     const server = http.createServer(app);
     server.listen(port, () => {
