@@ -36,4 +36,31 @@ describe('ComplaintSummary', () => {
             expect(screen.getByRole('heading', { name })).toBeInTheDocument();
         }
     });
+
+    describe('what staff see about the AI and the outcome', () => {
+        const staffAi = { summary: 'AI text', tags: ['roads', 'safety'], confidence: 0.9, suggestedCategory: 'Roads', error: null };
+
+        it('shows the AI\'s confidence and tags', () => {
+            render(<ComplaintSummary staffView complaint={{ ...base, ai: staffAi }} />);
+            expect(screen.getByText('Confidence 90%')).toBeInTheDocument();
+            expect(screen.getByText('Tags: roads, safety')).toBeInTheDocument();
+        });
+
+        it('warns when the AI failed and a fallback set the category and priority', () => {
+            render(<ComplaintSummary staffView complaint={{ ...base, ai: { ...staffAi, summary: '', confidence: 0, tags: [], error: 'TIMEOUT' } }} />);
+            expect(screen.getByRole('note')).toHaveTextContent('The AI could not classify this report');
+        });
+
+        it('shows when a report was resolved, and says when that date is estimated', () => {
+            const { rerender } = render(<ComplaintSummary staffView complaint={{ ...base, status: 'RESOLVED', resolvedAt: '2026-09-20T10:00:00.000Z', resolvedAtEstimated: false }} />);
+            expect(screen.getByText(/^Resolved on /)).not.toHaveTextContent('estimated');
+            rerender(<ComplaintSummary staffView complaint={{ ...base, status: 'RESOLVED', resolvedAt: '2026-09-20T10:00:00.000Z', resolvedAtEstimated: true }} />);
+            expect(screen.getByText(/^Resolved on /)).toHaveTextContent('(estimated)');
+        });
+
+        it('keeps these staff details from the reporter', () => {
+            render(<ComplaintSummary staffView={false} complaint={{ ...base, ai: { summary: 'AI text', tags: ['roads'] } }} />);
+            expect(screen.queryByText(/Confidence|Tags:/)).not.toBeInTheDocument();
+        });
+    });
 });

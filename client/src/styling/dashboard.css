@@ -452,6 +452,15 @@
     flex-shrink: 0;
 }
 
+.edit-history {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
 /* Search box and filters side by side, wrapping on narrow screens. */
 .list-controls {
     display: flex;

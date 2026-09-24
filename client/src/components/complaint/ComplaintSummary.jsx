@@ -60,13 +60,31 @@ const ComplaintSummary = ({ complaint, staffView }) => {
                 {!staffView && complaint.hasPrecisePosition && <span className="meta">Precise position recorded</span>}
             </div>
 
+            {staffView && complaint.ai?.error && (
+                <p role="note" className="form-error-banner">
+                    The AI could not classify this report, so the category and priority were set by the fallback. Check them.
+                </p>
+            )}
+
             {complaint.ai?.summary && (
                 <div className="field">
                     <h3 className="field-heading" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <Sparkles size={14} color="var(--color-accent-lavender-text)" aria-hidden="true" /> AI summary
                     </h3>
                     <p style={{ color: 'var(--color-text-muted)' }}>{complaint.ai.summary}</p>
+                    {staffView && typeof complaint.ai.confidence === 'number' && (
+                        <span className="meta">{`Confidence ${Math.round(complaint.ai.confidence * 100)}%`}</span>
+                    )}
+                    {staffView && complaint.ai.tags?.length > 0 && (
+                        <span className="meta">{`Tags: ${complaint.ai.tags.join(', ')}`}</span>
+                    )}
                 </div>
+            )}
+
+            {staffView && complaint.resolvedAt && (
+                <p className="meta">
+                    {`Resolved on ${new Date(complaint.resolvedAt).toLocaleString()}${complaint.resolvedAtEstimated ? ' (estimated)' : ''}`}
+                </p>
             )}
         </>
     );

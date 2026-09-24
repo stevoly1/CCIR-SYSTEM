@@ -12,6 +12,7 @@ import ResponsibilityPanel from '../../components/complaint/ResponsibilityPanel'
 import StaffActionsPanel from '../../components/complaint/StaffActionsPanel';
 import AdminDeleteDialog from '../../components/complaint/AdminDeleteDialog';
 import { fetchComplaint, clearCurrentComplaint } from '../../slices/complaintSlice';
+import EditHistory from '../../components/complaint/EditHistory';
 
 // Composition only: every permission shown here comes from the server's presenter.
 // A closed report nobody was assigned to will not be assigned, so it makes no such promise.
@@ -86,6 +87,7 @@ const ReportDetailPage = () => {
                         <h2>Timeline</h2>
                     </div>
                     <ComplaintTimeline entries={current.timeline} staffView={isStaff} />
+                    {isStaff && <EditHistory entries={current.editHistory} />}
                     {!isStaff && (
                         <OwnerActionsPanel complaint={current} onUpdated={reload} onConflict={reload} />
                     )}
