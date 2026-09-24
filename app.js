@@ -58,6 +58,10 @@ app.use('/api/v1/location', LocationRouter);
 
 app.use('/api/v1/health', require('./routes/healthRoute'));
 
+// The published API contract (OpenAPI 3.1), as JSON.
+const { getContract } = require('./utils/openapi');
+app.get('/api/v1/openapi.json', (req, res) => res.json(getContract()));
+
 // Serve the reference frontend, if it has been built (client/dist)
 mountReferenceClient(app, path.join(__dirname, 'client', 'dist'));
 

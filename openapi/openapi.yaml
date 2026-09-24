@@ -1,0 +1,2927 @@
+openapi: 3.1.0
+info:
+  title: CCIR API
+  version: 1.0.0
+  summary: Civic Complaint and Infrastructure Reporting backend.
+  description: >
+    Citizens file complaints about public infrastructure; agency staff and administrators triage,
+    assign and resolve them.
+
+
+    **Sessions.** Signing in sets two signed, HTTP-only cookies: `accessToken` (short-lived) and
+    `refreshToken`. A request whose access token has expired is renewed from the refresh token
+    automatically. There is no bearer-token mode.
+
+
+    **Browser origin.** Every POST, PUT, PATCH and DELETE must carry an `Origin` header equal to the
+    configured `BROWSER_ORIGIN`; otherwise the response is 403 `FORBIDDEN` ("Request origin is not
+    allowed").
+
+
+    **Errors.** Every error uses one envelope: `{ error: { code, message, details? }, msg }`.
+    Unexpected server errors (500) also carry `error.requestId`, which matches the `X-Request-Id`
+    response header and the server log line.
+
+
+    **Request IDs.** Every response carries `X-Request-Id`. A caller may send its own
+    `X-Request-Id` (8–64 characters of `A-Z a-z 0-9 . _ -`); anything else is replaced.
+
+
+    **Rate limits.** 100 requests per 15 minutes per client address (health probes are exempt),
+    plus tighter limits on sign-in and session refresh. Over-limit requests get 429 `RATE_LIMITED`
+    with `Retry-After`.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: /api/v1
+tags:
+  - name: auth
+    description: Sign-up, sign-in and Google sign-in.
+  - name: users
+    description: The signed-in user's profile, and user administration.
+  - name: categories
+    description: Complaint categories.
+  - name: complaints
+    description: Filing, reading and managing complaints.
+  - name: location
+    description: Address suggestions and geocoding.
+  - name: health
+    description: Liveness and readiness probes.
+  - name: contract
+    description: This document.
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: accessToken
+      description: Signed HTTP-only access-token cookie set by sign-in; renewed automatically from the `refreshToken` cookie.
+
+  headers:
+    RequestId:
+      description: Request identifier; quote it when reporting a problem.
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9._-]{8,64}$'
+    SessionCookies:
+      description: Sets the signed, HTTP-only `accessToken` and `refreshToken` cookies.
+      schema:
+        type: string
+    RetryAfter:
+      description: Seconds until the limit resets.
+      schema:
+        type: integer
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      description: A 24-character hexadecimal identifier.
+      schema:
+        $ref: '#/components/schemas/ObjectId'
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Search:
+      name: search
+      in: query
+      description: Case-insensitive text match; matched literally, never as a pattern.
+      schema:
+        type: string
+        maxLength: 200
+
+  schemas:
+    ObjectId:
+      type: string
+      pattern: '^[0-9a-fA-F]{24}$'
+    Status:
+      type: string
+      enum: [PENDING, IN_REVIEW, IN_PROGRESS, RESOLVED, REJECTED, WITHDRAWN]
+    Priority:
+      type: string
+      enum: [LOW, MEDIUM, HIGH, CRITICAL]
+    Role:
+      type: string
+      enum: [citizen, admin, agency]
+
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error, msg]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [path, code, message]
+                properties:
+                  path:
+                    type: string
+                  code:
+                    type: string
+                  message:
+                    type: string
+            requestId:
+              type: string
+              description: Present on 500 responses only.
+        msg:
+          type: string
+
+    Message:
+      type: object
+      additionalProperties: false
+      required: [msg]
+      properties:
+        msg:
+          type: string
+
+    Pagination:
+      type: object
+      additionalProperties: false
+      required: [page, limit, total, pages]
+      properties:
+        page:
+          type: integer
+          minimum: 1
+        limit:
+          type: integer
+          minimum: 1
+        total:
+          type: integer
+          minimum: 0
+        pages:
+          type: integer
+          minimum: 0
+
+    Identity:
+      type: object
+      description: A contact-free identity. A retired account reads "Retired account"; a deleted one "Unavailable account".
+      additionalProperties: false
+      required: [userId, displayName]
+      properties:
+        userId:
+          $ref: '#/components/schemas/ObjectId'
+        displayName:
+          type: string
+        role:
+          $ref: '#/components/schemas/Role'
+
+    User:
+      type: object
+      description: A user account as the account holder or an administrator sees it. Passwords are never returned.
+      additionalProperties: false
+      required: [_id, name, email, role, isActive, authProvider, createdAt, updatedAt]
+      properties:
+        _id:
+          $ref: '#/components/schemas/ObjectId'
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        role:
+          $ref: '#/components/schemas/Role'
+        isActive:
+          type: boolean
+        authProvider:
+          type: string
+          enum: [local, google]
+        googleId:
+          type: string
+        avatarUrl:
+          type: string
+        retiredAt:
+          type: [string, 'null']
+          format: date-time
+        retiredBy:
+          $ref: '#/components/schemas/ObjectId'
+        retirementReason:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        __v:
+          type: integer
+
+    AssignableUser:
+      type: object
+      additionalProperties: false
+      required: [userId, displayName]
+      properties:
+        userId:
+          $ref: '#/components/schemas/ObjectId'
+        displayName:
+          type: string
+
+    CitizenCategory:
+      type: object
+      description: The category fields a citizen sees (active categories only).
+      additionalProperties: false
+      required: [_id, name, description]
+      properties:
+        _id:
+          $ref: '#/components/schemas/ObjectId'
+        name:
+          type: string
+        description:
+          type: string
+
+    Category:
+      type: object
+      additionalProperties: false
+      required: [_id, name, defaultPriority, isActive, nameKey, slug]
+      properties:
+        _id:
+          $ref: '#/components/schemas/ObjectId'
+        name:
+          type: string
+        description:
+          type: string
+        defaultPriority:
+          $ref: '#/components/schemas/Priority'
+        isActive:
+          type: boolean
+        nameKey:
+          type: string
+          description: Normalised name used for uniqueness.
+        slug:
+          type: string
+        complaintCount:
+          type: integer
+          minimum: 0
+          description: Administrators' category list only.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        __v:
+          type: integer
+
+    ComplaintCategory:
+      type: object
+      additionalProperties: false
+      required: [_id, name, recordedName, isActive, deleted]
+      properties:
+        _id:
+          type: [string, 'null']
+        name:
+          type: string
+        recordedName:
+          type: string
+          description: The category name when the complaint was filed.
+        isActive:
+          type: boolean
+        deleted:
+          type: boolean
+
+    TimelineEntry:
+      type: object
+      description: A status-history entry as the reporter sees it.
+      additionalProperties: false
+      required: [_id, type, status, actorLabel, createdAt]
+      properties:
+        _id:
+          type: [string, 'null']
+        type:
+          type: string
+          enum: [CREATED, STATUS_CHANGED, PRIORITY_CHANGED, WITHDRAWN]
+        status:
+          $ref: '#/components/schemas/Status'
+        priorityChange:
+          $ref: '#/components/schemas/PriorityChange'
+        publicNote:
+          type: string
+        actorLabel:
+          type: string
+          enum: [You, Administrator, Agency staff, Reporter, System]
+        createdAt:
+          type: string
+          format: date-time
+
+    StaffTimelineEntry:
+      type: object
+      description: A status-history entry as staff see it, with the actor and any internal note.
+      additionalProperties: false
+      required: [_id, type, status, actorLabel, createdAt, actor]
+      properties:
+        _id:
+          type: [string, 'null']
+        type:
+          type: string
+          enum: [CREATED, STATUS_CHANGED, PRIORITY_CHANGED, WITHDRAWN]
+        status:
+          $ref: '#/components/schemas/Status'
+        priorityChange:
+          $ref: '#/components/schemas/PriorityChange'
+        publicNote:
+          type: string
+        internalNote:
+          type: string
+        actorLabel:
+          type: string
+          enum: [You, Administrator, Agency staff, Reporter, System]
+        actor:
+          oneOf:
+            - $ref: '#/components/schemas/Identity'
+            - type: 'null'
+        createdAt:
+          type: string
+          format: date-time
+
+    PriorityChange:
+      type: object
+      additionalProperties: false
+      required: [from, to]
+      properties:
+        from:
+          $ref: '#/components/schemas/Priority'
+        to:
+          $ref: '#/components/schemas/Priority'
+
+    ComplaintSummary:
+      type: object
+      description: A list row as the reporter sees it.
+      additionalProperties: false
+      required: [_id, referenceCode, status, priority, description, category, address, hasPrecisePosition, imageCount, thumbnailUrl, createdAt, updatedAt]
+      properties:
+        _id:
+          $ref: '#/components/schemas/ObjectId'
+        referenceCode:
+          type: string
+        status:
+          $ref: '#/components/schemas/Status'
+        priority:
+          $ref: '#/components/schemas/Priority'
+        description:
+          type: string
+        category:
+          $ref: '#/components/schemas/ComplaintCategory'
+        address:
+          type: [string, 'null']
+        hasPrecisePosition:
+          type: boolean
+        imageCount:
+          type: integer
+          minimum: 0
+        thumbnailUrl:
+          type: [string, 'null']
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    StaffComplaintSummary:
+      type: object
+      description: A list row as staff see it, with the reporter and assignee.
+      additionalProperties: false
+      required: [_id, referenceCode, status, priority, description, category, address, hasPrecisePosition, imageCount, thumbnailUrl, createdAt, updatedAt, reporter, assignee]
+      properties:
+        _id:
+          $ref: '#/components/schemas/ObjectId'
+        referenceCode:
+          type: string
+        status:
+          $ref: '#/components/schemas/Status'
+        priority:
+          $ref: '#/components/schemas/Priority'
+        description:
+          type: string
+        category:
+          $ref: '#/components/schemas/ComplaintCategory'
+        address:
+          type: [string, 'null']
+        hasPrecisePosition:
+          type: boolean
+        imageCount:
+          type: integer
+          minimum: 0
+        thumbnailUrl:
+          type: [string, 'null']
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        reporter:
+          $ref: '#/components/schemas/Identity'
+        assignee:
+          oneOf:
+            - $ref: '#/components/schemas/Identity'
+            - type: 'null'
+
+    ComplaintOwnerView:
+      type: object
+      description: >
+        A complaint as its reporter sees it. Staff-only fields (assignee, precise location, internal
+        notes, assignment and edit history, AI details) are absent, and any extra field is a contract
+        violation.
+      additionalProperties: false
+      required: [_id, referenceCode, status, priority, description, category, address, hasPrecisePosition, imageCount, thumbnailUrl, createdAt, updatedAt, reporter, version, images, ai, timeline, responsibility, canEdit, canWithdraw]
+      properties:
+        _id:
+          $ref: '#/components/schemas/ObjectId'
+        referenceCode:
+          type: string
+        status:
+          $ref: '#/components/schemas/Status'
+        priority:
+          $ref: '#/components/schemas/Priority'
+        description:
+          type: string
+        category:
+          $ref: '#/components/schemas/ComplaintCategory'
+        address:
+          type: [string, 'null']
+        hasPrecisePosition:
+          type: boolean
+        imageCount:
+          type: integer
+          minimum: 0
+        thumbnailUrl:
+          type: [string, 'null']
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        reporter:
+          $ref: '#/components/schemas/Identity'
+        version:
+          type: integer
+          minimum: 0
+          description: Send back as `expectedVersion` to guard against lost updates.
+        images:
+          type: array
+          items:
+            $ref: '#/components/schemas/Image'
+        ai:
+          type: object
+          additionalProperties: false
+          required: [summary, tags]
+          properties:
+            summary:
+              type: string
+            tags:
+              type: array
+              items:
+                type: string
+        timeline:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimelineEntry'
+        responsibility:
+          type: string
+          enum: [ASSIGNED, AWAITING_ASSIGNMENT]
+        canEdit:
+          type: boolean
+        canWithdraw:
+          type: boolean
+
+    ComplaintStaffView:
+      type: object
+      description: A complaint as agency staff and administrators see it.
+      additionalProperties: false
+      required: [_id, referenceCode, status, priority, description, category, address, hasPrecisePosition, imageCount, thumbnailUrl, createdAt, updatedAt, reporter, assignee, version, images, ai, timeline, responsibility, canEdit, canWithdraw, location, assignmentHistory, editHistory, allowedTransitions, canChangePriority, canAssign, canDelete, resolvedAt, resolvedAtEstimated]
+      properties:
+        _id:
+          $ref: '#/components/schemas/ObjectId'
+        referenceCode:
+          type: string
+        status:
+          $ref: '#/components/schemas/Status'
+        priority:
+          $ref: '#/components/schemas/Priority'
+        description:
+          type: string
+        category:
+          $ref: '#/components/schemas/ComplaintCategory'
+        address:
+          type: [string, 'null']
+        hasPrecisePosition:
+          type: boolean
+        imageCount:
+          type: integer
+          minimum: 0
+        thumbnailUrl:
+          type: [string, 'null']
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        reporter:
+          $ref: '#/components/schemas/Identity'
+        assignee:
+          oneOf:
+            - $ref: '#/components/schemas/Identity'
+            - type: 'null'
+        version:
+          type: integer
+          minimum: 0
+        images:
+          type: array
+          items:
+            $ref: '#/components/schemas/Image'
+        ai:
+          type: object
+          additionalProperties: false
+          required: [suggestedCategory, confidence, summary, tags, classifiedAt, error, inputMode, analysisCount]
+          properties:
+            suggestedCategory:
+              type: [string, 'null']
+            confidence:
+              type: [number, 'null']
+            summary:
+              type: string
+            tags:
+              type: array
+              items:
+                type: string
+            classifiedAt:
+              type: [string, 'null']
+              format: date-time
+            error:
+              type: [string, 'null']
+              description: Why the fallback classification was used (TIMEOUT, NETWORK_ERROR, PROVIDER_ERROR, INVALID_OUTPUT).
+            inputMode:
+              type: [string, 'null']
+              enum: [TEXT_ONLY, TEXT_AND_IMAGE, null]
+            analysisCount:
+              type: [integer, 'null']
+        timeline:
+          type: array
+          items:
+            $ref: '#/components/schemas/StaffTimelineEntry'
+        responsibility:
+          type: string
+          enum: [ASSIGNED, AWAITING_ASSIGNMENT]
+        canEdit:
+          type: boolean
+        canWithdraw:
+          type: boolean
+        location:
+          type: object
+          additionalProperties: false
+          required: [address, latitude, longitude, coordinateSource]
+          properties:
+            address:
+              type: [string, 'null']
+            latitude:
+              type: [number, 'null']
+            longitude:
+              type: [number, 'null']
+            coordinateSource:
+              type: [string, 'null']
+              enum: [DEVICE, SUGGESTION, null]
+        assignmentHistory:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [type, previous, next, changedBy, createdAt]
+            properties:
+              type:
+                type: string
+                enum: [ASSIGNED, REASSIGNED, UNASSIGNED, RETIREMENT_UNASSIGNMENT, WITHDRAWAL_UNASSIGNMENT, LEGACY_STATE_IMPORT]
+              previous:
+                oneOf:
+                  - $ref: '#/components/schemas/Identity'
+                  - type: 'null'
+              next:
+                oneOf:
+                  - $ref: '#/components/schemas/Identity'
+                  - type: 'null'
+              changedBy:
+                oneOf:
+                  - $ref: '#/components/schemas/Identity'
+                  - type: 'null'
+              reason:
+                type: string
+              migrationMarker:
+                type: string
+                enum: [PHASE_1_MIGRATION]
+              createdAt:
+                type: string
+                format: date-time
+        editHistory:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [editedAt, editedBy, fields, reanalysed]
+            properties:
+              editedAt:
+                type: string
+                format: date-time
+              editedBy:
+                oneOf:
+                  - $ref: '#/components/schemas/Identity'
+                  - type: 'null'
+              fields:
+                type: array
+                items:
+                  type: string
+                  enum: [description, location]
+              reanalysed:
+                type: boolean
+              aiError:
+                type: string
+        allowedTransitions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Status'
+        canChangePriority:
+          type: boolean
+        canAssign:
+          type: boolean
+        canDelete:
+          type: boolean
+        resolvedAt:
+          type: [string, 'null']
+          format: date-time
+        resolvedAtEstimated:
+          type: boolean
+
+    Complaint:
+      description: The reporter's view or the staff view, depending on who asks.
+      oneOf:
+        - $ref: '#/components/schemas/ComplaintOwnerView'
+        - $ref: '#/components/schemas/ComplaintStaffView'
+
+    Image:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url:
+          type: string
+
+    Place:
+      type: object
+      additionalProperties: false
+      required: [address, latitude, longitude]
+      properties:
+        address:
+          type: [string, 'null']
+        latitude:
+          type: number
+        longitude:
+          type: number
+
+    Prediction:
+      type: object
+      additionalProperties: false
+      required: [label, address, latitude, longitude]
+      properties:
+        label:
+          type: string
+        address:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+
+    DatabaseCheck:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, unavailable]
+        reason:
+          type: string
+          enum: [DATABASE_DISCONNECTED, DATABASE_TIMEOUT, TRANSACTIONS_UNSUPPORTED, INDEXES_MISSING, DATABASE_ERROR]
+        serverVersion:
+          type: string
+
+    ServiceCheck:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, not_configured]
+
+    Readiness:
+      type: object
+      additionalProperties: false
+      required: [status, checks]
+      properties:
+        status:
+          type: string
+          enum: [ready, degraded, unavailable]
+        checks:
+          type: object
+          additionalProperties: false
+          required: [database, ai, uploads, email, googleSignIn, geocoding]
+          properties:
+            database:
+              $ref: '#/components/schemas/DatabaseCheck'
+            ai:
+              $ref: '#/components/schemas/ServiceCheck'
+            uploads:
+              $ref: '#/components/schemas/ServiceCheck'
+            email:
+              $ref: '#/components/schemas/ServiceCheck'
+            googleSignIn:
+              $ref: '#/components/schemas/ServiceCheck'
+            geocoding:
+              $ref: '#/components/schemas/ServiceCheck'
+
+    Live:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          const: ok
+
+    LocationFields:
+      description: Location fields shared by complaint filing and editing.
+      type: object
+      properties:
+        address:
+          type: string
+          minLength: 3
+          maxLength: 500
+        latitude:
+          type: number
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          minimum: -180
+          maximum: 180
+        coordinateSource:
+          type: string
+          enum: [DEVICE, SUGGESTION]
+          description: Required with coordinates, and allowed only with them.
+
+  responses:
+    ValidationFailed:
+      description: The request failed validation.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: Request validation failed
+              details:
+                - path: body.email
+                  code: INVALID_VALUE
+                  message: Invalid email address
+            msg: Request validation failed
+    Unauthorized:
+      description: Not signed in, or the session is invalid or expired.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: UNAUTHENTICATED
+              message: Session expired, please log in again
+            msg: Session expired, please log in again
+    Forbidden:
+      description: The signed-in user may not do this, or the request origin is not allowed.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: FORBIDDEN
+              message: You do not have permission to perform this action
+            msg: You do not have permission to perform this action
+    NotFound:
+      description: No such resource.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: NOT_FOUND
+              message: No complaint found with id 66f1a0c0a1b2c3d4e5f60001
+            msg: No complaint found with id 66f1a0c0a1b2c3d4e5f60001
+    Conflict:
+      description: The request conflicts with current state (a duplicate, a stale version, or a rule such as a category still in use).
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: STALE_COMPLAINT
+              message: This report changed; reload it and try again
+            msg: This report changed; reload it and try again
+    PayloadTooLarge:
+      description: An image is above 10 MiB, or the images together are above 25 MiB.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: PAYLOAD_TOO_LARGE
+              message: Upload exceeds allowed limits
+            msg: Upload exceeds allowed limits
+    UnsupportedMediaType:
+      description: A file is not a supported image (JPEG, PNG or WebP), or an unexpected file field was sent.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: UNSUPPORTED_MEDIA_TYPE
+              message: Unsupported media type
+            msg: Unsupported media type
+    RateLimited:
+      description: Too many requests.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: RATE_LIMITED
+              message: Too many requests, please try again later
+            msg: Too many requests, please try again later
+    ServiceUnavailable:
+      description: A dependency needed for this request is unavailable or not configured.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: LOCATION_PROVIDER_UNAVAILABLE
+              message: Location service is temporarily unavailable
+            msg: Location service is temporarily unavailable
+    ServerError:
+      description: An unexpected error. The body never contains internal details; quote `requestId` when reporting it.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: INTERNAL_ERROR
+              message: Something went wrong
+              requestId: 3f6c2a1e-8d4b-4c7a-9e2f-1b5d7c9a0e11
+            msg: Something went wrong
+
+  requestBodies:
+    Retirement:
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            properties:
+              reason:
+                type: string
+                minLength: 1
+                maxLength: 500
+
+security:
+  - cookieAuth: []
+
+paths:
+  /auth/signup:
+    post:
+      tags: [auth]
+      summary: Create a citizen account and sign in
+      description: Every sign-up is a citizen account; the role is never taken from the request.
+      operationId: signup
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, password, name]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 6
+                  maxLength: 128
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 60
+                phone:
+                  type: string
+                  maxLength: 30
+            example:
+              name: Ada Citizen
+              email: ada@example.test
+              password: Example-pass-1
+      responses:
+        '201':
+          description: Account created; session cookies set.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            Set-Cookie:
+              $ref: '#/components/headers/SessionCookies'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user]
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+              example:
+                user:
+                  _id: 66f1a0c0a1b2c3d4e5f60001
+                  name: Ada Citizen
+                  email: ada@example.test
+                  role: citizen
+                  isActive: true
+                  authProvider: local
+                  createdAt: '2026-09-24T09:00:00.000Z'
+                  updatedAt: '2026-09-24T09:00:00.000Z'
+                  __v: 0
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: An account with this email already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: CONFLICT
+                  message: An account with this email already exists
+                msg: An account with this email already exists
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Sign in with email and password
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 6
+                  maxLength: 128
+            example:
+              email: ada@example.test
+              password: Example-pass-1
+      responses:
+        '200':
+          description: Signed in; session cookies set.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            Set-Cookie:
+              $ref: '#/components/headers/SessionCookies'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user]
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+              example:
+                user:
+                  _id: 66f1a0c0a1b2c3d4e5f60001
+                  name: Ada Citizen
+                  email: ada@example.test
+                  phone: '+2348000000000'
+                  role: citizen
+                  isActive: true
+                  authProvider: local
+                  createdAt: '2026-09-24T09:00:00.000Z'
+                  updatedAt: '2026-09-24T09:00:00.000Z'
+                  __v: 0
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          description: Wrong email or password, or an inactive account (one message for all).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: UNAUTHENTICATED
+                  message: Invalid email or password
+                msg: Invalid email or password
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /auth/google:
+    get:
+      tags: [auth]
+      summary: Start Google sign-in
+      description: Redirects the browser to Google with a single-use state value.
+      operationId: googleSignIn
+      security: []
+      responses:
+        '302':
+          description: Redirect to Google's consent page.
+          headers:
+            Location:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '503':
+          description: Google sign-in is not configured on this server.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: SERVICE_UNAVAILABLE
+                  message: Google sign-in is not configured
+                msg: Google sign-in is not configured
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /auth/google/callback:
+    get:
+      tags: [auth]
+      summary: Google sign-in callback
+      description: >
+        Called by Google. Always redirects to the reference client: to `/dashboard` with session
+        cookies on success, or to `/login?error=google_auth_failed` on any failure.
+      operationId: googleCallback
+      security: []
+      parameters:
+        - name: code
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to the reference client.
+          headers:
+            Location:
+              schema:
+                type: string
+
+  /users:
+    get:
+      tags: [users]
+      summary: List users (administrators)
+      operationId: listUsers
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: role
+          in: query
+          schema:
+            $ref: '#/components/schemas/Role'
+        - $ref: '#/components/parameters/Search'
+      responses:
+        '200':
+          description: Users, newest first.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [users, pagination]
+                properties:
+                  users:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+              example:
+                users:
+                  - _id: 66f1a0c0a1b2c3d4e5f60002
+                    name: Ade Agency
+                    email: ade@example.test
+                    role: agency
+                    isActive: true
+                    authProvider: local
+                    createdAt: '2026-09-24T09:00:00.000Z'
+                    updatedAt: '2026-09-24T09:00:00.000Z'
+                    __v: 0
+                pagination:
+                  page: 1
+                  limit: 20
+                  total: 1
+                  pages: 1
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /users/assignable:
+    get:
+      tags: [users]
+      summary: List agency users who can be assigned complaints (administrators)
+      description: Active, non-retired agency users as contact-free identities, sorted by name.
+      operationId: listAssignableUsers
+      responses:
+        '200':
+          description: Assignable agency users.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [users]
+                properties:
+                  users:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AssignableUser'
+              example:
+                users:
+                  - userId: 66f1a0c0a1b2c3d4e5f60002
+                    displayName: Ade Agency
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /users/profile:
+    get:
+      tags: [users]
+      summary: The signed-in user's account
+      operationId: getProfile
+      responses:
+        '200':
+          description: The account.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user]
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+              example:
+                user:
+                  _id: 66f1a0c0a1b2c3d4e5f60001
+                  name: Ada Citizen
+                  email: ada@example.test
+                  role: citizen
+                  isActive: true
+                  authProvider: local
+                  createdAt: '2026-09-24T09:00:00.000Z'
+                  updatedAt: '2026-09-24T09:00:00.000Z'
+                  __v: 0
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    patch:
+      tags: [users]
+      summary: Update the signed-in user's account
+      operationId: updateProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 60
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 6
+                  maxLength: 128
+                phone:
+                  type: string
+                  maxLength: 30
+            example:
+              phone: '+2348000000001'
+      responses:
+        '200':
+          description: The updated account.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user]
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+              example:
+                user:
+                  _id: 66f1a0c0a1b2c3d4e5f60001
+                  name: Ada Citizen
+                  email: ada@example.test
+                  phone: '+2348000000001'
+                  role: citizen
+                  isActive: true
+                  authProvider: local
+                  createdAt: '2026-09-24T09:00:00.000Z'
+                  updatedAt: '2026-09-24T09:05:00.000Z'
+                  __v: 0
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags: [users]
+      summary: Delete (retire) the signed-in user's own account
+      description: >
+        Removes credentials and contact details and ends every session. Complaints and history are
+        kept, attributed to "Retired account". Administrators cannot retire themselves.
+      operationId: deleteProfile
+      requestBody:
+        $ref: '#/components/requestBodies/Retirement'
+      responses:
+        '200':
+          description: The account was retired.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                msg: Account deleted
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /users/logout:
+    post:
+      tags: [users]
+      summary: Sign out
+      description: >
+        Revokes the user's refresh tokens and clears both cookies. An access token already issued stays
+        valid until it expires (at most 15 minutes), because access tokens are not stored.
+      operationId: logout
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+      responses:
+        '200':
+          description: Signed out.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                msg: Logged out
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /users/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [users]
+      summary: Update a user (administrators)
+      description: >
+        Changes details, role or active state. Role and active-state changes revoke the user's
+        sessions and are refused when they would leave no active administrator.
+      operationId: updateUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 60
+                email:
+                  type: string
+                  format: email
+                phone:
+                  type: string
+                  maxLength: 30
+                role:
+                  $ref: '#/components/schemas/Role'
+                isActive:
+                  type: boolean
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+            example:
+              role: agency
+              reason: Joined the roads team
+      responses:
+        '200':
+          description: The updated user.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user]
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+              example:
+                user:
+                  _id: 66f1a0c0a1b2c3d4e5f60003
+                  name: Bola Adeyemi
+                  email: bola@example.test
+                  role: agency
+                  isActive: true
+                  authProvider: local
+                  createdAt: '2026-09-24T09:00:00.000Z'
+                  updatedAt: '2026-09-24T09:10:00.000Z'
+                  __v: 0
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags: [users]
+      summary: Retire a user's account (administrators)
+      description: Like deleting one's own account, performed by an administrator for another user.
+      operationId: retireUser
+      requestBody:
+        $ref: '#/components/requestBodies/Retirement'
+      responses:
+        '200':
+          description: The account was retired.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                msg: User retired
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /categories:
+    get:
+      tags: [categories]
+      summary: List categories
+      description: >
+        Citizens get active categories with name and description only. Staff get every category;
+        administrators also get `complaintCount`.
+      operationId: listCategories
+      responses:
+        '200':
+          description: Categories, sorted by name.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [categories]
+                properties:
+                  categories:
+                    type: array
+                    items:
+                      oneOf:
+                        - $ref: '#/components/schemas/CitizenCategory'
+                        - $ref: '#/components/schemas/Category'
+              examples:
+                citizen:
+                  summary: As a citizen
+                  value:
+                    categories:
+                      - _id: 66f1a0c0a1b2c3d4e5f60010
+                        name: Roads
+                        description: Potholes and road damage
+                administrator:
+                  summary: As an administrator
+                  value:
+                    categories:
+                      - _id: 66f1a0c0a1b2c3d4e5f60010
+                        name: Roads
+                        description: Potholes and road damage
+                        defaultPriority: HIGH
+                        isActive: true
+                        nameKey: roads
+                        slug: roads
+                        complaintCount: 12
+                        createdAt: '2026-09-24T09:00:00.000Z'
+                        updatedAt: '2026-09-24T09:00:00.000Z'
+                        __v: 0
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [categories]
+      summary: Create a category (administrators)
+      operationId: createCategory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 60
+                description:
+                  type: string
+                  maxLength: 1000
+                defaultPriority:
+                  $ref: '#/components/schemas/Priority'
+                isActive:
+                  type: boolean
+            example:
+              name: Streetlights
+              description: Broken or dark streetlights
+              defaultPriority: MEDIUM
+      responses:
+        '201':
+          description: The created category.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [category]
+                properties:
+                  category:
+                    $ref: '#/components/schemas/Category'
+              example:
+                category:
+                  _id: 66f1a0c0a1b2c3d4e5f60011
+                  name: Streetlights
+                  description: Broken or dark streetlights
+                  defaultPriority: MEDIUM
+                  isActive: true
+                  nameKey: streetlights
+                  slug: streetlights
+                  createdAt: '2026-09-24T09:00:00.000Z'
+                  updatedAt: '2026-09-24T09:00:00.000Z'
+                  __v: 0
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: A category with this name already exists (compared without case or extra spaces).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: CATEGORY_NAME_CONFLICT
+                  message: A category with this name already exists
+                msg: A category with this name already exists
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /categories/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [categories]
+      summary: Read one category
+      operationId: getCategory
+      responses:
+        '200':
+          description: The category.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [category]
+                properties:
+                  category:
+                    $ref: '#/components/schemas/Category'
+              example:
+                category:
+                  _id: 66f1a0c0a1b2c3d4e5f60010
+                  name: Roads
+                  description: Potholes and road damage
+                  defaultPriority: HIGH
+                  isActive: true
+                  nameKey: roads
+                  slug: roads
+                  createdAt: '2026-09-24T09:00:00.000Z'
+                  updatedAt: '2026-09-24T09:00:00.000Z'
+                  __v: 0
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    patch:
+      tags: [categories]
+      summary: Update a category (administrators)
+      description: The protected `Other` category cannot be renamed or deactivated.
+      operationId: updateCategory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 60
+                description:
+                  type: string
+                  maxLength: 1000
+                defaultPriority:
+                  $ref: '#/components/schemas/Priority'
+                isActive:
+                  type: boolean
+            example:
+              isActive: false
+      responses:
+        '200':
+          description: The updated category.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [category]
+                properties:
+                  category:
+                    $ref: '#/components/schemas/Category'
+              example:
+                category:
+                  _id: 66f1a0c0a1b2c3d4e5f60011
+                  name: Streetlights
+                  description: Broken or dark streetlights
+                  defaultPriority: MEDIUM
+                  isActive: false
+                  nameKey: streetlights
+                  slug: streetlights
+                  createdAt: '2026-09-24T09:00:00.000Z'
+                  updatedAt: '2026-09-24T09:15:00.000Z'
+                  __v: 0
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags: [categories]
+      summary: Delete a category (administrators)
+      description: Only an inactive category with no complaints can be deleted.
+      operationId: deleteCategory
+      responses:
+        '200':
+          description: Deleted.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                msg: Category deleted
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The category is active or still has complaints.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: CATEGORY_IN_USE
+                  message: Only an inactive category with no reports can be deleted
+                msg: Only an inactive category with no reports can be deleted
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /complaints:
+    get:
+      tags: [complaints]
+      summary: List complaints
+      description: Citizens see only their own complaints. Only staff may filter by assignee.
+      operationId: listComplaints
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/Status'
+        - name: priority
+          in: query
+          schema:
+            $ref: '#/components/schemas/Priority'
+        - name: category
+          in: query
+          schema:
+            $ref: '#/components/schemas/ObjectId'
+        - name: assignedTo
+          in: query
+          schema:
+            $ref: '#/components/schemas/ObjectId'
+        - $ref: '#/components/parameters/Search'
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [newest, oldest]
+            default: newest
+      responses:
+        '200':
+          description: One page of complaints.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [complaints, pagination]
+                properties:
+                  complaints:
+                    type: array
+                    items:
+                      oneOf:
+                        - $ref: '#/components/schemas/ComplaintSummary'
+                        - $ref: '#/components/schemas/StaffComplaintSummary'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+              example:
+                complaints:
+                  - _id: 66f1a0c0a1b2c3d4e5f60020
+                    referenceCode: CCIR-EXAMPLE1
+                    status: PENDING
+                    priority: HIGH
+                    description: Deep pothole outside the market gate
+                    category:
+                      _id: 66f1a0c0a1b2c3d4e5f60010
+                      name: Roads
+                      recordedName: Roads
+                      isActive: true
+                      deleted: false
+                    address: 12 Market Road, Ikeja
+                    hasPrecisePosition: true
+                    imageCount: 1
+                    thumbnailUrl: https://res.cloudinary.com/demo/image/upload/v1/ccir/complaints/example.jpg
+                    createdAt: '2026-09-24T09:20:00.000Z'
+                    updatedAt: '2026-09-24T09:20:00.000Z'
+                pagination:
+                  page: 1
+                  limit: 20
+                  total: 1
+                  pages: 1
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      tags: [complaints]
+      summary: File a complaint
+      description: >
+        Classified by AI when available; if AI times out or fails, a fallback classification is used
+        and filing still succeeds. With photos, send `multipart/form-data`: up to 5 images (JPEG,
+        PNG or WebP), each at most 10 MiB and at most 25 MiB together. Images are re-encoded and
+        stripped of metadata before storage.
+      operationId: createComplaint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [description, address]
+              properties:
+                description:
+                  type: string
+                  minLength: 10
+                  maxLength: 2000
+                categoryId:
+                  $ref: '#/components/schemas/ObjectId'
+                address:
+                  type: string
+                  minLength: 3
+                  maxLength: 500
+                latitude:
+                  type: number
+                  minimum: -90
+                  maximum: 90
+                longitude:
+                  type: number
+                  minimum: -180
+                  maximum: 180
+                coordinateSource:
+                  type: string
+                  enum: [DEVICE, SUGGESTION]
+            example:
+              description: Deep pothole outside the market gate
+              address: 12 Market Road, Ikeja
+              latitude: 6.6
+              longitude: 3.35
+              coordinateSource: SUGGESTION
+          multipart/form-data:
+            schema:
+              type: object
+              required: [description, address]
+              properties:
+                description:
+                  type: string
+                categoryId:
+                  type: string
+                address:
+                  type: string
+                latitude:
+                  type: string
+                longitude:
+                  type: string
+                coordinateSource:
+                  type: string
+                image:
+                  type: array
+                  maxItems: 5
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        '201':
+          description: The filed complaint, as its reporter sees it.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [complaint]
+                properties:
+                  complaint:
+                    $ref: '#/components/schemas/Complaint'
+              example:
+                complaint:
+                  _id: 66f1a0c0a1b2c3d4e5f60020
+                  referenceCode: CCIR-EXAMPLE1
+                  status: PENDING
+                  priority: HIGH
+                  description: Deep pothole outside the market gate
+                  category:
+                    _id: 66f1a0c0a1b2c3d4e5f60010
+                    name: Roads
+                    recordedName: Roads
+                    isActive: true
+                    deleted: false
+                  address: 12 Market Road, Ikeja
+                  hasPrecisePosition: true
+                  imageCount: 0
+                  thumbnailUrl: null
+                  createdAt: '2026-09-24T09:20:00.000Z'
+                  updatedAt: '2026-09-24T09:20:00.000Z'
+                  reporter:
+                    userId: 66f1a0c0a1b2c3d4e5f60001
+                    displayName: Ada Citizen
+                    role: citizen
+                  version: 0
+                  images: []
+                  ai:
+                    summary: Pothole outside the market gate
+                    tags: [road, pothole]
+                  timeline:
+                    - _id: 66f1a0c0a1b2c3d4e5f60021
+                      type: CREATED
+                      status: PENDING
+                      publicNote: Report submitted
+                      actorLabel: You
+                      createdAt: '2026-09-24T09:20:00.000Z'
+                  responsibility: AWAITING_ASSIGNMENT
+                  canEdit: true
+                  canWithdraw: true
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: The chosen category is inactive or unknown.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: CATEGORY_INACTIVE
+                  message: That category is not available
+                msg: That category is not available
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /complaints/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [complaints]
+      summary: Read one complaint
+      description: The reporter gets the owner view; staff get the staff view.
+      operationId: getComplaint
+      responses:
+        '200':
+          description: The complaint.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [complaint]
+                properties:
+                  complaint:
+                    $ref: '#/components/schemas/Complaint'
+              examples:
+                staff:
+                  summary: As an administrator
+                  value:
+                    complaint:
+                      _id: 66f1a0c0a1b2c3d4e5f60020
+                      referenceCode: CCIR-EXAMPLE1
+                      status: IN_REVIEW
+                      priority: HIGH
+                      description: Deep pothole outside the market gate
+                      category:
+                        _id: 66f1a0c0a1b2c3d4e5f60010
+                        name: Roads
+                        recordedName: Roads
+                        isActive: true
+                        deleted: false
+                      address: 12 Market Road, Ikeja
+                      hasPrecisePosition: true
+                      imageCount: 0
+                      thumbnailUrl: null
+                      createdAt: '2026-09-24T09:20:00.000Z'
+                      updatedAt: '2026-09-24T09:40:00.000Z'
+                      reporter:
+                        userId: 66f1a0c0a1b2c3d4e5f60001
+                        displayName: Ada Citizen
+                        role: citizen
+                      assignee:
+                        userId: 66f1a0c0a1b2c3d4e5f60002
+                        displayName: Ade Agency
+                        role: agency
+                      version: 2
+                      images: []
+                      ai:
+                        suggestedCategory: Roads
+                        confidence: 0.9
+                        summary: Pothole outside the market gate
+                        tags: [road, pothole]
+                        classifiedAt: '2026-09-24T09:20:00.000Z'
+                        error: null
+                        inputMode: TEXT_ONLY
+                        analysisCount: 1
+                      timeline:
+                        - _id: 66f1a0c0a1b2c3d4e5f60021
+                          type: CREATED
+                          status: PENDING
+                          publicNote: Report submitted
+                          actorLabel: Reporter
+                          createdAt: '2026-09-24T09:20:00.000Z'
+                          actor:
+                            userId: 66f1a0c0a1b2c3d4e5f60001
+                            displayName: Ada Citizen
+                            role: citizen
+                        - _id: 66f1a0c0a1b2c3d4e5f60022
+                          type: STATUS_CHANGED
+                          status: IN_REVIEW
+                          publicNote: Inspection scheduled
+                          internalNote: Bring cones
+                          actorLabel: Agency staff
+                          createdAt: '2026-09-24T09:40:00.000Z'
+                          actor:
+                            userId: 66f1a0c0a1b2c3d4e5f60002
+                            displayName: Ade Agency
+                            role: agency
+                      responsibility: ASSIGNED
+                      canEdit: false
+                      canWithdraw: false
+                      location:
+                        address: 12 Market Road, Ikeja
+                        latitude: 6.6
+                        longitude: 3.35
+                        coordinateSource: SUGGESTION
+                      assignmentHistory:
+                        - type: ASSIGNED
+                          previous: null
+                          next:
+                            userId: 66f1a0c0a1b2c3d4e5f60002
+                            displayName: Ade Agency
+                            role: agency
+                          changedBy:
+                            userId: 66f1a0c0a1b2c3d4e5f60004
+                            displayName: Chi Admin
+                            role: admin
+                          reason: Nearest crew
+                          createdAt: '2026-09-24T09:30:00.000Z'
+                      editHistory: []
+                      allowedTransitions: [PENDING, IN_PROGRESS, REJECTED]
+                      canChangePriority: true
+                      canAssign: true
+                      canDelete: true
+                      resolvedAt: null
+                      resolvedAtEstimated: false
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    patch:
+      tags: [complaints]
+      summary: Edit a pending complaint (its reporter)
+      description: >
+        Changes the description or location. A material description change re-runs AI
+        classification; `reanalysed` reports whether it did.
+      operationId: editComplaint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                description:
+                  type: string
+                  minLength: 10
+                  maxLength: 2000
+                location:
+                  allOf:
+                    - $ref: '#/components/schemas/LocationFields'
+                  required: [address]
+                  additionalProperties: false
+                  properties:
+                    address: true
+                    latitude: true
+                    longitude: true
+                    coordinateSource: true
+                expectedVersion:
+                  type: integer
+                  minimum: 0
+            example:
+              description: Deep pothole outside the market gate, now wider
+              expectedVersion: 0
+      responses:
+        '200':
+          description: The edited complaint.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [complaint, reanalysed]
+                properties:
+                  complaint:
+                    $ref: '#/components/schemas/Complaint'
+                  reanalysed:
+                    type: boolean
+              example:
+                reanalysed: true
+                complaint:
+                  _id: 66f1a0c0a1b2c3d4e5f60020
+                  referenceCode: CCIR-EXAMPLE1
+                  status: PENDING
+                  priority: HIGH
+                  description: Deep pothole outside the market gate, now wider
+                  category:
+                    _id: 66f1a0c0a1b2c3d4e5f60010
+                    name: Roads
+                    recordedName: Roads
+                    isActive: true
+                    deleted: false
+                  address: 12 Market Road, Ikeja
+                  hasPrecisePosition: true
+                  imageCount: 0
+                  thumbnailUrl: null
+                  createdAt: '2026-09-24T09:20:00.000Z'
+                  updatedAt: '2026-09-24T09:25:00.000Z'
+                  reporter:
+                    userId: 66f1a0c0a1b2c3d4e5f60001
+                    displayName: Ada Citizen
+                    role: citizen
+                  version: 1
+                  images: []
+                  ai:
+                    summary: Wide pothole outside the market gate
+                    tags: [road, pothole]
+                  timeline:
+                    - _id: 66f1a0c0a1b2c3d4e5f60021
+                      type: CREATED
+                      status: PENDING
+                      publicNote: Report submitted
+                      actorLabel: You
+                      createdAt: '2026-09-24T09:20:00.000Z'
+                  responsibility: AWAITING_ASSIGNMENT
+                  canEdit: true
+                  canWithdraw: true
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      tags: [complaints]
+      summary: Delete a complaint permanently (administrators)
+      description: Records who deleted it and why, without the complaint's content, then removes its photos.
+      operationId: deleteComplaint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+                expectedVersion:
+                  type: integer
+                  minimum: 0
+            example:
+              reason: Spam report
+      responses:
+        '200':
+          description: Deleted.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                msg: Complaint deleted
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /complaints/{id}/status:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [complaints]
+      summary: Change status or priority (staff)
+      description: >
+        Administrators, or the assigned agency user. Only transitions the policy allows are accepted;
+        `publicNote` is shown to the reporter and emailed, `internalNote` never is.
+      operationId: updateComplaintStatus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                status:
+                  $ref: '#/components/schemas/Status'
+                publicNote:
+                  type: string
+                  maxLength: 500
+                internalNote:
+                  type: string
+                  maxLength: 1000
+                priority:
+                  $ref: '#/components/schemas/Priority'
+                expectedVersion:
+                  type: integer
+                  minimum: 0
+            example:
+              status: IN_REVIEW
+              publicNote: Inspection scheduled
+              internalNote: Bring cones
+      responses:
+        '200':
+          description: The updated complaint, as staff see it.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [complaint]
+                properties:
+                  complaint:
+                    $ref: '#/components/schemas/Complaint'
+              example:
+                complaint:
+                  _id: 66f1a0c0a1b2c3d4e5f60020
+                  referenceCode: CCIR-EXAMPLE1
+                  status: IN_REVIEW
+                  priority: HIGH
+                  description: Deep pothole outside the market gate
+                  category:
+                    _id: 66f1a0c0a1b2c3d4e5f60010
+                    name: Roads
+                    recordedName: Roads
+                    isActive: true
+                    deleted: false
+                  address: 12 Market Road, Ikeja
+                  hasPrecisePosition: false
+                  imageCount: 0
+                  thumbnailUrl: null
+                  createdAt: '2026-09-24T09:20:00.000Z'
+                  updatedAt: '2026-09-24T09:40:00.000Z'
+                  reporter:
+                    userId: 66f1a0c0a1b2c3d4e5f60001
+                    displayName: Ada Citizen
+                    role: citizen
+                  assignee: null
+                  version: 1
+                  images: []
+                  ai:
+                    suggestedCategory: null
+                    confidence: 0
+                    summary: ''
+                    tags: []
+                    classifiedAt: '2026-09-24T09:20:00.000Z'
+                    error: TIMEOUT
+                    inputMode: TEXT_ONLY
+                    analysisCount: 1
+                  timeline:
+                    - _id: 66f1a0c0a1b2c3d4e5f60022
+                      type: STATUS_CHANGED
+                      status: IN_REVIEW
+                      publicNote: Inspection scheduled
+                      internalNote: Bring cones
+                      actorLabel: You
+                      createdAt: '2026-09-24T09:40:00.000Z'
+                      actor:
+                        userId: 66f1a0c0a1b2c3d4e5f60004
+                        displayName: Chi Admin
+                        role: admin
+                  responsibility: AWAITING_ASSIGNMENT
+                  canEdit: false
+                  canWithdraw: false
+                  location:
+                    address: 12 Market Road, Ikeja
+                    latitude: null
+                    longitude: null
+                    coordinateSource: null
+                  assignmentHistory: []
+                  editHistory: []
+                  allowedTransitions: [PENDING, IN_PROGRESS, REJECTED]
+                  canChangePriority: true
+                  canAssign: true
+                  canDelete: true
+                  resolvedAt: null
+                  resolvedAtEstimated: false
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /complaints/{id}/assign:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [complaints]
+      summary: Assign, reassign or unassign (administrators)
+      description: Send `assignedTo` as an active agency user's ID, or `null` to unassign.
+      operationId: assignComplaint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [assignedTo]
+              properties:
+                assignedTo:
+                  oneOf:
+                    - $ref: '#/components/schemas/ObjectId'
+                    - type: 'null'
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+                expectedVersion:
+                  type: integer
+                  minimum: 0
+            example:
+              assignedTo: 66f1a0c0a1b2c3d4e5f60002
+              reason: Nearest crew
+      responses:
+        '200':
+          description: The updated complaint, as staff see it.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [complaint]
+                properties:
+                  complaint:
+                    $ref: '#/components/schemas/Complaint'
+              example:
+                complaint:
+                  _id: 66f1a0c0a1b2c3d4e5f60020
+                  referenceCode: CCIR-EXAMPLE1
+                  status: PENDING
+                  priority: HIGH
+                  description: Deep pothole outside the market gate
+                  category:
+                    _id: 66f1a0c0a1b2c3d4e5f60010
+                    name: Roads
+                    recordedName: Roads
+                    isActive: true
+                    deleted: false
+                  address: 12 Market Road, Ikeja
+                  hasPrecisePosition: false
+                  imageCount: 0
+                  thumbnailUrl: null
+                  createdAt: '2026-09-24T09:20:00.000Z'
+                  updatedAt: '2026-09-24T09:30:00.000Z'
+                  reporter:
+                    userId: 66f1a0c0a1b2c3d4e5f60001
+                    displayName: Ada Citizen
+                    role: citizen
+                  assignee:
+                    userId: 66f1a0c0a1b2c3d4e5f60002
+                    displayName: Ade Agency
+                    role: agency
+                  version: 1
+                  images: []
+                  ai:
+                    suggestedCategory: Roads
+                    confidence: 0.9
+                    summary: Pothole outside the market gate
+                    tags: [road]
+                    classifiedAt: '2026-09-24T09:20:00.000Z'
+                    error: null
+                    inputMode: TEXT_ONLY
+                    analysisCount: 1
+                  timeline: []
+                  responsibility: ASSIGNED
+                  canEdit: false
+                  canWithdraw: false
+                  location:
+                    address: 12 Market Road, Ikeja
+                    latitude: null
+                    longitude: null
+                    coordinateSource: null
+                  assignmentHistory:
+                    - type: ASSIGNED
+                      previous: null
+                      next:
+                        userId: 66f1a0c0a1b2c3d4e5f60002
+                        displayName: Ade Agency
+                        role: agency
+                      changedBy:
+                        userId: 66f1a0c0a1b2c3d4e5f60004
+                        displayName: Chi Admin
+                        role: admin
+                      reason: Nearest crew
+                      createdAt: '2026-09-24T09:30:00.000Z'
+                  editHistory: []
+                  allowedTransitions: [IN_REVIEW, REJECTED]
+                  canChangePriority: true
+                  canAssign: true
+                  canDelete: true
+                  resolvedAt: null
+                  resolvedAtEstimated: false
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /complaints/{id}/withdraw:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [complaints]
+      summary: Withdraw a pending complaint (its reporter)
+      operationId: withdrawComplaint
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+                expectedVersion:
+                  type: integer
+                  minimum: 0
+            example:
+              reason: Fixed this morning
+      responses:
+        '200':
+          description: The withdrawn complaint.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [complaint]
+                properties:
+                  complaint:
+                    $ref: '#/components/schemas/Complaint'
+              example:
+                complaint:
+                  _id: 66f1a0c0a1b2c3d4e5f60023
+                  referenceCode: CCIR-EXAMPLE2
+                  status: WITHDRAWN
+                  priority: MEDIUM
+                  description: Blocked drain flooding the lane
+                  category:
+                    _id: 66f1a0c0a1b2c3d4e5f60012
+                    name: Drainage
+                    recordedName: Drainage
+                    isActive: true
+                    deleted: false
+                  address: 7 Lane Close
+                  hasPrecisePosition: false
+                  imageCount: 0
+                  thumbnailUrl: null
+                  createdAt: '2026-09-24T09:50:00.000Z'
+                  updatedAt: '2026-09-24T09:55:00.000Z'
+                  reporter:
+                    userId: 66f1a0c0a1b2c3d4e5f60001
+                    displayName: Ada Citizen
+                    role: citizen
+                  version: 1
+                  images: []
+                  ai:
+                    summary: Blocked drain
+                    tags: [drainage]
+                  timeline:
+                    - _id: 66f1a0c0a1b2c3d4e5f60024
+                      type: CREATED
+                      status: PENDING
+                      publicNote: Report submitted
+                      actorLabel: You
+                      createdAt: '2026-09-24T09:50:00.000Z'
+                    - _id: 66f1a0c0a1b2c3d4e5f60025
+                      type: WITHDRAWN
+                      status: WITHDRAWN
+                      publicNote: Fixed this morning
+                      actorLabel: You
+                      createdAt: '2026-09-24T09:55:00.000Z'
+                  responsibility: AWAITING_ASSIGNMENT
+                  canEdit: false
+                  canWithdraw: false
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /location/autocomplete:
+    get:
+      tags: [location]
+      summary: Address suggestions
+      description: Up to five suggestions from the public Photon geocoder, optionally biased toward a position.
+      operationId: autocompleteAddress
+      parameters:
+        - name: input
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: latitude
+          in: query
+          description: Send with `longitude`, or not at all.
+          schema:
+            type: number
+            minimum: -90
+            maximum: 90
+        - name: longitude
+          in: query
+          schema:
+            type: number
+            minimum: -180
+            maximum: 180
+      responses:
+        '200':
+          description: Suggestions.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [predictions]
+                properties:
+                  predictions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Prediction'
+              example:
+                predictions:
+                  - label: 12 Market Road, Ikeja
+                    address: 12 Market Road, Ikeja
+                    latitude: 6.6
+                    longitude: 3.35
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /location/geocode:
+    get:
+      tags: [location]
+      summary: Geocode an address, or reverse-geocode a position
+      description: Send `address`, or both `latitude` and `longitude`.
+      operationId: geocode
+      parameters:
+        - name: address
+          in: query
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 500
+        - name: latitude
+          in: query
+          schema:
+            type: number
+            minimum: -90
+            maximum: 90
+        - name: longitude
+          in: query
+          schema:
+            type: number
+            minimum: -180
+            maximum: 180
+      responses:
+        '200':
+          description: The place, or `null` when nothing matched.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [location]
+                properties:
+                  location:
+                    oneOf:
+                      - $ref: '#/components/schemas/Place'
+                      - type: 'null'
+              example:
+                location:
+                  address: 12 Market Road, Ikeja
+                  latitude: 6.6
+                  longitude: 3.35
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/ServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /health:
+    get:
+      tags: [health]
+      summary: Liveness (legacy alias of /health/live)
+      operationId: healthLegacy
+      security: []
+      responses:
+        '200':
+          description: The process is serving requests.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Live'
+              example:
+                status: ok
+
+  /health/live:
+    get:
+      tags: [health]
+      summary: Process liveness
+      description: Answers from the process alone; never checks the database. Never rate-limited.
+      operationId: healthLive
+      security: []
+      responses:
+        '200':
+          description: The process is serving requests.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Live'
+              example:
+                status: ok
+
+  /health/ready:
+    get:
+      tags: [health]
+      summary: Readiness to serve traffic
+      description: >
+        `ready` when the database is a reachable replica set with every unique index and every
+        optional service is configured; `degraded` when an optional service (AI, uploads, email,
+        Google sign-in) is not configured; `unavailable` (503) when the database check fails. Never
+        exposes setting values or connection details. Never rate-limited.
+      operationId: healthReady
+      security: []
+      responses:
+        '200':
+          description: Ready, or degraded.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Readiness'
+              example:
+                status: degraded
+                checks:
+                  database:
+                    status: ok
+                    serverVersion: 8.3.11
+                  ai:
+                    status: ok
+                  uploads:
+                    status: ok
+                  email:
+                    status: not_configured
+                  googleSignIn:
+                    status: ok
+                  geocoding:
+                    status: ok
+        '503':
+          description: The database is unavailable, not a replica set, or missing a unique index.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Readiness'
+              example:
+                status: unavailable
+                checks:
+                  database:
+                    status: unavailable
+                    reason: INDEXES_MISSING
+                  ai:
+                    status: ok
+                  uploads:
+                    status: ok
+                  email:
+                    status: ok
+                  googleSignIn:
+                    status: ok
+                  geocoding:
+                    status: ok
+
+  /openapi.json:
+    get:
+      tags: [contract]
+      summary: This contract, as JSON
+      operationId: getContract
+      security: []
+      responses:
+        '200':
+          description: The OpenAPI 3.1 document.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [openapi, info, paths]
+                properties:
+                  openapi:
+                    type: string
+              example:
+                openapi: 3.1.0
+                info:
+                  title: CCIR API
+                  version: 1.0.0
+                paths: {}
