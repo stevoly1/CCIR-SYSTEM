@@ -4,8 +4,10 @@ const { RefreshToken } = require('../models');
 const parseDuration = require('../utils/parseDuration');
 const { getBrowserSecurityConfig } = require('../config/browserSecurity');
 
-const createAccessToken = ({ userId }) => {
-    return jwt.sign({ userId }, process.env.JWT_TOKEN, {
+// `sid` names the session (the stored refresh-token record) the access token belongs to, so the
+// token stops working as soon as that session is revoked (sign-out, suspension, role change).
+const createAccessToken = ({ userId, sessionId }) => {
+    return jwt.sign({ userId, sid: sessionId }, process.env.JWT_TOKEN, {
         expiresIn: process.env.ACCESS_TOKEN_LIFESPAN,
     });
 };
@@ -35,11 +37,12 @@ const createNewRefreshToken = async ({ userId, session }) => {
     });
     await refreshToken.save({ session });
 
-    return createRefreshTokenJwt({ userId, refreshTokenString });
+    return createRefreshTokenJwt({ userId, refreshTokenString, sid: refreshToken._id.toString() });
 };
 
-const attachCookiesToResponse = ({ res, user, refreshToken }) => {
-    const accessToken = createAccessToken({ userId: user._id.toString() });
+// The session comes from the caller, or from the refresh token this server just signed.
+const attachCookiesToResponse = ({ res, user, refreshToken, sessionId = jwt.decode(refreshToken)?.sid }) => {
+    const accessToken = createAccessToken({ userId: user._id.toString(), sessionId });
     const { cookieOptions } = getBrowserSecurityConfig(process.env);
 
     res.cookie('accessToken', accessToken, {

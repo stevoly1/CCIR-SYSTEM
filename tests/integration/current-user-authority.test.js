@@ -49,9 +49,10 @@ describe('current persisted user authority', () => {
     const accessCookie = (token, cookieSecret = process.env.COOKIE) => `accessToken=${encodeURIComponent(`s:${signature.sign(token, cookieSecret)}`)}`;
     const profileWith = (cookie) => request(testServer()).get('/api/v1/users/profile').set('Cookie', cookie);
 
-    it('accepts a correctly signed, current token (control for the cases below)', async () => {
+    it('accepts a correctly signed, current token for a live session (control for the cases below)', async () => {
       const user = await createUserFixture();
-      const token = jwt.sign({ userId: user.id }, process.env.JWT_TOKEN, { expiresIn: '15m' });
+      const session = await RefreshToken.create({ token: `control-${user.id}`, user: user._id, expiresAt: new Date(Date.now() + 60000) });
+      const token = jwt.sign({ userId: user.id, sid: session.id }, process.env.JWT_TOKEN, { expiresIn: '15m' });
       expect((await profileWith(accessCookie(token))).status).toBe(200);
     });
 
@@ -69,7 +70,7 @@ describe('current persisted user authority', () => {
     });
   });
 
-  it('puts only user identity and JWT timing claims in an access token', async () => {
+  it('puts only user identity, the session and JWT timing claims in an access token', async () => {
     const user = await createUserFixture({ role: 'admin' });
     const response = await loginWithoutAgent(user);
     const encodedCookie = cookieValue(response, 'accessToken').split('=', 2)[1];
@@ -77,6 +78,7 @@ describe('current persisted user authority', () => {
     const token = signature.unsign(signedCookie.slice(2), process.env.COOKIE);
 
     expect(token).toBeTruthy();
+    expect(Object.keys(jwt.decode(token)).sort()).toEqual(['exp', 'iat', 'sid', 'userId']);
     expect(jwt.decode(token)).toEqual(expect.objectContaining({ userId: user.id }));
     expect(jwt.decode(token)).not.toHaveProperty('email');
     expect(jwt.decode(token)).not.toHaveProperty('role');

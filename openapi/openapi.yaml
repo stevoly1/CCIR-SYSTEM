@@ -1419,8 +1419,8 @@ paths:
       tags: [users]
       summary: Sign out
       description: >
-        Revokes the user's refresh tokens and clears both cookies. An access token already issued stays
-        valid until it expires (at most 15 minutes), because access tokens are not stored.
+        Revokes the user's sessions and clears both cookies. Every access token names its session and
+        is refused once that session is revoked, so an access token already issued stops working at once.
       operationId: logout
       requestBody:
         content:

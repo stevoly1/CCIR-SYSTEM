@@ -47,6 +47,14 @@ const rawCookieValue = (req, name) => {
     }
 };
 
+// A session is live while its refresh-token record exists, is valid, and has not expired. Logout,
+// suspension, role changes and retirement delete the records, ending every access token at once.
+const liveSession = (sessionId, userId) => (
+    typeof sessionId === 'string' && mongoose.isObjectIdOrHexString(sessionId)
+        ? RefreshToken.exists({ _id: sessionId, user: userId, isValid: true, expiresAt: { $gt: new Date() } })
+        : Promise.resolve(null)
+);
+
 const authentication = async (req, res, next) => {
     const accessToken = req.signedCookies.accessToken;
     const refreshToken = req.signedCookies.refreshToken;
@@ -58,8 +66,13 @@ const authentication = async (req, res, next) => {
             payload = verifyAccessToken(accessToken);
         } catch {}
         if (payload) {
-            const user = await loadCurrentUser(payload.userId);
-            if (user) {
+            // A token without a session (issued before sessions were named) falls through to the
+            // refresh path below, which issues a session-bound one.
+            const [user, session] = await Promise.all([
+                loadCurrentUser(payload.userId),
+                liveSession(payload.sid, payload.userId),
+            ]);
+            if (user && session) {
                 req.user = currentUserContext(user);
                 return next();
             }
@@ -113,7 +126,7 @@ const authentication = async (req, res, next) => {
     }
 
     if (refreshFingerprint) await authThrottle.clear('refresh-token', refreshFingerprint);
-    attachCookiesToResponse({ res, user, refreshToken });
+    attachCookiesToResponse({ res, user, refreshToken, sessionId: storedToken._id.toString() });
     req.user = currentUserContext(user);
     return next();
 };

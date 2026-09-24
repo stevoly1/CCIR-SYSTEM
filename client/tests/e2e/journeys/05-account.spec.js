@@ -39,11 +39,14 @@ test('J6 citizen signs up, edits the profile, logs out, is locked out, and logs 
   await page.goto('/dashboard/reports');
   await expect(page).toHaveURL(/\/login/);
 
-  // Logout revoked the refresh token on the server, so replaying the old cookie must fail.
-  // (Access tokens are stateless and expire after ACCESS_TOKEN_LIFESPAN: a documented limit.)
-  await context.addCookies(cookiesBeforeLogout.filter((cookie) => cookie.name === 'refreshToken'));
-  const replay = await page.request.get(`${API}/users/profile`);
-  expect(replay.status()).toBe(401);
+  // Logout ended the session on the server, so replaying either old cookie must fail: the refresh
+  // token is revoked, and the access token names that revoked session.
+  for (const name of ['refreshToken', 'accessToken']) {
+    await context.clearCookies();
+    await context.addCookies(cookiesBeforeLogout.filter((cookie) => cookie.name === name));
+    const replay = await page.request.get(`${API}/users/profile`);
+    expect(replay.status()).toBe(401);
+  }
   await context.clearCookies();
 
   await page.goto('/login');
