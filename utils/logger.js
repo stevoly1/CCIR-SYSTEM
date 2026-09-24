@@ -70,10 +70,12 @@ const createLogger = ({ destination, level = defaultLevel() } = {}) => pino({
   },
   hooks: {
     logMethod(args, method) {
-      // Given an error (or { err }) and no message, pino would use the raw error message as msg.
+      // Given an error (or { err }, including an error-like plain object) and no message, pino
+      // would use the raw error message as msg, so a scrubbed copy is passed as the message.
       const [first, ...rest] = args;
-      const error = first instanceof Error ? first : first?.err instanceof Error ? first.err : null;
-      if (error && rest.length === 0) return method.call(this, first, scrubSecrets(String(error.message ?? '')));
+      const error = first instanceof Error ? first : first?.err;
+      const hasMessage = rest.length > 0 && rest[0] !== undefined;
+      if (!hasMessage && typeof error?.message === 'string') return method.call(this, first, scrubSecrets(error.message));
       return method.apply(this, args.map(scrubSecrets));
     },
   },

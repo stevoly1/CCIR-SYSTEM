@@ -30,6 +30,8 @@ describe('logger', () => {
   it.each([
     ['an error alone', (error) => getLogger().error(error)],
     ['{ err } alone', (error) => getLogger().error({ err: error })],
+    ['{ err } with an undefined message', (error) => getLogger().error({ err: error }, undefined)],
+    ['an error-like plain object', (error) => getLogger().error({ err: { message: error.message } })],
   ])('scrubs the message taken from %s', (_label, log) => {
     log(new Error('connect failed for mongodb+srv://admin:S3cretPw@cluster.example.test/ccir?token=abc123'));
     expect(logs.text()).not.toContain('S3cretPw');
