@@ -19,6 +19,7 @@ export const login = createAsyncThunk('auth/login', async (payload, { rejectWith
     }
 });
 
+// One check at a time: React's development double-run of effects must not ask the server twice.
 export const fetchProfile = createAsyncThunk('auth/fetchProfile', async (_, { rejectWithValue }) => {
     try {
         const { data } = await axiosClient.get('/users/profile');
@@ -26,7 +27,7 @@ export const fetchProfile = createAsyncThunk('auth/fetchProfile', async (_, { re
     } catch (error) {
         return rejectWithValue(extractErrorMessage(error));
     }
-});
+}, { condition: (_, { getState }) => !getState().auth.profileCheckPending });
 
 export const updateProfile = createAsyncThunk('auth/updateProfile', async (payload, { rejectWithValue }) => {
     try {
@@ -51,6 +52,7 @@ const authSlice = createSlice({
     initialState: {
         user: null,
         authChecked: false,
+        profileCheckPending: false,
         status: 'idle',
         error: null,
     },
@@ -69,9 +71,12 @@ const authSlice = createSlice({
             .addCase(login.fulfilled, (state, action) => { state.status = 'succeeded'; state.user = action.payload; state.authChecked = true; })
             .addCase(login.rejected, (state, action) => { state.status = 'failed'; state.error = action.payload; })
 
-            .addCase(fetchProfile.pending, (state) => { state.status = 'loading'; })
-            .addCase(fetchProfile.fulfilled, (state, action) => { state.status = 'succeeded'; state.user = action.payload; state.authChecked = true; })
-            .addCase(fetchProfile.rejected, (state) => { state.status = 'idle'; state.user = null; state.authChecked = true; })
+            .addCase(fetchProfile.pending, (state) => { state.status = 'loading'; state.profileCheckPending = true; })
+            .addCase(fetchProfile.fulfilled, (state, action) => { state.status = 'succeeded'; state.user = action.payload; state.authChecked = true; state.profileCheckPending = false; })
+            .addCase(fetchProfile.rejected, (state, action) => {
+                if (action.meta.condition) return; // skipped: another check is under way
+                state.status = 'idle'; state.user = null; state.authChecked = true; state.profileCheckPending = false;
+            })
 
             .addCase(updateProfile.fulfilled, (state, action) => { state.user = action.payload; })
 
