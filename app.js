@@ -56,7 +56,7 @@ app.use('/api/v1/categories', CategoryRouter);
 app.use('/api/v1/complaints', ComplaintRouter);
 app.use('/api/v1/location', LocationRouter);
 
-app.get('/api/v1/health', (req, res) => res.status(200).json({ status: 'ok' }));
+app.use('/api/v1/health', require('./routes/healthRoute'));
 
 // Serve the reference frontend, if it has been built (client/dist)
 const clientDist = path.join(__dirname, 'client', 'dist');

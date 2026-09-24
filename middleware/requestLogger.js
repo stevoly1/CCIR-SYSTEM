@@ -1,13 +1,14 @@
 const crypto = require('node:crypto');
 const pinoHttp = require('pino-http');
 const { getLogger, serializeError } = require('../utils/logger');
+const { isHealthRequest } = require('./apiRateLimit');
 
 // Accepted from callers so a trace can cross services; anything else is replaced with a UUID.
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9._-]{8,64}$/;
 const HEADER_ALLOWLIST = ['user-agent', 'content-type', 'content-length'];
 
 const pathOf = (url = '') => String(url).split('?')[0];
-const isHealth = (req) => pathOf(req.originalUrl || req.url).startsWith('/api/v1/health');
+const isHealth = (req) => isHealthRequest({ path: pathOf(req.originalUrl || req.url) });
 
 const requestIdFor = (req) => {
   const incoming = req.headers['x-request-id'];

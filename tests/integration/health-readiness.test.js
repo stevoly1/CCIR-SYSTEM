@@ -1,0 +1,107 @@
+const request = require('supertest');
+const mongoose = require('mongoose');
+const { MongoMemoryServer } = require('mongodb-memory-server');
+const { testServer } = require('../helpers/testServer');
+const { checkReadiness } = require('../../services/readinessService');
+const Complaint = require('../../models/Complaint');
+const { MONGODB_TEST_VERSION } = require('../setup/mongoVersion.cjs');
+
+// Distinctive values, so a leak into the response names itself.
+const ALL_SERVICES = {
+  GOOGLE_API_KEY: 'ready-ai-key-01', CLOUDINARY_CLOUD_NAME: 'ready-cloud-02', CLOUDINARY_API_KEY: 'ready-cloud-key-03',
+  CLOUDINARY_API_SECRET: 'ready-cloud-secret-04', RESEND_API_KEY: 'ready-resend-05', EMAIL_FROM: 'CCIR <ready-from-06@example.test>',
+  GOOGLE_CLIENT_ID: 'ready-client-07', GOOGLE_CLIENT_SECRET: 'ready-client-secret-08', GOOGLE_CALLBACK_URL: 'http://localhost/ready-callback-09',
+};
+
+describe('health endpoints', () => {
+  // Readiness is unavailable until every model's indexes exist, as on a real first start.
+  beforeAll(async () => {
+    await Promise.all(Object.values(mongoose.models).map((model) => model.init()));
+  });
+
+  beforeEach(() => Object.entries(ALL_SERVICES).forEach(([key, value]) => vi.stubEnv(key, value)));
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('reports ready when the replica set answers and every service is configured', async () => {
+    const response = await request(testServer()).get('/api/v1/health/ready');
+    expect(response.status).toBe(200);
+    expect(response.body.status).toBe('ready');
+    expect(response.body.checks.database).toEqual({ status: 'ok', serverVersion: MONGODB_TEST_VERSION });
+    expect(Object.keys(response.body.checks).sort()).toEqual(['ai', 'database', 'email', 'geocoding', 'googleSignIn', 'uploads']);
+  });
+
+  it('reports degraded, naming the services, when optional settings are missing', async () => {
+    vi.stubEnv('GOOGLE_API_KEY', '');
+    vi.stubEnv('RESEND_API_KEY', '');
+    const response = await request(testServer()).get('/api/v1/health/ready');
+    expect(response.status).toBe(200);
+    expect(response.body.status).toBe('degraded');
+    expect(response.body.checks.ai).toEqual({ status: 'not_configured' });
+    expect(response.body.checks.email).toEqual({ status: 'not_configured' });
+    expect(response.body.checks.uploads).toEqual({ status: 'ok' });
+  });
+
+  it('reports unavailable when a required unique index is missing', async () => {
+    await Complaint.collection.dropIndex('referenceCode_1');
+    try {
+      const response = await request(testServer()).get('/api/v1/health/ready');
+      expect(response.status).toBe(503);
+      expect(response.body.status).toBe('unavailable');
+      expect(response.body.checks.database).toEqual({ status: 'unavailable', reason: 'INDEXES_MISSING' });
+    } finally {
+      await Complaint.createIndexes();
+    }
+  });
+
+  it('never exposes the connection string or any setting value', async () => {
+    const response = await request(testServer()).get('/api/v1/health/ready');
+    const body = JSON.stringify(response.body);
+    expect(body).not.toMatch(/mongodb(\+srv)?:\/\//);
+    for (const value of Object.values(ALL_SERVICES)) expect(body).not.toContain(value);
+  });
+
+  it('keeps live and the legacy alias independent of the database', async () => {
+    for (const path of ['/api/v1/health/live', '/api/v1/health']) {
+      const response = await request(testServer()).get(path);
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ status: 'ok' });
+    }
+    const liveWhileDown = await checkReadiness({ connection: { readyState: 0 } });
+    expect(liveWhileDown.httpStatus).toBe(503);
+  });
+});
+
+describe('checkReadiness database failures', () => {
+  it('is unavailable when disconnected', async () => {
+    const result = await checkReadiness({ connection: { readyState: 0 } });
+    expect(result.httpStatus).toBe(503);
+    expect(result.body.status).toBe('unavailable');
+    expect(result.body.checks.database).toEqual({ status: 'unavailable', reason: 'DATABASE_DISCONNECTED' });
+  });
+
+  it('is unavailable when ping does not answer in time', async () => {
+    const hanging = { readyState: 1, db: { admin: () => ({ command: () => new Promise(() => {}) }) } };
+    const started = Date.now();
+    const result = await checkReadiness({ connection: hanging, timeoutMs: 50 });
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(result.body.checks.database).toEqual({ status: 'unavailable', reason: 'DATABASE_TIMEOUT' });
+  });
+
+  it('is unavailable, without detail, when the database command fails', async () => {
+    const failing = { readyState: 1, db: { admin: () => ({ command: () => Promise.reject(new Error('mongodb://u:p@h auth failed')) }) } };
+    const result = await checkReadiness({ connection: failing });
+    expect(result.body.checks.database).toEqual({ status: 'unavailable', reason: 'DATABASE_ERROR' });
+  });
+
+  it('is unavailable on a standalone server that cannot run transactions', async () => {
+    const standalone = await MongoMemoryServer.create({ binary: { version: MONGODB_TEST_VERSION } });
+    const connection = await mongoose.createConnection(standalone.getUri()).asPromise();
+    try {
+      const result = await checkReadiness({ connection });
+      expect(result.body.checks.database).toEqual({ status: 'unavailable', reason: 'TRANSACTIONS_UNSUPPORTED' });
+    } finally {
+      await connection.close();
+      await standalone.stop();
+    }
+  });
+});
