@@ -119,7 +119,7 @@ const ReportsListPage = () => {
             />
 
             <div className="list-controls">
-                <div className="field" style={{ position: 'relative', flex: '1 1 260px', maxWidth: 420 }}>
+                <div className="field list-search">
                     <Search size={16} color="var(--color-placeholder)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
                     <input
                         type="text"
@@ -130,20 +130,20 @@ const ReportsListPage = () => {
                         style={{ paddingLeft: 38 }}
                     />
                 </div>
-                <div className="field" style={{ flex: '0 1 170px' }}>
+                <div className="field list-filter">
                     <select aria-label="Filter by priority" value={priority} onChange={(e) => setFilter('priority', e.target.value)}>
                         <option value="">All priorities</option>
                         {PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_LABELS[p]}</option>)}
                     </select>
                 </div>
-                <div className="field" style={{ flex: '0 1 190px' }}>
+                <div className="field list-filter">
                     <select aria-label="Filter by category" value={category} onChange={(e) => setFilter('category', e.target.value)}>
                         <option value="">All categories</option>
                         {categories.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}
                     </select>
                 </div>
                 {isAdmin && (
-                    <div className="field" style={{ flex: '0 1 190px' }}>
+                    <div className="field list-filter">
                         <select aria-label="Filter by assignee" value={assignee} onChange={(e) => setFilter('assignee', e.target.value)}>
                             <option value="">Anyone</option>
                             <option value="none">Unassigned</option>
@@ -151,7 +151,7 @@ const ReportsListPage = () => {
                         </select>
                     </div>
                 )}
-                <div className="field" style={{ flex: '0 1 160px' }}>
+                <div className="field list-filter">
                     <select aria-label="Sort order" value={sort || 'newest'} onChange={(e) => setFilter('sort', e.target.value === 'newest' ? '' : e.target.value)}>
                         <option value="newest">Newest first</option>
                         <option value="oldest">Oldest first</option>

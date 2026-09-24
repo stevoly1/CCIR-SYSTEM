@@ -138,7 +138,7 @@ const UsersPage = () => {
             <Topbar title="Users" subtitle={`${pagination.total} registered account${pagination.total === 1 ? '' : 's'}`} />
 
             <div className="list-controls">
-                <div className="field" style={{ position: 'relative', flex: '1 1 260px', maxWidth: 420 }}>
+                <div className="field list-search">
                     <Search size={16} color="var(--color-placeholder)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
                     <input
                         type="text"
@@ -149,7 +149,7 @@ const UsersPage = () => {
                         style={{ paddingLeft: 38 }}
                     />
                 </div>
-                <div className="field" style={{ flex: '0 1 200px' }}>
+                <div className="field list-filter">
                     <select aria-label="Filter by role" value={role} onChange={(e) => handleRoleChange(e.target.value)}>
                         {ROLE_FILTERS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                     </select>
