@@ -29,7 +29,7 @@ describe('UsersPage', () => {
     expect(await screen.findByText('Ada Citizen')).toBeInTheDocument();
     expect(screen.getByText('Chi Admin (you)')).toBeInTheDocument();
     expect(screen.getByText('2 registered accounts')).toBeInTheDocument();
-    expect(axiosClient.get).toHaveBeenCalledWith('/users', { params: {} });
+    expect(axiosClient.get).toHaveBeenCalledWith('/users', { params: { page: 1, limit: 50 } });
   });
 
   it('searches through a labelled box', async () => {
@@ -37,7 +37,7 @@ describe('UsersPage', () => {
     render(<UsersPage />);
     await screen.findByText('Ada Citizen');
     await user.type(screen.getByRole('textbox', { name: 'Search users' }), 'ada');
-    await waitFor(() => expect(axiosClient.get).toHaveBeenLastCalledWith('/users', { params: { search: 'ada' } }));
+    await waitFor(() => expect(axiosClient.get).toHaveBeenLastCalledWith('/users', { params: { search: 'ada', page: 1, limit: 50 } }));
   });
 
   it('edits a user through a dialog with labelled fields and saves name, phone and role', async () => {
@@ -65,16 +65,39 @@ describe('UsersPage', () => {
     expect(screen.getByLabelText('Role')).toBeDisabled();
   });
 
-  it('deletes a user after confirmation', async () => {
+  it('deletes a user after confirmation and reloads the page from the server', async () => {
     axiosClient.delete.mockResolvedValue({ data: { msg: 'User retired' } });
     const user = userEvent.setup();
     render(<UsersPage />);
     await screen.findByText('Ada Citizen');
+    axiosClient.get.mockResolvedValue({ data: { users: [admin] } });
     await user.click(within(rowOf('Ada Citizen')).getByRole('button', { name: 'Delete user' }));
     expect(axiosClient.delete).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Delete' }));
     expect(axiosClient.delete).toHaveBeenCalledWith('/users/u-cit');
     await waitFor(() => expect(screen.queryByText('Ada Citizen')).not.toBeInTheDocument());
+    expect(axiosClient.get).toHaveBeenLastCalledWith('/users', { params: { page: 1, limit: 50 } });
+  });
+
+  it('counts every account and pages through them', async () => {
+    axiosClient.get.mockResolvedValue({ data: { users: [admin, citizen], pagination: { page: 1, limit: 50, total: 73, pages: 2 } } });
+    const user = userEvent.setup();
+    render(<UsersPage />);
+    expect(await screen.findByText('73 registered accounts')).toBeInTheDocument();
+    expect(screen.getByRole('navigation', { name: 'User pages' })).toHaveTextContent('Page 1 of 2');
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    await waitFor(() => expect(axiosClient.get).toHaveBeenLastCalledWith('/users', { params: { page: 2, limit: 50 } }));
+  });
+
+  it('searches from the first page', async () => {
+    axiosClient.get.mockResolvedValue({ data: { users: [admin, citizen], pagination: { page: 1, limit: 50, total: 73, pages: 2 } } });
+    const user = userEvent.setup();
+    render(<UsersPage />);
+    await screen.findByText('Ada Citizen');
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    await waitFor(() => expect(axiosClient.get).toHaveBeenLastCalledWith('/users', { params: { page: 2, limit: 50 } }));
+    await user.type(screen.getByRole('textbox', { name: 'Search users' }), 'ada');
+    await waitFor(() => expect(axiosClient.get).toHaveBeenLastCalledWith('/users', { params: { search: 'ada', page: 1, limit: 50 } }));
   });
 
   it('never offers deletion of the signed-in administrator\'s own account', async () => {

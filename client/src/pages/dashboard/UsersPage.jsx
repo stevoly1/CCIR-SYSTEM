@@ -4,16 +4,19 @@ import { Search, Pencil, Trash2 } from 'lucide-react';
 import Topbar from '../../components/Topbar';
 import Modal from '../../components/Modal';
 import ConfirmModal from '../../components/ConfirmModal';
+import Pager from '../../components/Pager';
 import axiosClient, { extractErrorMessage } from '../../api/axiosClient';
 import toast from 'react-hot-toast';
 
 const ROLES = ['citizen', 'admin', 'agency'];
+const PAGE_SIZE = 50;
 
 const UsersPage = () => {
     const { user: currentUser } = useSelector((state) => state.auth);
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
+    const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0 });
     const debounceRef = useRef(null);
 
     const [editingUser, setEditingUser] = useState(null);
@@ -23,11 +26,14 @@ const UsersPage = () => {
     const [deletingUser, setDeletingUser] = useState(null);
     const [deleting, setDeleting] = useState(false);
 
-    const loadUsers = useCallback(async (searchValue) => {
+    // The server pages the list; the count shown is the total across all pages.
+    const loadUsers = useCallback(async (searchValue, page = 1) => {
         setLoading(true);
         try {
-            const { data } = await axiosClient.get('/users', { params: searchValue ? { search: searchValue } : {} });
+            const params = { ...(searchValue ? { search: searchValue } : {}), page, limit: PAGE_SIZE };
+            const { data } = await axiosClient.get('/users', { params });
             setUsers(data.users);
+            setPagination(data.pagination ?? { page, pages: 1, total: data.users.length });
         } catch (error) {
             toast.error(extractErrorMessage(error));
         } finally {
@@ -47,6 +53,11 @@ const UsersPage = () => {
         setSearch(value);
         clearTimeout(debounceRef.current);
         debounceRef.current = setTimeout(() => loadUsers(value), 400);
+    };
+
+    const goToPage = (page) => {
+        void loadUsers(search, page);
+        document.querySelector('.main-content')?.scrollIntoView?.({ block: 'start' });
     };
 
     const openEdit = (u) => {
@@ -73,9 +84,11 @@ const UsersPage = () => {
         setDeleting(true);
         try {
             await axiosClient.delete(`/users/${deletingUser._id}`);
-            setUsers((prev) => prev.filter((item) => item._id !== deletingUser._id));
             toast.success('User deleted');
             setDeletingUser(null);
+            // Reload rather than drop the row locally, so the page stays in step with the server.
+            const lastOnPage = users.length === 1 && pagination.page > 1;
+            await loadUsers(search, lastOnPage ? pagination.page - 1 : pagination.page);
         } catch (error) {
             toast.error(extractErrorMessage(error));
         } finally {
@@ -85,7 +98,7 @@ const UsersPage = () => {
 
     return (
         <div>
-            <Topbar title="Users" subtitle={`${users.length} registered account${users.length === 1 ? '' : 's'}`} />
+            <Topbar title="Users" subtitle={`${pagination.total} registered account${pagination.total === 1 ? '' : 's'}`} />
 
             <div className="field" style={{ position: 'relative', maxWidth: 420 }}>
                 <Search size={16} color="var(--color-placeholder)" style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
@@ -142,6 +155,10 @@ const UsersPage = () => {
                         );
                     })}
                 </div>
+            )}
+
+            {!loading && (
+                <Pager page={pagination.page} pages={pagination.pages} onChange={goToPage} label="User pages" />
             )}
 
             {editingUser && (
