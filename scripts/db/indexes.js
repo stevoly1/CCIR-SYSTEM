@@ -10,6 +10,41 @@ require('dotenv').config({ quiet: true });
 const mongoose = require('mongoose');
 const { scrubSecrets } = require('../../utils/logger');
 
+// MongoDB will not build a declared unique index over an existing non-unique one on the same key.
+// After checking that the values are in fact unique, the old index is dropped so --apply can build
+// the unique one; duplicates stop the run with a count, leaving that index as it was.
+const upgradeToUnique = async (model) => {
+  let existing;
+  try {
+    existing = await model.collection.indexes();
+  } catch (error) {
+    if (error.codeName === 'NamespaceNotFound') return;
+    throw error;
+  }
+  for (const [fields, options] of model.schema.indexes()) {
+    if (!options?.unique) continue;
+    const key = JSON.stringify(fields);
+    const old = existing.find((index) => JSON.stringify(index.key) === key && !index.unique);
+    if (!old) continue;
+    const names = Object.keys(fields);
+    // Sparse and partial unique indexes ignore documents without the field, so those are not duplicates.
+    const onlyPresent = options.sparse || options.partialFilterExpression
+      ? [{ $match: Object.fromEntries(names.map((name) => [name, { $exists: true }])) }]
+      : [];
+    const [found] = await model.collection.aggregate([
+      ...onlyPresent,
+      { $group: { _id: Object.fromEntries(names.map((name) => [name, `$${name}`])), count: { $sum: 1 } } },
+      { $match: { count: { $gt: 1 } } },
+      { $count: 'values' },
+    ]).toArray();
+    const repeated = found?.values ?? 0;
+    if (repeated > 0) {
+      throw new Error(`${model.collection.collectionName}: ${key} cannot be made unique: ${repeated} duplicated value${repeated === 1 ? '' : 's'}. Resolve them, then run --apply again.`);
+    }
+    await model.collection.dropIndex(old.name);
+  }
+};
+
 const run = async ({ uri = process.env.MONGO_URL, apply = false, dropExtra = false, out = process.stdout } = {}) => {
   if (!uri) throw new Error('MONGO_URL is not set');
   if (dropExtra && !apply) throw new Error('--drop-extra requires --apply');
@@ -23,6 +58,7 @@ const run = async ({ uri = process.env.MONGO_URL, apply = false, dropExtra = fal
     const report = {};
     for (const model of Object.values(mongoose.models)) {
       if (apply) {
+        await upgradeToUnique(model);
         if (dropExtra) await model.syncIndexes();
         else await model.createIndexes();
       }

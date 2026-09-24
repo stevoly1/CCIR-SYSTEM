@@ -97,4 +97,15 @@ describe('DELETE /api/v1/complaints/:id', () => {
     expect((await admin.get(`/api/v1/complaints/${complaint.id}`)).body.complaint.canDelete).toBe(true);
     expect((await agency.get(`/api/v1/complaints/${complaint.id}`)).body.complaint.canDelete).toBe(false);
   });
+
+  it('keeps at most one deletion record per complaint', async () => {
+    await ComplaintDeletion.init();
+    const record = {
+      complaintId: new (require('mongoose').Types.ObjectId)(), referenceCode: 'CCIR-UNIQUE1', statusAtDeletion: 'PENDING',
+      deletedBy: { userId: new (require('mongoose').Types.ObjectId)(), displayName: 'Admin', role: 'admin' },
+      reason: 'Spam', deletedAt: new Date(),
+    };
+    await ComplaintDeletion.create(record);
+    await expect(ComplaintDeletion.create(record)).rejects.toMatchObject({ code: 11000 });
+  });
 });

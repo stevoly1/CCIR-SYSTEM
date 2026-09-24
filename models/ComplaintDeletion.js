@@ -4,7 +4,8 @@ const { STATUSES } = require('./Complaint');
 // Audit record of an administrator's permanent deletion. Deliberately holds no
 // complaint content (description, location, images) — only who, what, when, and why.
 const complaintDeletionSchema = new mongoose.Schema({
-    complaintId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    // A complaint is deleted once, so it has at most one record.
+    complaintId: { type: mongoose.Schema.Types.ObjectId, required: true, unique: true },
     referenceCode: { type: String, required: true },
     statusAtDeletion: { type: String, enum: STATUSES, required: true },
     reporterId: { type: mongoose.Schema.Types.ObjectId },

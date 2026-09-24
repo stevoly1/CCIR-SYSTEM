@@ -62,6 +62,29 @@ describe('npm run db:indexes', () => {
     expect(await connection.db.collection('categories').countDocuments()).toBe(6);
   });
 
+  // A release can make an existing index unique (complaintdeletions.complaintId); MongoDB refuses
+  // to create it over the old one, so --apply upgrades it after checking there are no duplicates.
+  it('upgrades an existing non-unique index to unique when the values are unique', async () => {
+    const deletions = connection.db.collection('complaintdeletions');
+    await deletions.insertMany([{ complaintId: new mongoose.Types.ObjectId() }, { complaintId: new mongoose.Types.ObjectId() }]);
+    await deletions.createIndex({ complaintId: 1 }, { name: 'complaintId_1' });
+    const result = await runScript(uri, '--apply');
+    expect(result.status, result.stderr).toBe(0);
+    expect((await deletions.indexes()).find((index) => index.name === 'complaintId_1')).toMatchObject({ unique: true });
+  });
+
+  it('refuses the upgrade, naming the duplicates, when values repeat', async () => {
+    const deletions = connection.db.collection('complaintdeletions');
+    const repeated = new mongoose.Types.ObjectId();
+    await deletions.insertMany([{ complaintId: repeated }, { complaintId: repeated }]);
+    await deletions.createIndex({ complaintId: 1 }, { name: 'complaintId_1' });
+    const result = await runScript(uri, '--apply');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('complaintdeletions');
+    expect(result.stderr).toContain('1 duplicated value');
+    expect((await deletions.indexes()).find((index) => index.name === 'complaintId_1').unique).toBeUndefined();
+  });
+
   it('keeps indexes made outside the app unless --drop-extra is given', async () => {
     await runScript(uri, '--apply');
     await connection.db.collection('complaints').createIndex({ description: 1 }, { name: 'console_extra' });
