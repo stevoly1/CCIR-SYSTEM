@@ -44,4 +44,28 @@ describe('ReportDetailPage', () => {
         expect(screen.getByRole('button', { name: 'Edit report' })).toBeInTheDocument();
         expect(screen.queryByText('Loading report…')).not.toBeInTheDocument();
     });
+
+    it('tells the reporter an open report is awaiting assignment', () => {
+        state = { auth: { user: { _id: 'u1', role: 'citizen' } }, complaints: { current: { ...complaint, status: 'IN_REVIEW' }, detailStatus: 'succeeded' } };
+        render(<ReportDetailPage />);
+        expect(screen.getByText('Awaiting assignment')).toBeInTheDocument();
+    });
+
+    it.each(['WITHDRAWN', 'REJECTED', 'RESOLVED'])('does not promise an assignment on a %s report nobody was assigned to', (status) => {
+        state = {
+            auth: { user: { _id: 'u1', role: 'citizen' } },
+            complaints: { current: { ...complaint, status, canEdit: false, canWithdraw: false }, detailStatus: 'succeeded' },
+        };
+        render(<ReportDetailPage />);
+        expect(screen.queryByText('Awaiting assignment')).not.toBeInTheDocument();
+    });
+
+    it('still says a closed report was handled by agency staff', () => {
+        state = {
+            auth: { user: { _id: 'u1', role: 'citizen' } },
+            complaints: { current: { ...complaint, status: 'RESOLVED', responsibility: 'ASSIGNED', canEdit: false, canWithdraw: false }, detailStatus: 'succeeded' },
+        };
+        render(<ReportDetailPage />);
+        expect(screen.getByText('Assigned to agency staff')).toBeInTheDocument();
+    });
 });

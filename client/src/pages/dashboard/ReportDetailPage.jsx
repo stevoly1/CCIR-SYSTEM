@@ -14,6 +14,13 @@ import AdminDeleteDialog from '../../components/complaint/AdminDeleteDialog';
 import { fetchComplaint, clearCurrentComplaint } from '../../slices/complaintSlice';
 
 // Composition only: every permission shown here comes from the server's presenter.
+// A closed report nobody was assigned to will not be assigned, so it makes no such promise.
+const CLOSED_STATUSES = ['RESOLVED', 'REJECTED', 'WITHDRAWN'];
+const assignmentNote = (complaint) => {
+    if (complaint.responsibility === 'ASSIGNED') return 'Assigned to agency staff';
+    return CLOSED_STATUSES.includes(complaint.status) ? '' : 'Awaiting assignment';
+};
+
 const ReportDetailPage = () => {
     const { id } = useParams();
     const dispatch = useDispatch();
@@ -73,11 +80,7 @@ const ReportDetailPage = () => {
 
                     <ComplaintSummary complaint={current} staffView={isStaff} />
 
-                    {!isStaff && (
-                        <p className="meta">
-                            {current.responsibility === 'ASSIGNED' ? 'Assigned to agency staff' : 'Awaiting assignment'}
-                        </p>
-                    )}
+                    {!isStaff && assignmentNote(current) && <p className="meta">{assignmentNote(current)}</p>}
 
                     <div className="section-header" style={{ marginTop: 28 }}>
                         <h2>Timeline</h2>
