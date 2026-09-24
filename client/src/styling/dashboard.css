@@ -615,8 +615,13 @@
     .report-detail-grid {
         grid-template-columns: 1fr !important;
     }
+    /* Wide actions (e.g. "Delete permanently") move to their own row instead of squeezing the title. */
     .topbar {
+        flex-wrap: wrap;
         margin-bottom: 16px;
+    }
+    .topbar-heading {
+        flex: 1 1 200px;
     }
     .field {
         margin-bottom: 8px;
