@@ -498,6 +498,9 @@
 
 .data-table td:first-child {
     font-weight: 600;
+    /* A name with no spaces (up to 60 characters) wraps instead of stretching the table. */
+    min-width: 140px;
+    overflow-wrap: anywhere;
 }
 
 .data-table .num {
