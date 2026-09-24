@@ -63,6 +63,9 @@ app.use('/api/v1/location', LocationRouter);
 
 app.use('/api/v1/health', require('./routes/healthRoute'));
 
+// Interactive API documentation (switch off with API_DOCS_UI=false).
+app.use('/api/v1/docs', require('./routes/docsRoute'));
+
 // The published API contract (OpenAPI 3.1), as JSON.
 const { getContract } = require('./utils/openapi');
 app.get('/api/v1/openapi.json', (req, res) => res.json(getContract()));

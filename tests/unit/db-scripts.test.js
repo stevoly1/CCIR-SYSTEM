@@ -68,6 +68,12 @@ describe('database script helpers', () => {
     expect(spawnSync('git', ['check-ignore', '-q', '--no-index', 'docs/remediation/any-record.md'], { cwd: root }).status).toBe(0);
   });
 
+  // The records rule must match only the top-level docs/ folder, not the published API docs page.
+  it.each(['openapi/docs/index.html', 'openapi/docs/init.js'])('keeps the published %s in git', (file) => {
+    const root = path.resolve(__dirname, '..', '..');
+    expect(spawnSync('git', ['check-ignore', '-q', '--no-index', file], { cwd: root }).status).toBe(1);
+  });
+
   describe('restore refusals that happen before any database or tool is touched', () => {
     const { restore } = require('../../scripts/db/restore');
     let dir;

@@ -2943,6 +2943,33 @@ paths:
                   geocoding:
                     status: ok
 
+  /docs:
+    get:
+      tags: [contract]
+      summary: Interactive documentation (Swagger UI)
+      description: >
+        Renders this contract in the browser. Served from this server under the application's own
+        security policy. Switched off (404) with `API_DOCS_UI=false`; the JSON contract stays
+        available. "Try it out" can read with the current session; write operations from this page
+        are refused by the browser-origin rule unless the page is served from `BROWSER_ORIGIN`.
+      operationId: getDocs
+      security: []
+      responses:
+        '200':
+          description: The documentation page.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            text/html:
+              schema:
+                type: string
+              example: '<!doctype html><html lang="en"><head><title>CCIR API</title></head><body><div id="swagger-ui"></div></body></html>'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
   /openapi.json:
     get:
       tags: [contract]

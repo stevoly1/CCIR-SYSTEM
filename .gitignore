@@ -7,7 +7,7 @@ client/dist/
 coverage/
 client/node_modules/
 .DS_Store
-docs/
+/docs/
 # Database backups hold personal data and never belong in the repository.
 backups/
 *.archive.gz
