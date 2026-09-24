@@ -14,7 +14,9 @@ const { parseArgs, requireTool, withToolConfig, sha256File, databaseSnapshot } =
 // archive, and a later restore would fail its check. The database is therefore snapshotted before
 // and after the dump; if anything changed, that archive is deleted and the backup is tried again.
 const ATTEMPTS = 3;
+// Self-expiring collections are left out: MongoDB changes them by itself, even with the app stopped.
 const changedCollections = (before, after) => [...new Set([...Object.keys(before.collections), ...Object.keys(after.collections)])]
+  .filter((name) => !before.collections[name]?.selfExpiring && !after.collections[name]?.selfExpiring)
   .filter((name) => before.collections[name]?.count !== after.collections[name]?.count
     || before.collections[name]?.sha256 !== after.collections[name]?.sha256)
   .sort();
@@ -22,17 +24,21 @@ const changedCollections = (before, after) => [...new Set([...Object.keys(before
 const backup = async ({ uri = process.env.MONGO_URL, out = 'backups', attempts = ATTEMPTS } = {}) => {
   if (!uri) throw new Error('MONGO_URL is not set');
   const mongodump = requireTool('mongodump');
-  fs.mkdirSync(out, { recursive: true });
+  fs.mkdirSync(out, { recursive: true, mode: 0o700 });
   let changed = [];
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const archive = path.resolve(out, `ccir-${stamp}.archive.gz`);
     const snapshot = await databaseSnapshot(uri);
+    // The archive holds every user's personal data and password hash: created private before the
+    // dump writes into it (an existing file keeps its mode), and made private again afterwards.
+    fs.writeFileSync(archive, '', { mode: 0o600 });
     const result = await withToolConfig(uri, (config) => common.runTool(mongodump, [`--config=${config}`, `--db=${snapshot.database}`, `--archive=${archive}`, '--gzip', '--quiet']));
     if (result.status !== 0) {
       fs.rmSync(archive, { force: true });
       throw new Error(`mongodump failed: ${scrubSecrets(result.stderr.trim())}`);
     }
+    fs.chmodSync(archive, 0o600);
     changed = changedCollections(snapshot, await databaseSnapshot(uri));
     if (changed.length > 0) {
       fs.rmSync(archive, { force: true });
@@ -46,7 +52,8 @@ const backup = async ({ uri = process.env.MONGO_URL, out = 'backups', attempts =
       toolVersion,
       archive: path.basename(archive),
       archiveSha256: sha256File(archive),
-      collections: Object.fromEntries(Object.entries(snapshot.collections).map(([name, c]) => [name, { count: c.count, sha256: c.sha256 }])),
+      collections: Object.fromEntries(Object.entries(snapshot.collections)
+        .map(([name, c]) => [name, { count: c.count, sha256: c.sha256, ...(c.selfExpiring ? { selfExpiring: true } : {}) }])),
     };
     const manifestPath = archive.replace(/\.archive\.gz$/, '.manifest.json');
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);

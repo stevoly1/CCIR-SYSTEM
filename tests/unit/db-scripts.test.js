@@ -82,7 +82,7 @@ describe('database script helpers', () => {
 
     it('requires an explicit target and never falls back to MONGO_URL', async () => {
       vi.stubEnv('MONGO_URL', 'mongodb://should-not-be-used.example.test/ccir');
-      await expect(restore({ archive: path.join(dir, 'x.archive.gz') })).rejects.toThrow(/--uri are required; the target is never taken from MONGO_URL/);
+      await expect(restore({ archive: path.join(dir, 'x.archive.gz') })).rejects.toThrow(/An archive and a target are required; the target is never taken from MONGO_URL/);
       vi.unstubAllEnvs();
     });
 
@@ -101,8 +101,65 @@ describe('database script helpers', () => {
       'mongodb+srv://u:p@cluster.example.test/?retryWrites=true',
     ])('refuses a target that names no database: %s', async (uri) => {
       const error = await restore({ archive: path.join(dir, 'x.archive.gz'), uri }).catch((caught) => caught);
-      expect(error.message).toMatch(/--uri must name the target database/);
+      expect(error.message).toMatch(/restore target must name its database/);
       expect(error.message).not.toContain('u:p@');
+    });
+  });
+
+  // The command line is visible to every local user (ps) and kept in shell history, so a target
+  // holding a password must come from the environment instead.
+  describe('restoreTargetFrom', () => {
+    const { restoreTargetFrom } = require('../../scripts/db/restore');
+    const withPassword = 'mongodb+srv://admin:S3cretPw@cluster.example.test/ccir-restored';
+
+    it('takes the target from RESTORE_TARGET_URL', () => {
+      expect(restoreTargetFrom({ args: {}, env: { RESTORE_TARGET_URL: withPassword } })).toBe(withPassword);
+    });
+
+    it('accepts --uri only when it carries no password', () => {
+      expect(restoreTargetFrom({ args: { uri: 'mongodb://127.0.0.1:27017/ccir-restored' }, env: {} })).toBe('mongodb://127.0.0.1:27017/ccir-restored');
+      expect(restoreTargetFrom({ args: { uri: 'mongodb://backup-user@127.0.0.1:27017/ccir-restored?authMechanism=MONGODB-X509' }, env: {} }))
+        .toBe('mongodb://backup-user@127.0.0.1:27017/ccir-restored?authMechanism=MONGODB-X509');
+    });
+
+    it('refuses a --uri that carries a password, without repeating it', () => {
+      let error;
+      try { restoreTargetFrom({ args: { uri: withPassword }, env: {} }); } catch (caught) { error = caught; }
+      expect(error.message).toMatch(/RESTORE_TARGET_URL/);
+      expect(error.message).not.toContain('S3cretPw');
+    });
+
+    it('refuses two targets, and never falls back to MONGO_URL', () => {
+      expect(() => restoreTargetFrom({ args: { uri: 'mongodb://127.0.0.1:27017/a' }, env: { RESTORE_TARGET_URL: 'mongodb://127.0.0.1:27017/b' } })).toThrow(/either RESTORE_TARGET_URL or --uri, not both/);
+      expect(restoreTargetFrom({ args: {}, env: { MONGO_URL: 'mongodb://127.0.0.1:27017/live' } })).toBeUndefined();
+    });
+  });
+
+  describe('restoreMismatches', () => {
+    const { restoreMismatches } = require('../../scripts/db/common');
+    const manifest = {
+      complaints: { count: 2, sha256: 'a' },
+      refreshtokens: { count: 5, sha256: 'b', selfExpiring: true },
+    };
+
+    it('passes an exact copy', () => {
+      expect(restoreMismatches(manifest, { complaints: { count: 2, sha256: 'a' }, refreshtokens: { count: 5, sha256: 'b' } })).toEqual([]);
+    });
+
+    // MongoDB deletes expired documents by itself, even from a restored copy.
+    it('ignores the contents of self-expiring collections', () => {
+      expect(restoreMismatches(manifest, { complaints: { count: 2, sha256: 'a' }, refreshtokens: { count: 3, sha256: 'c' } })).toEqual([]);
+    });
+
+    it('names a collection whose contents differ, or that is missing', () => {
+      expect(restoreMismatches(manifest, { complaints: { count: 2, sha256: 'z' }, refreshtokens: { count: 5, sha256: 'b' } })).toEqual(['complaints']);
+      expect(restoreMismatches(manifest, { refreshtokens: { count: 5, sha256: 'b' } })).toEqual(['complaints']);
+    });
+
+    it('names a non-empty collection the backup does not have, and ignores an empty one', () => {
+      const after = { complaints: { count: 2, sha256: 'a' }, refreshtokens: { count: 5, sha256: 'b' } };
+      expect(restoreMismatches(manifest, { ...after, complaintdeletions: { count: 1, sha256: 'd' } })).toEqual(['complaintdeletions (not in the backup)']);
+      expect(restoreMismatches(manifest, { ...after, complaintdeletions: { count: 0, sha256: 'e' } })).toEqual([]);
     });
   });
 

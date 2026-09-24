@@ -56,6 +56,8 @@ describe.skipIf(!hasTools)('backup and restore rehearsal (needs MongoDB Database
       const { archive, manifest } = await backup({ uri: withDatabase(process.env.TEST_MONGO_URI, source.name), out });
       expect(manifest.collections.complaints.count).toBe(2);
       expect(fs.statSync(archive).size).toBeGreaterThan(0);
+      // The archive holds every user's personal data and password hash.
+      expect(fs.statSync(archive).mode & 0o777).toBe(0o600);
 
       const targetUri = withDatabase(process.env.TEST_MONGO_URI, target.name);
       await expect(restore({ archive, uri: targetUri })).rejects.toThrow(/not empty/);
@@ -95,6 +97,42 @@ describe.skipIf(!hasTools)('backup and restore rehearsal (needs MongoDB Database
       } finally {
         spy.mockRestore();
       }
+    }, 120000);
+
+    // Refresh tokens, throttle counters and sign-in state expire by themselves (TTL indexes), so
+    // they change during a dump even with the application stopped.
+    it('does not retry, or fail, because a self-expiring collection changed during the dump', async () => {
+      const source = await open(`ccir-bk-ttl-${Date.now()}`);
+      await source.db.collection('complaints').insertOne({ ref: 'A' });
+      const sessions = source.db.collection('refreshtokens');
+      await sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+      await sessions.insertOne({ expiresAt: new Date(Date.now() + 60000) });
+      const spy = writeBeforeEachDump(sessions, Infinity);
+      try {
+        const { manifest } = await backup({ uri: withDatabase(process.env.TEST_MONGO_URI, source.name), out });
+        expect(manifest.collections.refreshtokens.selfExpiring).toBe(true);
+        expect(manifest.collections.complaints.selfExpiring).toBeUndefined();
+        expect(spy.mock.calls.filter(([, args]) => args.some((arg) => arg.startsWith('--archive='))).length).toBe(1);
+      } finally {
+        spy.mockRestore();
+      }
+    }, 120000);
+
+    // --drop only drops the collections the archive holds; a newer collection would survive and
+    // leave, for example, deletion-log entries for complaints the restore brought back.
+    it('makes a replaced target an exact copy, dropping collections the backup does not have', async () => {
+      const stamp = Date.now();
+      const source = await open(`ccir-bk-exact-src-${stamp}`);
+      const target = await open(`ccir-bk-exact-tgt-${stamp}`);
+      await source.db.collection('complaints').insertOne({ ref: 'A' });
+      await target.db.collection('complaints').insertOne({ ref: 'NEWER' });
+      await target.db.collection('complaintdeletions').insertOne({ ref: 'A', reason: 'deleted after the backup' });
+      const { archive } = await backup({ uri: withDatabase(process.env.TEST_MONGO_URI, source.name), out });
+
+      await expect(restore({ archive, uri: withDatabase(process.env.TEST_MONGO_URI, target.name) })).rejects.toThrow(/not empty/);
+      await restore({ archive, uri: withDatabase(process.env.TEST_MONGO_URI, target.name), drop: true, confirmDrop: true });
+      const names = (await target.db.listCollections({}, { nameOnly: true }).toArray()).map((c) => c.name).sort();
+      expect(names).toEqual(['complaints']);
     }, 120000);
 
     it('keeps nothing and says why when the database changes during every attempt', async () => {

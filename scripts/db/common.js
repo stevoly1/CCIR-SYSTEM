@@ -80,7 +80,10 @@ const databaseSnapshot = async (uri) => {
       const indexes = (await db.collection(name).indexes())
         .map(({ key, unique = false, sparse = false, expireAfterSeconds }) => ({ key, unique, sparse, expireAfterSeconds }))
         .sort((a, b) => JSON.stringify(a.key).localeCompare(JSON.stringify(b.key)));
-      collections[name] = { count: docs.length, sha256: hash.digest('hex'), indexes };
+      // A TTL index means MongoDB deletes from the collection by itself (refresh tokens,
+      // throttle counters, sign-in state), so its contents can change with the application stopped.
+      const selfExpiring = indexes.some((index) => index.expireAfterSeconds !== undefined);
+      collections[name] = { count: docs.length, sha256: hash.digest('hex'), indexes, ...(selfExpiring ? { selfExpiring } : {}) };
     }
     const { version } = await db.admin().command({ buildInfo: 1 }).catch(() => ({}));
     return { database: db.databaseName, serverVersion: version, collections };
@@ -89,4 +92,28 @@ const databaseSnapshot = async (uri) => {
   }
 };
 
-module.exports = { parseArgs, databaseNameFrom, assertRestoreAllowed, requireTool, withToolConfig, runTool, sha256File, databaseSnapshot };
+// Names what a restored database gets wrong against the backup manifest: a collection whose
+// contents differ or that is missing, and a non-empty collection the backup does not have.
+// Self-expiring collections are restored but not compared, because MongoDB may already have
+// deleted their expired documents from the copy.
+const restoreMismatches = (manifestCollections, restoredCollections) => [
+  ...Object.entries(manifestCollections)
+    .filter(([name, c]) => !c.selfExpiring
+      && (restoredCollections[name]?.count !== c.count || restoredCollections[name]?.sha256 !== c.sha256))
+    .map(([name]) => name),
+  ...Object.entries(restoredCollections)
+    .filter(([name, c]) => !manifestCollections[name] && c.count > 0)
+    .map(([name]) => `${name} (not in the backup)`),
+];
+
+const dropCollections = async (uri, names) => {
+  if (names.length === 0) return;
+  const connection = await mongoose.createConnection(uri).asPromise();
+  try {
+    for (const name of names) await connection.db.dropCollection(name);
+  } finally {
+    await connection.close();
+  }
+};
+
+module.exports = { parseArgs, databaseNameFrom, restoreMismatches, dropCollections, assertRestoreAllowed, requireTool, withToolConfig, runTool, sha256File, databaseSnapshot };

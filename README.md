@@ -111,7 +111,7 @@ Logs are JSON lines on standard output, one line per request plus one per notabl
 | `GET /api/v1/health/live` | the process is running (never checks the database) | 200 |
 | `GET /api/v1/health/ready` | `ready`, `degraded` (an optional service — AI, uploads, email, Google sign-in — is not configured) or `unavailable` | 200 when ready or degraded; 503 when unavailable |
 
-When unavailable, `checks.database.reason` is one of `DATABASE_DISCONNECTED`, `DATABASE_TIMEOUT`, `TRANSACTIONS_UNSUPPORTED` (not a replica set), `INDEXES_MISSING` (run `db:indexes -- --apply`) or `DATABASE_ERROR`. Neither endpoint is rate-limited, and neither reveals a setting value or connection detail; readiness does show which optional services are configured and the MongoDB server version. Because readiness is public, its database check is shared: concurrent probes wait for one check, and the result is reused for `READINESS_CACHE_MS` milliseconds (default `1000`; `0` checks on every call).
+When unavailable, `checks.database.reason` is one of `DATABASE_DISCONNECTED`, `DATABASE_TIMEOUT`, `TRANSACTIONS_UNSUPPORTED` (not a replica set), `INDEXES_MISSING` (run `db:indexes -- --apply`) or `DATABASE_ERROR`. Readiness needs the database user to be allowed `listIndexes` (the `readWrite` role is). Neither endpoint is rate-limited, and neither reveals a setting value or connection detail; readiness does show which optional services are configured and the MongoDB server version. Because readiness is public, its database check is shared: concurrent probes wait for one check, and the result is reused for `READINESS_CACHE_MS` milliseconds (default `1000`; `0` checks on every call).
 
 ### Database indexes
 
@@ -121,7 +121,7 @@ npm run db:indexes -- --apply                # create missing indexes; never dro
 npm run db:indexes -- --apply --drop-extra   # also drop indexes the models do not declare
 ```
 
-Run `--apply` on a new database before the first start, and after every release that changes indexes. Upgrading from an earlier release: run `--apply --drop-extra` once to remove the unused coordinate index.
+Run `--apply` on a new database before the first start, and after every release that changes indexes. Upgrading from an earlier release: run the report first. It lists the unused coordinate index `location.latitude_1_location.longitude_1` as extra. Use `--apply --drop-extra` only if that is the only extra index listed, because it drops every index the models do not declare, including any made in a hosted console; otherwise drop that one index by name.
 
 ### Backup and restore
 
@@ -129,11 +129,18 @@ These commands need [MongoDB Database Tools](https://www.mongodb.com/try/downloa
 
 ```bash
 npm run db:backup -- --out backups     # the database in MONGO_URL → backups/ccir-<time>.archive.gz + a manifest
-npm run db:restore -- --archive backups/ccir-<time>.archive.gz --uri '<target connection string>'
+RESTORE_TARGET_URL='<target connection string>' npm run db:restore -- --archive backups/ccir-<time>.archive.gz
 npm run db:rehearse                    # proves backup and restore on a throwaway in-memory database (needs the dev dependencies)
 ```
 
-A backup compares the database before and after the dump, so its manifest always matches its archive; if the application wrote in between, that attempt is discarded and retried (three attempts, then it stops and keeps nothing). Restore takes its target only from `--uri`, never from `MONGO_URL`, and the URI must name the target database. It refuses an archive that does not match its manifest checksum, and refuses a non-empty target unless both `--drop` and `--confirm-drop` are given. Afterwards it checks every collection's count and checksum against the manifest. Backups contain personal data: `backups/` and `*.archive.gz` are git-ignored; keep them somewhere access-controlled.
+A backup compares the database before and after the dump, so its manifest always matches its archive. If the application wrote in between, that attempt is discarded and retried; after three attempts it stops and keeps nothing. Collections that expire by themselves (refresh tokens, throttle counters, Google sign-in state) are backed up and restored but not compared, because MongoDB changes them even with the application stopped. The archive is created readable by its owner only.
+
+Restore takes its target from `RESTORE_TARGET_URL`, never from `MONGO_URL`. `--uri` is accepted only for a target without a password, because the command line is visible to other users and kept in shell history. The target must name its database. A restore:
+- refuses an archive that does not match its manifest checksum;
+- refuses a non-empty target unless both `--drop` and `--confirm-drop` are given, and then makes the target an exact copy of the backup, dropping collections the backup does not have;
+- afterwards checks every collection against the manifest.
+
+Backups contain personal data and password hashes: `backups/` and `*.archive.gz` are git-ignored; keep them somewhere access-controlled. On a hosted cluster, the provider's own backups are the first line of defence; these commands are for moving data and for disaster recovery you control.
 
 ### Tests
 
