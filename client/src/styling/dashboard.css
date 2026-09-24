@@ -280,9 +280,14 @@
     position: relative;
 }
 
-.icon-btn:hover {
+.icon-btn:hover:not(:disabled) {
     color: var(--color-text);
     border-color: var(--color-primary);
+}
+
+.icon-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
 }
 
 .icon-btn .dot {
