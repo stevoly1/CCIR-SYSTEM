@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Link, useNavigate, useSearchParams } from 'react-router';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
 import toast from 'react-hot-toast';
 import AuthLayout from '../../layouts/AuthLayout';
 import GoogleButton from '../../components/GoogleButton';
 import { login, clearAuthError } from '../../slices/authSlice';
+import { returnPath } from '../../routes/returnPath';
 
 const LoginPage = () => {
     const dispatch = useDispatch();
     const navigate = useNavigate();
+    const location = useLocation();
     const { status, error } = useSelector((state) => state.auth);
     const [form, setForm] = useState({ email: '', password: '' });
     const [searchParams, setSearchParams] = useSearchParams();
@@ -29,7 +31,7 @@ const LoginPage = () => {
         const result = await dispatch(login(form));
         if (login.fulfilled.match(result)) {
             toast.success('Welcome back!');
-            navigate('/dashboard');
+            navigate(returnPath(location.state), { replace: true });
         }
     };
 
@@ -60,7 +62,7 @@ const LoginPage = () => {
 
             <div className="auth-switch">
                 Don't have an account?
-                <Link to="/signup" style={{ color: 'var(--color-primary)', fontWeight: 700, marginLeft: 4 }}>Sign up</Link>
+                <Link to="/signup" state={location.state} style={{ color: 'var(--color-primary)', fontWeight: 700, marginLeft: 4 }}>Sign up</Link>
             </div>
         </AuthLayout>
     );

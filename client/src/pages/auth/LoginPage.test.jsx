@@ -36,7 +36,17 @@ describe('LoginPage', () => {
     expect(dispatch).toHaveBeenCalledWith({ type: 'clear' });
     expect(dispatch).toHaveBeenCalledWith({ type: 'login', args: { email: 'citizen@example.test', password: 'Correct-horse-1' } });
     expect(toast.success).toHaveBeenCalledWith('Welcome back!');
-    expect(navigate).toHaveBeenCalledWith('/dashboard');
+    expect(navigate).toHaveBeenCalledWith('/dashboard', { replace: true });
+  });
+
+  it('goes back to the page that asked for sign-in', async () => {
+    dispatch.mockImplementation(async (action) => (action.type === 'login' ? { type: 'login/fulfilled' } : action));
+    const user = userEvent.setup();
+    renderPage({ pathname: '/login', state: { from: '/dashboard/reports/abc' } });
+    await user.type(screen.getByLabelText('Email'), 'citizen@example.test');
+    await user.type(screen.getByLabelText('Password'), 'Correct-horse-1');
+    await user.click(screen.getByRole('button', { name: 'Log in' }));
+    expect(navigate).toHaveBeenCalledWith('/dashboard/reports/abc', { replace: true });
   });
 
   it('stays on the page when the server rejects the login', async () => {

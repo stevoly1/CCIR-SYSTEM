@@ -33,7 +33,7 @@ describe('SignupPage', () => {
     await user.click(screen.getByRole('button', { name: 'Create account' }));
     expect(dispatch).toHaveBeenCalledWith({ type: 'signup', args: { name: 'Ada Lovelace', email: 'ada@example.test', password: 'Analytical-1' } });
     expect(toast.success).toHaveBeenCalledWith('Account created!');
-    expect(navigate).toHaveBeenCalledWith('/dashboard');
+    expect(navigate).toHaveBeenCalledWith('/dashboard', { replace: true });
   });
 
   it('stays on the page when the server rejects the sign-up', async () => {
