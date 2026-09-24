@@ -1,6 +1,6 @@
 // Test-only: with OPENAPI_VALIDATE=true every response is checked against the contract and every
-// documented operation that is called is recorded. Production never sets the variable, so the
-// validator (a development dependency) is never loaded there.
+// documented operation that is called is recorded. Production ignores the variable, so the
+// validator (a development dependency) is never loaded there, whatever the environment says.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -14,7 +14,7 @@ const append = (file, entry) => {
 };
 
 const contractTestMiddleware = () => {
-  if (process.env.OPENAPI_VALIDATE !== 'true') return [];
+  if (process.env.OPENAPI_VALIDATE !== 'true' || process.env.NODE_ENV === 'production') return [];
   // eslint-disable-next-line global-require -- loaded only when contract checking is on
   const OpenApiValidator = require('express-openapi-validator');
   const recorder = (req, res, next) => {

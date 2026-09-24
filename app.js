@@ -42,7 +42,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser(process.env.COOKIE));
 
-// Test-only contract checking (a no-op unless OPENAPI_VALIDATE=true).
+// Test-only contract checking (a no-op unless OPENAPI_VALIDATE=true, and always in production).
 const { contractTestMiddleware } = require('./middleware/openapiResponseValidator');
 const contractChecks = contractTestMiddleware();
 if (contractChecks.length > 0) app.use(contractChecks);

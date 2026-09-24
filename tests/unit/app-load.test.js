@@ -95,4 +95,29 @@ describe('app module boundary', () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toBe('false');
   }, 15000);
+
+  it('never loads the contract validator in production, even with contract checking switched on', () => {
+    const projectRoot = path.resolve(__dirname, '..', '..');
+    const result = spawnSync(
+      process.execPath,
+      ['-e', "require('./app'); process.stdout.write(String(Object.keys(require.cache).some((file) => file.includes('express-openapi-validator'))))"],
+      {
+        cwd: projectRoot,
+        env: {
+          ...process.env,
+          OPENAPI_VALIDATE: 'true',
+          BROWSER_ORIGIN: 'https://ccir.example.test',
+          TRUST_PROXY_HOPS: '0',
+          AUTH_THROTTLE_HMAC_SECRET: 'app-load-auth-throttle-secret',
+          NODE_ENV: 'production',
+          MONGO_URL: '',
+        },
+        encoding: 'utf8',
+        timeout: 10000,
+      },
+    );
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe('false');
+  }, 15000);
 });
