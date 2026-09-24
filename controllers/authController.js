@@ -68,12 +68,13 @@ const login = async (req, res) => {
     }
 
     const user = await User.findOne({ email }).select('+password');
-    if (
-        !user
-        || user.isActive !== true
-        || user.retiredAt
-        || !(await user.comparePassword(password))
-    ) {
+    const passwordMatches = Boolean(user && !user.retiredAt && await user.comparePassword(password));
+    // Only someone who knows the password learns the account is suspended; everyone else gets
+    // the same answer as for a mistyped password or an unknown email.
+    if (passwordMatches && user.isActive !== true) {
+        throw new CustomError.ForbiddenError('This account is suspended. Contact an administrator.', 'ACCOUNT_SUSPENDED');
+    }
+    if (!passwordMatches) {
         await authThrottle.consume('login-account', accountSubject, {
             limit: 5,
             windowMs: AUTH_WINDOW_MS,

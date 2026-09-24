@@ -1104,7 +1104,9 @@ paths:
         '400':
           $ref: '#/components/responses/ValidationFailed'
         '401':
-          description: Wrong email or password, or an inactive account (one message for all).
+          description: >
+            Wrong email or password, an unknown email, or a retired account (one message for all).
+            A suspended account also gets this answer unless the password is right.
           content:
             application/json:
               schema:
@@ -1115,7 +1117,18 @@ paths:
                   message: Invalid email or password
                 msg: Invalid email or password
         '403':
-          $ref: '#/components/responses/Forbidden'
+          description: >
+            `ACCOUNT_SUSPENDED` when the password is right but an administrator has suspended the
+            account; `FORBIDDEN` when the request's origin is not allowed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: ACCOUNT_SUSPENDED
+                  message: This account is suspended. Contact an administrator.
+                msg: This account is suspended. Contact an administrator.
         '429':
           $ref: '#/components/responses/RateLimited'
         '500':
