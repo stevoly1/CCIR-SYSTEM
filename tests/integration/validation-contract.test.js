@@ -172,4 +172,14 @@ describe('canonical validation and error contract', () => {
     const response = await agent.get('/api/v1/categories');
     expectError(response, { status: 500, code: 'INTERNAL_ERROR', message: 'Something went wrong' });
   });
+
+  // Holds whether or not the reference client has been built (its app-shell fallback must
+  // never answer an API path).
+  it.each(['get', 'post'])('answers an unknown API route (%s) with the JSON 404', async (method) => {
+    const response = method === 'get'
+      ? await request(testServer()).get('/api/v1/no-such-route')
+      : await unsafeRequest(request(testServer()), 'post', '/api/v1/no-such-route').send({});
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({ error: { code: 'NOT_FOUND', message: 'Route not found' }, msg: 'Route not found' });
+  });
 });

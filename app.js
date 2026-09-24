@@ -1,4 +1,3 @@
-const fs = require('fs');
 const express = require('express');
 const path = require('path');
 const cookieParser = require('cookie-parser');
@@ -10,6 +9,7 @@ const requireApprovedOrigin = require('./middleware/originGuard');
 const multipartUpload = require('./middleware/multipartUpload');
 const { requestLogger } = require('./middleware/requestLogger');
 const { apiRateLimit } = require('./middleware/apiRateLimit');
+const { mountReferenceClient } = require('./middleware/referenceClient');
 
 const browserSecurity = getBrowserSecurityConfig(process.env);
 
@@ -59,14 +59,7 @@ app.use('/api/v1/location', LocationRouter);
 app.use('/api/v1/health', require('./routes/healthRoute'));
 
 // Serve the reference frontend, if it has been built (client/dist)
-const clientDist = path.join(__dirname, 'client', 'dist');
-if (fs.existsSync(clientDist)) {
-  app.use(express.static(clientDist));
-  // Express 5 (path-to-regexp v8) requires a named wildcard, not a bare '*'.
-  app.get('/*splat', (req, res) => {
-    res.sendFile(path.join(clientDist, 'index.html'));
-  });
-}
+mountReferenceClient(app, path.join(__dirname, 'client', 'dist'));
 
 // Error handling middlewares
 const NotFoundMiddleware = require('./middleware/notFoundRoute');
