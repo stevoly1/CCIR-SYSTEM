@@ -1,25 +1,28 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { RECORD_DIR } = require('../../middleware/openapiResponseValidator');
 const { listOperations } = require('../../utils/openapi');
 
-const readLines = (suffix) => (fs.existsSync(RECORD_DIR) ? fs.readdirSync(RECORD_DIR) : [])
+const readLines = (dir, suffix) => (fs.existsSync(dir) ? fs.readdirSync(dir) : [])
   .filter((file) => file.endsWith(`-${suffix}.jsonl`))
-  .flatMap((file) => fs.readFileSync(path.join(RECORD_DIR, file), 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line)));
+  .flatMap((file) => fs.readFileSync(path.join(dir, file), 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line)));
 
 // Fails the whole integration run when any response broke the contract, and (with
 // OPENAPI_COVERAGE=enforce, set by `npm run test:integration`) when a documented operation was
 // never called by any test.
+// Each run records into a folder of its own, named through OPENAPI_RECORD_DIR before the test
+// workers start, so two runs at once never read or clear each other's records.
 export default function setup() {
-  fs.rmSync(RECORD_DIR, { recursive: true, force: true });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccir-openapi-coverage-'));
+  process.env.OPENAPI_RECORD_DIR = dir;
   return function teardown() {
-    const failures = readLines('failures');
-    const called = new Set(readLines('calls').map((entry) => entry.operation));
+    const failures = readLines(dir, 'failures');
+    const called = new Set(readLines(dir, 'calls').map((entry) => entry.operation));
     const unexercised = process.env.OPENAPI_COVERAGE === 'enforce' ? listOperations().filter((op) => !called.has(op)) : [];
-    fs.rmSync(RECORD_DIR, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
     const problems = [
       ...[...new Set(failures.map((f) => `Response does not match the contract: ${f.operation} ${f.status ?? ''} ${f.message}`))],
       ...unexercised.map((op) => `Documented operation never exercised by an integration test: ${op}`),

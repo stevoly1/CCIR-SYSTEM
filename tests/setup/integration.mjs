@@ -21,7 +21,7 @@ process.env.AUTH_THROTTLE_HMAC_SECRET ||= 'integration-auth-throttle-secret';
 process.env.NODE_ENV = 'test';
 
 beforeAll(async () => {
-  mongoServer = await startWithPortRetry(() => MongoMemoryReplSet.create({
+  mongoServer = await startWithPortRetry(() => new MongoMemoryReplSet({
     binary: { version: MONGODB_VERSION },
     replSet: { count: 1, storageEngine: 'wiredTiger' },
   }));

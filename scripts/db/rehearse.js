@@ -37,7 +37,7 @@ const seedEveryCollection = async (uri) => {
 };
 
 const rehearse = async () => {
-  const replSet = await startWithPortRetry(() => MongoMemoryReplSet.create({ binary: { version: MONGODB_TEST_VERSION }, replSet: { count: 1, storageEngine: 'wiredTiger' } }));
+  const replSet = await startWithPortRetry(() => new MongoMemoryReplSet({ binary: { version: MONGODB_TEST_VERSION }, replSet: { count: 1, storageEngine: 'wiredTiger' } }));
   const out = fs.mkdtempSync(path.join(os.tmpdir(), 'ccir-rehearsal-'));
   try {
     const source = withDatabase(replSet.getUri(), 'ccir-rehearsal-source');

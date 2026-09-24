@@ -137,7 +137,7 @@ describe('checkReadiness database failures', () => {
   });
 
   it('is unavailable on a standalone server that cannot run transactions', async () => {
-    const standalone = await startWithPortRetry(() => MongoMemoryServer.create({ binary: { version: MONGODB_TEST_VERSION } }));
+    const standalone = await startWithPortRetry(() => new MongoMemoryServer({ binary: { version: MONGODB_TEST_VERSION } }));
     const connection = await mongoose.createConnection(standalone.getUri()).asPromise();
     try {
       const result = await checkReadiness({ connection });

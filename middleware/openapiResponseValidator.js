@@ -6,11 +6,14 @@ const os = require('node:os');
 const path = require('node:path');
 const { CONTRACT_PATH } = require('../utils/openapi');
 
-const RECORD_DIR = path.join(os.tmpdir(), 'ccir-openapi-coverage');
+// Each integration run names its own folder (tests/setup/openapiCoverage.mjs sets
+// OPENAPI_RECORD_DIR before the test workers start), so concurrent runs never share records.
+const recordDir = () => process.env.OPENAPI_RECORD_DIR || path.join(os.tmpdir(), 'ccir-openapi-coverage');
 
 const append = (file, entry) => {
-  fs.mkdirSync(RECORD_DIR, { recursive: true });
-  fs.appendFileSync(path.join(RECORD_DIR, `${process.pid}-${file}.jsonl`), `${JSON.stringify(entry)}\n`);
+  const dir = recordDir();
+  fs.mkdirSync(dir, { recursive: true });
+  fs.appendFileSync(path.join(dir, `${process.pid}-${file}.jsonl`), `${JSON.stringify(entry)}\n`);
 };
 
 const contractTestMiddleware = () => {
@@ -51,4 +54,4 @@ const contractTestMiddleware = () => {
   ];
 };
 
-module.exports = { contractTestMiddleware, RECORD_DIR };
+module.exports = { contractTestMiddleware, recordDir };

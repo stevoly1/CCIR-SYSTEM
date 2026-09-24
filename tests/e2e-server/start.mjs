@@ -29,7 +29,7 @@ const mongoose = require('mongoose');
 const { MongoMemoryReplSet } = require('mongodb-memory-server');
 
 const { startWithPortRetry } = require('../setup/memoryMongo.cjs');
-const replSet = await startWithPortRetry(() => MongoMemoryReplSet.create({
+const replSet = await startWithPortRetry(() => new MongoMemoryReplSet({
   binary: { version: require('../setup/mongoVersion.cjs').MONGODB_TEST_VERSION },
   replSet: { count: 1, storageEngine: 'wiredTiger' },
 }));

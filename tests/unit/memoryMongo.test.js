@@ -4,22 +4,51 @@ const { startWithPortRetry } = require('../setup/memoryMongo.cjs');
 // take the port in between ("Port "50879" already in use"), which skipped a whole integration file.
 const portError = () => Object.assign(new Error('Port "50879" already in use'), { name: 'StdoutInstanceError' });
 
+// An unstarted instance whose start() follows the given outcomes, recording its clean-ups.
+const instances = [];
+const buildWith = (...outcomes) => vi.fn(() => {
+  const outcome = outcomes[Math.min(instances.length, outcomes.length - 1)];
+  const instance = {
+    start: vi.fn(async () => { if (outcome instanceof Error) throw outcome; }),
+    stop: vi.fn(async () => true),
+  };
+  instances.push(instance);
+  return instance;
+});
+
 describe('startWithPortRetry', () => {
-  it('starts again with a fresh port when the chosen port was taken', async () => {
-    const start = vi.fn().mockRejectedValueOnce(portError()).mockResolvedValueOnce('server');
-    await expect(startWithPortRetry(start)).resolves.toBe('server');
-    expect(start).toHaveBeenCalledTimes(2);
+  beforeEach(() => { instances.length = 0; });
+
+  it('starts again with a fresh instance when the chosen port was taken', async () => {
+    const build = buildWith(portError(), 'ok');
+    const started = await startWithPortRetry(build);
+    expect(started).toBe(instances[1]);
+    expect(build).toHaveBeenCalledTimes(2);
   });
 
-  it('gives up after three attempts, with the last port error', async () => {
-    const start = vi.fn().mockRejectedValue(portError());
-    await expect(startWithPortRetry(start)).rejects.toThrow('already in use');
-    expect(start).toHaveBeenCalledTimes(3);
+  // The library skips its own clean-up after a failed start, leaving an empty mongo-mem-* folder.
+  it('cleans up each failed instance, forcing removal of its temporary folder', async () => {
+    await startWithPortRetry(buildWith(portError(), 'ok'));
+    expect(instances[0].stop).toHaveBeenCalledWith({ doCleanup: true, force: true });
+    expect(instances[1].stop).not.toHaveBeenCalled();
   });
 
-  it('never retries any other failure', async () => {
-    const start = vi.fn().mockRejectedValue(new Error('binary download failed'));
-    await expect(startWithPortRetry(start)).rejects.toThrow('binary download failed');
-    expect(start).toHaveBeenCalledTimes(1);
+  it('gives up after three attempts, with the last port error, cleaning up every one', async () => {
+    const build = buildWith(portError());
+    await expect(startWithPortRetry(build)).rejects.toThrow('already in use');
+    expect(build).toHaveBeenCalledTimes(3);
+    expect(instances.every((instance) => instance.stop.mock.calls.length === 1)).toBe(true);
+  });
+
+  it('never retries any other failure, but still cleans up', async () => {
+    const build = buildWith(new Error('binary download failed'));
+    await expect(startWithPortRetry(build)).rejects.toThrow('binary download failed');
+    expect(build).toHaveBeenCalledTimes(1);
+    expect(instances[0].stop).toHaveBeenCalledWith({ doCleanup: true, force: true });
+  });
+
+  it('reports the start failure, not a failure of the clean-up', async () => {
+    const build = vi.fn(() => ({ start: vi.fn().mockRejectedValue(new Error('binary download failed')), stop: vi.fn().mockRejectedValue(new Error('cleanup failed')) }));
+    await expect(startWithPortRetry(build)).rejects.toThrow('binary download failed');
   });
 });
