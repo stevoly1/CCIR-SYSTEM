@@ -21,24 +21,24 @@ test('J2 administrator triages, assigns, reassigns, unassigns, and deletes spam'
   await expect(page.getByLabel('Report timeline')).toContainText('Inspection scheduled');
 
   await page.getByLabel('Assign to').selectOption({ label: 'Ade Agency' });
-  await page.getByRole('button', { name: 'Assign' }).click();
+  await page.getByRole('button', { name: 'Assign', exact: true }).click();
   await expect(page.getByLabel('Responsibility')).toContainText('Ade Agency');
   await page.getByLabel('Assign to').selectOption({ label: 'Bisi Agency' });
   await page.getByLabel('Assignment reason (optional)').fill('Closer crew');
-  await page.getByRole('button', { name: 'Reassign' }).click();
+  await page.getByRole('button', { name: 'Reassign', exact: true }).click();
   await expect(page.getByLabel('Assignment history')).toContainText('Closer crew');
-  await page.getByRole('button', { name: 'Unassign' }).click();
-  await page.getByRole('button', { name: 'Confirm unassign' }).click();
+  await page.getByRole('button', { name: 'Unassign', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm unassign', exact: true }).click();
   await expect(page.getByLabel('Responsibility')).toContainText('Not assigned');
   await page.getByLabel('Assign to').selectOption({ label: 'Bisi Agency' });
-  await page.getByRole('button', { name: 'Assign' }).click();
+  await page.getByRole('button', { name: 'Assign', exact: true }).click();
   await expect(page.getByLabel('Responsibility')).toContainText('Bisi Agency');
 
   await page.goto('/dashboard/reports');
   await page.getByText('Buy cheap watches now spam spam').click();
-  await page.getByRole('button', { name: 'Delete permanently' }).click();
+  await page.getByRole('button', { name: 'Delete permanently', exact: true }).click();
   await page.getByLabel('Reason (required)').fill('Spam advertisement');
-  await page.getByRole('button', { name: 'Delete permanently' }).last().click();
+  await page.getByRole('button', { name: 'Delete permanently', exact: true }).last().click();
   await expect(page).toHaveURL(/\/dashboard\/reports$/);
   await expect(page.getByText('Buy cheap watches now spam spam')).toHaveCount(0);
 });
@@ -59,25 +59,27 @@ test('J3 administrator manages categories', async ({ page }) => {
   await page.getByRole('button', { name: 'Save category' }).click();
   await expect(page.getByRole('row', { name: 'Bridges' })).toContainText('Footbridges and overpasses');
 
-  await page.getByRole('button', { name: 'Deactivate Bridges' }).click();
-  await page.getByRole('button', { name: 'Confirm deactivate' }).click();
-  await page.getByRole('button', { name: 'Activate Bridges' }).click();
-  await page.getByRole('button', { name: 'Confirm activate' }).click();
-  await page.getByRole('button', { name: 'Deactivate Bridges' }).click();
-  await page.getByRole('button', { name: 'Confirm deactivate' }).click();
-  await page.getByRole('button', { name: 'Delete Bridges' }).click();
-  await page.getByRole('button', { name: 'Confirm delete' }).click();
+  // exact: role names match as case-insensitive substrings by default, and 'Activate Bridges'
+  // is inside 'Deactivate Bridges': before the list refreshes, a loose match clicks the wrong button.
+  await page.getByRole('button', { name: 'Deactivate Bridges', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm deactivate', exact: true }).click();
+  await page.getByRole('button', { name: 'Activate Bridges', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm activate', exact: true }).click();
+  await page.getByRole('button', { name: 'Deactivate Bridges', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm deactivate', exact: true }).click();
+  await page.getByRole('button', { name: 'Delete Bridges', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm delete', exact: true }).click();
   await expect(page.getByRole('row', { name: 'Bridges' })).toHaveCount(0);
 
   // Roads holds J2's report, so even when inactive it is never offered for deletion.
   const roads = page.getByRole('row', { name: 'Roads' });
-  await page.getByRole('button', { name: 'Deactivate Roads' }).click();
-  await page.getByRole('button', { name: 'Confirm deactivate' }).click();
+  await page.getByRole('button', { name: 'Deactivate Roads', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm deactivate', exact: true }).click();
   await expect(roads).toContainText('Inactive');
-  await expect(page.getByRole('button', { name: 'Delete Roads' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Activate Roads' }).click();
-  await page.getByRole('button', { name: 'Confirm activate' }).click();
-  await expect(page.getByRole('button', { name: 'Deactivate Roads' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Delete Roads', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Activate Roads', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm activate', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Deactivate Roads', exact: true })).toBeVisible();
 
   await expect(page.getByRole('row', { name: 'Other' })).toContainText('System fallback');
   await expect(page.getByRole('row', { name: 'Other' }).getByRole('button')).toHaveCount(0);
