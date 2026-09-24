@@ -599,12 +599,16 @@
         max-width: 85vw;
         z-index: 220;
         transform: translateX(-100%);
-        transition: transform 0.25s ease;
+        /* Hidden once it has slid away, so Tab cannot reach links that are off screen. */
+        visibility: hidden;
+        transition: transform 0.25s ease, visibility 0s linear 0.25s;
     }
     /* Shadow only while open: a closed menu's shadow would show as a strip along the left edge. */
     .sidebar.open {
         transform: translateX(0);
         box-shadow: var(--shadow-lg);
+        visibility: visible;
+        transition: transform 0.25s ease, visibility 0s;
     }
     .sidebar-close {
         display: flex;
