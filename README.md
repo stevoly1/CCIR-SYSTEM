@@ -25,7 +25,7 @@ The AI classification feature uses a pretrained, general-purpose multimodal mode
 ## Prerequisites
 
 - Node.js 26 (26.9.0 or a later 26.x release) and npm 12.1.0 or later 12.x (`.nvmrc` records the verified version)
-- A MongoDB instance (local, self-hosted, or a managed service)
+- MongoDB 4.4 or later, **running as a replica set** (the API uses transactions). Hosted clusters such as MongoDB Atlas already are. A self-managed server, even a single one, must be started with `--replSet rs0` and initiated once with `rs.initiate()` in `mongosh`
 - A [Google AI Studio](https://aistudio.google.com/) API key (for AI classification — optional but recommended)
 - A [Cloudinary](https://cloudinary.com/) account (only required if citizens will attach photos to complaints — a text-only complaint never calls Cloudinary. Unlike the AI and email services, image upload has no fallback: a complaint submitted *with* a photo will fail without valid Cloudinary credentials)
 - Optionally: a [Resend](https://resend.com/) API key (email notifications) and Google OAuth credentials (Google sign-in)
@@ -40,11 +40,13 @@ npm install
 # 2. Copy the environment template and fill in your own values
 cp .env.example .env
 
-# 3. Start MongoDB (if running it locally), then start the API
+# 3. Start MongoDB (if running it locally, as a replica set), then start the API
 npm run dev
 ```
 
-The API will be running at `http://localhost:8080/api/v1`, with a health check at `GET /api/v1/health`.
+The API will be running at `http://localhost:8080/api/v1`. `GET /api/v1/health/ready` reports whether it is ready to serve traffic, and the interactive API documentation is at `http://localhost:8080/api/v1/docs`.
+
+In production (`NODE_ENV=production`) the API does not build database indexes on start. Build them once on a new database, before the first start, with `npm run db:indexes -- --apply` (see [Operations](#operations)).
 
 See [`.env.example`](./.env.example) for the full list of environment variables and what each one is for.
 
@@ -79,6 +81,10 @@ All routes are prefixed with `/api/v1`.
 | Categories | `/categories` | admin-only create/edit/activate/deactivate; delete only inactive, unused categories; `Other` is protected |
 | Complaints | `/complaints` | reports need an address (coordinates optional); reporters edit or withdraw pending reports; staff update status and priority (agency only when assigned); admins assign and may permanently delete with a reason |
 | Location | `/location` | address autocomplete and geocoding with a bounded timeout (`LOCATION_TIMEOUT_MS`) |
+| Health | `/health/live`, `/health/ready` | liveness and readiness probes (see [Operations](#operations)); `/health` is a legacy alias of `/health/live` |
+| Contract | `/openapi.json`, `/docs` | the OpenAPI 3.1 contract as JSON, and interactive documentation |
+
+The full contract, with every request and response schema, error code and example, is [`openapi/openapi.yaml`](./openapi/openapi.yaml). It is served at `GET /api/v1/openapi.json` and rendered at `GET /api/v1/docs` (turn the page off with `API_DOCS_UI=false`; the JSON stays available). The page's "Try it out" can read with your session; write operations from it are refused by the browser-origin rule unless the page is served from `BROWSER_ORIGIN`.
 
 ### Upgrading an existing database
 
@@ -91,6 +97,56 @@ npm run migrate:phase2 -- --verify
 ```
 
 Each script prints a single JSON report, and `--verify` exits with code 2 while any invariant fails. Case-duplicate category names and category names outside 2–60 characters are reported for manual correction, never changed automatically. Rolling back after `--apply` means restoring the backup together with the previous code; older code cannot read the migrated data.
+
+## Operations
+
+### Logging
+
+Logs are JSON lines on standard output, one line per request plus one per notable event, each with a `requestId`. Every response carries an `X-Request-Id` header; a caller may send its own (8–64 characters of `A-Z a-z 0-9 . _ -`). An unexpected server error (500) returns `error.requestId` in its body, and the same ID is on the logged error with its stack. Passwords, tokens, cookies, API keys, connection-string credentials, request bodies, query strings and client IP addresses are never logged. `LOG_LEVEL` sets the detail (`info` by default; `debug` also logs health-probe requests).
+
+### Health checks
+
+| Endpoint | Answers | Status codes |
+|---|---|---|
+| `GET /api/v1/health/live` | the process is running (never checks the database) | 200 |
+| `GET /api/v1/health/ready` | `ready`, `degraded` (an optional service — AI, uploads, email, Google sign-in — is not configured) or `unavailable` | 200 when ready or degraded; 503 when unavailable |
+
+When unavailable, `checks.database.reason` is one of `DATABASE_DISCONNECTED`, `DATABASE_TIMEOUT`, `TRANSACTIONS_UNSUPPORTED` (not a replica set), `INDEXES_MISSING` (run `db:indexes -- --apply`) or `DATABASE_ERROR`. Neither endpoint is rate-limited, and neither reveals a setting value or connection detail; readiness does show which optional services are configured.
+
+### Database indexes
+
+```bash
+npm run db:indexes                           # report only: what is missing or extra (changes nothing)
+npm run db:indexes -- --apply                # create missing indexes; never drops anything
+npm run db:indexes -- --apply --drop-extra   # also drop indexes the models do not declare
+```
+
+Run `--apply` on a new database before the first start, and after every release that changes indexes. Upgrading from an earlier release: run `--apply --drop-extra` once to remove the unused coordinate index.
+
+### Backup and restore
+
+These commands need [MongoDB Database Tools](https://www.mongodb.com/try/download/database-tools) (`mongodump`, `mongorestore`); on macOS: `brew tap mongodb/brew && brew install mongodb-database-tools` (recent Homebrew asks you to `brew trust --formula mongodb/brew/mongodb-database-tools` first). They work the same for hosted and self-managed databases.
+
+```bash
+npm run db:backup -- --out backups     # the database in MONGO_URL → backups/ccir-<time>.archive.gz + a manifest
+npm run db:restore -- --archive backups/ccir-<time>.archive.gz --uri '<target connection string>'
+npm run db:rehearse                    # proves backup and restore on a throwaway in-memory database (needs the dev dependencies)
+```
+
+Restore takes its target only from `--uri`, never from `MONGO_URL`. It refuses an archive that does not match its manifest checksum, and refuses a non-empty target unless both `--drop` and `--confirm-drop` are given. Afterwards it checks every collection's count and checksum against the manifest. Backups contain personal data: `backups/` and `*.archive.gz` are git-ignored; keep them somewhere access-controlled.
+
+### Tests
+
+```bash
+npm run test:unit            # backend unit tests
+npm run test:integration     # backend integration tests on an in-memory MongoDB replica set;
+                             # every response is checked against the OpenAPI contract
+npm run test:coverage        # both together, with coverage thresholds
+npm --prefix client run test:unit    # reference client component tests
+npm --prefix client run test:e2e     # browser journeys (Playwright, Chrome)
+```
+
+Tests use in-memory databases and fake providers; they never contact a real database, AI, email, storage or geocoding service. The first run downloads the MongoDB server binary for the in-memory database.
 
 ## License
 
