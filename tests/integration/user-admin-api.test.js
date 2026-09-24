@@ -1,4 +1,4 @@
-const { User } = require('../../models');
+const { RefreshToken, User } = require('../../models');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createUserFixture } = require('../fixtures/user');
 
@@ -80,5 +80,27 @@ describe('administrator user list and account management', () => {
     const response = await unsafeRequest(admin, 'patch', `/api/v1/users/${target.id}`).send({ email: 'Taken@Example.test' });
     expect(response.status).toBe(409);
     expect((await User.findById(target.id)).email).toBe('mine@example.test');
+  });
+
+  it('keeps a user signed in when an edit repeats their current role unchanged', async () => {
+    const { user: target } = await createAuthenticatedAgent({ role: 'citizen', name: 'Stay Signed In' });
+    expect(await RefreshToken.countDocuments({ user: target._id })).toBe(1);
+    const response = await unsafeRequest(admin, 'patch', `/api/v1/users/${target.id}`).send({ name: 'Renamed Only', phone: '', role: 'citizen' });
+    expect(response.status).toBe(200);
+    expect(response.body.user.name).toBe('Renamed Only');
+    expect(await RefreshToken.countDocuments({ user: target._id })).toBe(1);
+  });
+
+  it('keeps an administrator signed in after editing their own name', async () => {
+    expect(await RefreshToken.countDocuments({ user: adminUser._id })).toBe(1);
+    const response = await unsafeRequest(admin, 'patch', `/api/v1/users/${adminUser.id}`).send({ name: 'Chi Renamed', phone: '', role: 'admin' });
+    expect(response.status).toBe(200);
+    expect(await RefreshToken.countDocuments({ user: adminUser._id })).toBe(1);
+  });
+
+  it('still ends the sessions of a user whose role really changes', async () => {
+    const { user: target } = await createAuthenticatedAgent({ role: 'citizen' });
+    await unsafeRequest(admin, 'patch', `/api/v1/users/${target.id}`).send({ role: 'agency' });
+    expect(await RefreshToken.countDocuments({ user: target._id })).toBe(0);
   });
 });

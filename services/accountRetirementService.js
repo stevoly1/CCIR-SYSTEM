@@ -166,9 +166,12 @@ const mutateAdministrator = async ({ targetUserId, actorUserId, changes }) => {
         }
       }
 
+      // Sessions end only when authority really changes: an edit that repeats the current role
+      // (the admin form always sends it) must not sign the user out.
+      const roleChanged = Object.hasOwn(changes, 'role') && changes.role !== target.role;
       Object.assign(target, changes);
       await target.save({ session });
-      if (changes.isActive === false || Object.hasOwn(changes, 'role')) {
+      if (changes.isActive === false || roleChanged) {
         await RefreshToken.deleteMany({ user: target._id }, { session });
       }
       updatedUser = target;
