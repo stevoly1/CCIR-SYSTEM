@@ -15,7 +15,8 @@ const LoginPage = () => {
 
     useEffect(() => {
         if (searchParams.get('error') === 'google_auth_failed') {
-            toast.error('Google sign-in failed. Please try again.');
+            // One id: React's development double-run of effects must not show the toast twice.
+            toast.error('Google sign-in failed. Please try again.', { id: 'google-auth-failed' });
             setSearchParams({}, { replace: true });
         }
     }, [searchParams, setSearchParams]);

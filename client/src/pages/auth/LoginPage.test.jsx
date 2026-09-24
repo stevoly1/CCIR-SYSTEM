@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
@@ -67,8 +68,17 @@ describe('LoginPage', () => {
   });
 
   it('reports a failed Google sign-in once and clears it from the address', () => {
-    renderPage('/login?error=google_auth_failed');
-    expect(toast.error).toHaveBeenCalledWith('Google sign-in failed. Please try again.');
+    toast.error.mockClear();
+    // StrictMode runs the effect twice in development; one toast id makes the repeat a no-op.
+    render(
+      <StrictMode>
+        <MemoryRouter initialEntries={['/login?error=google_auth_failed']}>
+          <Routes><Route path="/login" element={<><LoginPage /><Search /></>} /></Routes>
+        </MemoryRouter>
+      </StrictMode>,
+    );
+    expect(toast.error).toHaveBeenCalledWith('Google sign-in failed. Please try again.', { id: 'google-auth-failed' });
+    expect(toast.error.mock.calls.every(([, options]) => options?.id === 'google-auth-failed')).toBe(true);
     expect(screen.getByLabelText('search')).toHaveTextContent(/^$/);
   });
 });
