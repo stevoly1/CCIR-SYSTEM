@@ -27,9 +27,10 @@ info:
     `X-Request-Id` (8–64 characters of `A-Z a-z 0-9 . _ -`); anything else is replaced.
 
 
-    **Rate limits.** 100 requests per 15 minutes per client address (health probes are exempt),
-    plus tighter limits on sign-in and session refresh. Over-limit requests get 429 `RATE_LIMITED`
-    with `Retry-After`.
+    **Rate limits.** 300 requests per 15 minutes for each signed-in account, and 300 for each
+    client address without a valid session; all requests from one client address are also capped
+    at 3000 per 15 minutes. Health probes are exempt. Sign-in and session refresh have tighter limits.
+    Over-limit requests get 429 `RATE_LIMITED` with `Retry-After`.
   license:
     name: MIT
     identifier: MIT

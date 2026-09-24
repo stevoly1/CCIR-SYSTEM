@@ -98,13 +98,13 @@ describe('app module boundary', () => {
 
   // The limiter answers without calling later middleware, so CORS must run first or a browser
   // on the approved origin sees a CORS failure instead of the 429 JSON error.
-  it('applies CORS before the rate limit', () => {
+  it('applies CORS and cookie parsing before the rate limit', () => {
     const projectRoot = path.resolve(__dirname, '..', '..');
     const script = [
       "const app = require('./app');",
       "const { apiRateLimit } = require('./middleware/apiRateLimit');",
       'const stack = (app.router || app._router).stack;',
-      "process.stdout.write(JSON.stringify({ cors: stack.findIndex((l) => l.name === 'corsMiddleware'), limit: stack.findIndex((l) => l.handle === apiRateLimit) }));",
+      "process.stdout.write(JSON.stringify({ cors: stack.findIndex((l) => l.name === 'corsMiddleware'), cookies: stack.findIndex((l) => l.name === 'cookieParser'), limit: stack.findIndex((l) => l.handle === apiRateLimit) }));",
     ].join('\n');
     const result = spawnSync(process.execPath, ['-e', script], {
       cwd: projectRoot,
@@ -113,9 +113,12 @@ describe('app module boundary', () => {
       timeout: 10000,
     });
     expect(result.status).toBe(0);
-    const { cors, limit } = JSON.parse(result.stdout);
+    const { cors, cookies, limit } = JSON.parse(result.stdout);
     expect(cors).toBeGreaterThanOrEqual(0);
     expect(limit).toBeGreaterThan(cors);
+    // The limiter reads the signed session cookie to count each account on its own.
+    expect(cookies).toBeGreaterThanOrEqual(0);
+    expect(limit).toBeGreaterThan(cookies);
   }, 15000);
 
   it('keeps upgrade-insecure-requests in production, where the origin is HTTPS', () => {
