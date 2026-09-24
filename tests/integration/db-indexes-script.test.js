@@ -2,6 +2,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const mongoose = require('mongoose');
 const { withDatabase } = require('../helpers/mongoUri');
+const { run } = require('../../scripts/db/indexes');
 
 const script = path.resolve(__dirname, '../../scripts/db/indexes.js');
 // Asynchronous, so the in-memory database in this process keeps serving while the script runs.
@@ -13,6 +14,23 @@ const runScript = (uri, ...args) => new Promise((resolve) => {
   child.stderr.on('data', (chunk) => { stderr += chunk; });
   child.on('close', (status) => resolve({ status, stdout, stderr, json: (status === 0 || status === 2) && stdout ? JSON.parse(stdout) : null }));
 });
+
+// run() connects the shared mongoose instance itself, as it does from the command line, so the
+// test process's own connection (and the index settings run() changes) are restored around it.
+const runInProcess = async (uri, options = {}) => {
+  let output = '';
+  const out = { write: (chunk) => { output += chunk; } };
+  const settings = { autoIndex: mongoose.get('autoIndex'), autoCreate: mongoose.get('autoCreate') };
+  await mongoose.connection.close();
+  try {
+    const result = await run({ uri, out, ...options });
+    return { ...result, json: JSON.parse(output) };
+  } finally {
+    mongoose.set('autoIndex', settings.autoIndex);
+    mongoose.set('autoCreate', settings.autoCreate);
+    await mongoose.connect(process.env.TEST_MONGO_URI, { dbName: 'ccir-integration' });
+  }
+};
 
 describe('npm run db:indexes', () => {
   let uri;
@@ -27,8 +45,8 @@ describe('npm run db:indexes', () => {
   });
 
   it('reports missing indexes and creates nothing without --apply', async () => {
-    const result = await runScript(uri);
-    expect(result.status).toBe(0);
+    const result = await runInProcess(uri);
+    expect(result.complete).toBe(false);
     expect(result.json.applied).toBe(false);
     expect(result.json.missingUnique).toEqual(expect.arrayContaining(['complaints:{"referenceCode":1}', 'users:{"email":1}']));
     expect(result.json.report.Complaint.toCreate).toEqual(expect.arrayContaining([{ createdAt: -1 }, { category: 1 }]));
@@ -36,8 +54,9 @@ describe('npm run db:indexes', () => {
   });
 
   it('creates every declared index with --apply and then reports nothing missing', async () => {
-    expect((await runScript(uri, '--apply')).status).toBe(0);
-    const again = await runScript(uri);
+    await runInProcess(uri, { apply: true });
+    const again = await runInProcess(uri);
+    expect(again.complete).toBe(true);
     expect(again.json.missingUnique).toEqual([]);
     for (const entry of Object.values(again.json.report)) expect(entry.toCreate).toEqual([]);
   });
@@ -53,12 +72,12 @@ describe('npm run db:indexes', () => {
   });
 
   it('seeds the default categories with --apply, once their unique indexes exist', async () => {
-    const result = await runScript(uri, '--apply');
+    const result = await runInProcess(uri, { apply: true });
     expect(result.json.seeded).toBe(true);
     const names = (await connection.db.collection('categories').find({}).toArray()).map((c) => c.name);
     expect(names).toEqual(expect.arrayContaining(['Other', 'Pothole']));
     expect(names).toHaveLength(6);
-    await runScript(uri, '--apply');
+    await runInProcess(uri, { apply: true });
     expect(await connection.db.collection('categories').countDocuments()).toBe(6);
   });
 
@@ -68,8 +87,7 @@ describe('npm run db:indexes', () => {
     const deletions = connection.db.collection('complaintdeletions');
     await deletions.insertMany([{ complaintId: new mongoose.Types.ObjectId() }, { complaintId: new mongoose.Types.ObjectId() }]);
     await deletions.createIndex({ complaintId: 1 }, { name: 'complaintId_1' });
-    const result = await runScript(uri, '--apply');
-    expect(result.status, result.stderr).toBe(0);
+    await runInProcess(uri, { apply: true });
     expect((await deletions.indexes()).find((index) => index.name === 'complaintId_1')).toMatchObject({ unique: true });
   });
 
@@ -78,20 +96,17 @@ describe('npm run db:indexes', () => {
     const repeated = new mongoose.Types.ObjectId();
     await deletions.insertMany([{ complaintId: repeated }, { complaintId: repeated }]);
     await deletions.createIndex({ complaintId: 1 }, { name: 'complaintId_1' });
-    const result = await runScript(uri, '--apply');
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain('complaintdeletions');
-    expect(result.stderr).toContain('1 duplicated value');
+    await expect(runInProcess(uri, { apply: true })).rejects.toThrow(/complaintdeletions: .* 1 duplicated value\./);
     expect((await deletions.indexes()).find((index) => index.name === 'complaintId_1').unique).toBeUndefined();
   });
 
   it('keeps indexes made outside the app unless --drop-extra is given', async () => {
-    await runScript(uri, '--apply');
+    await runInProcess(uri, { apply: true });
     await connection.db.collection('complaints').createIndex({ description: 1 }, { name: 'console_extra' });
-    await runScript(uri, '--apply');
+    await runInProcess(uri, { apply: true });
     expect((await connection.db.collection('complaints').indexes()).map((i) => i.name)).toContain('console_extra');
-    expect((await runScript(uri)).json.report.Complaint.toDrop).toContain('console_extra');
-    await runScript(uri, '--apply', '--drop-extra');
+    expect((await runInProcess(uri)).json.report.Complaint.toDrop).toContain('console_extra');
+    await runInProcess(uri, { apply: true, dropExtra: true });
     expect((await connection.db.collection('complaints').indexes()).map((i) => i.name)).not.toContain('console_extra');
   });
 

@@ -6,7 +6,6 @@
 //   npm run db:indexes -- --apply --drop-extra   also drop indexes the models do not declare
 //   npm run db:indexes -- --check                report, and exit 2 if any declared index is missing
 //                                                (a deploy step can stop on it; 1 is an error)
-require('dotenv').config({ quiet: true });
 const mongoose = require('mongoose');
 const { scrubSecrets } = require('../../utils/logger');
 
@@ -75,11 +74,14 @@ const run = async ({ uri = process.env.MONGO_URL, apply = false, dropExtra = fal
     const complete = missingUnique.length === 0 && Object.values(report).every((entry) => entry.toCreate.length === 0);
     return { report, missingUnique, seeded, complete };
   } finally {
-    await mongoose.disconnect();
+    // Only the connection opened here; a caller's other connections stay open.
+    await mongoose.connection.close();
   }
 };
 
 if (require.main === module) {
+  // Only the command line reads .env; importing run() (the tests do) leaves the environment alone.
+  require('dotenv').config({ quiet: true });
   const args = process.argv.slice(2);
   const known = new Set(['--apply', '--drop-extra', '--check']);
   const unknown = args.filter((arg) => !known.has(arg));
