@@ -3,6 +3,7 @@ const emailService = require('../../services/emailService');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createComplaintFixture } = require('../fixtures/complaint');
 const { createUserFixture } = require('../fixtures/user');
+const { captureLogs } = require('../helpers/captureLogs');
 
 const status = (agent, complaint, body) => unsafeRequest(agent, 'patch', `/api/v1/complaints/${complaint.id}/status`).send(body);
 
@@ -100,5 +101,37 @@ describe('status authority', () => {
     expect(other.body.complaint).toMatchObject({ allowedTransitions: [], canChangePriority: false, canAssign: false });
     const mine = await assigned.get(`/api/v1/complaints/${complaint.id}`);
     expect(mine.body.complaint).toMatchObject({ allowedTransitions: ['IN_REVIEW', 'REJECTED'], canChangePriority: true, canAssign: false });
+  });
+
+  it('still records the status change when the email provider fails, and logs the failure without the recipient', async () => {
+    // A fresh copy of the real email service with a provider key, so the Resend SDK itself runs.
+    const servicePath = require.resolve('../../services/emailService');
+    const cached = require.cache[servicePath];
+    vi.stubEnv('RESEND_API_KEY', 're_integration_fake');
+    delete require.cache[servicePath];
+    const realService = require('../../services/emailService');
+    require.cache[servicePath] = cached;
+    vi.spyOn(emailService, 'sendStatusUpdateEmail').mockImplementation(realService.sendStatusUpdateEmail);
+    const providerCall = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      JSON.stringify({ name: 'application_error', message: 'provider down', statusCode: 500 }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } },
+    ));
+    vi.spyOn(console, 'error').mockImplementation(() => {}); // the SDK's own non-production message
+    const reporter = await createUserFixture({ email: 'status.reporter@example.test' });
+    const complaint = await createComplaintFixture({ reporter: reporter._id });
+    const { agent } = await createAuthenticatedAgent({ role: 'admin' });
+    const logs = captureLogs();
+    try {
+      const response = await status(agent, complaint, { status: 'IN_REVIEW' });
+
+      expect(response.status).toBe(200);
+      expect((await Complaint.findById(complaint.id)).status).toBe('IN_REVIEW');
+      await vi.waitFor(() => expect(logs.lines.some((line) => line.msg === 'Email not sent')).toBe(true));
+      expect(providerCall).toHaveBeenCalledTimes(1);
+      expect(logs.lines.find((line) => line.msg === 'Email not sent')).toMatchObject({ kind: 'status_update', reason: 'application_error', statusCode: 500 });
+      expect(logs.text()).not.toContain('status.reporter@example.test');
+    } finally {
+      logs.restore();
+    }
   });
 });

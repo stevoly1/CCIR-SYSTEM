@@ -44,6 +44,31 @@ describe('current persisted user authority', () => {
     expect(response.status).toBe(401);
   });
 
+  describe('access tokens that must not authenticate', () => {
+    // Exactly what the browser would send: a signed cookie holding a JWT, and no refresh token.
+    const accessCookie = (token, cookieSecret = process.env.COOKIE) => `accessToken=${encodeURIComponent(`s:${signature.sign(token, cookieSecret)}`)}`;
+    const profileWith = (cookie) => request(testServer()).get('/api/v1/users/profile').set('Cookie', cookie);
+
+    it('accepts a correctly signed, current token (control for the cases below)', async () => {
+      const user = await createUserFixture();
+      const token = jwt.sign({ userId: user.id }, process.env.JWT_TOKEN, { expiresIn: '15m' });
+      expect((await profileWith(accessCookie(token))).status).toBe(200);
+    });
+
+    it.each([
+      ['an expired token', (user) => accessCookie(jwt.sign({ userId: user.id, exp: Math.floor(Date.now() / 1000) - 60 }, process.env.JWT_TOKEN))],
+      ['a token signed with another key', (user) => accessCookie(jwt.sign({ userId: user.id }, 'not-the-server-key', { expiresIn: '15m' }))],
+      ['a cookie whose signature was tampered with', (user) => accessCookie(jwt.sign({ userId: user.id }, process.env.JWT_TOKEN, { expiresIn: '15m' }), 'not-the-cookie-secret')],
+      ['an unsigned cookie', (user) => `accessToken=${jwt.sign({ userId: user.id }, process.env.JWT_TOKEN, { expiresIn: '15m' })}`],
+      ['a refresh token signed with another key, and no access token', (user) => `refreshToken=${encodeURIComponent(`s:${signature.sign(jwt.sign({ userId: user.id }, 'not-the-refresh-key', { expiresIn: '7d' }), process.env.COOKIE)}`)}`],
+    ])('rejects %s with 401', async (_label, cookieFor) => {
+      const user = await createUserFixture();
+      const response = await profileWith(cookieFor(user));
+      expect(response.status).toBe(401);
+      expect(response.body.error.code).toBe('UNAUTHENTICATED');
+    });
+  });
+
   it('puts only user identity and JWT timing claims in an access token', async () => {
     const user = await createUserFixture({ role: 'admin' });
     const response = await loginWithoutAgent(user);

@@ -8,6 +8,9 @@ export default defineConfig({
     globals: true,
     clearMocks: true,
     restoreMocks: true,
+    // Environment and global stubs never leak from one test into the next.
+    unstubEnvs: true,
+    unstubGlobals: true,
     fileParallelism: false,
     setupFiles: ['./tests/setup/integration.mjs'],
     testTimeout: 30000,

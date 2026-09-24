@@ -90,6 +90,34 @@ describe('complaint upload ordering and compensation', () => {
     expect(bytesWritten.reduce((sum, size) => sum + size, 0)).toBeLessThanOrEqual(25 * 1024 * 1024);
   });
 
+  it('rejects a single image above 10 MiB while it streams, before AI or cloud calls', async () => {
+    const upload = vi.spyOn(uploadService, 'uploadComplaintImage');
+    const big = path.join(temporaryDirectory, 'big.jpg');
+    await fs.writeFile(big, Buffer.alloc(11 * 1024 * 1024));
+
+    const response = await postMultipartAllowingEarlyResponse({
+      credentials,
+      path: '/api/v1/complaints',
+      fields: { description: 'A detailed complaint with uploaded evidence', address: '1 Test Street' },
+      files: [{ field: 'image', path: big, contentType: 'image/jpeg' }],
+    });
+
+    expect(response.status).toBe(413);
+    expect(response.body.error.code).toBe('PAYLOAD_TOO_LARGE');
+    expect(aiService.classifyComplaint).not.toHaveBeenCalled();
+    expect(upload).not.toHaveBeenCalled();
+    expect(await Complaint.countDocuments()).toBe(0);
+  });
+
+  it('rejects a form with more than 20 fields', async () => {
+    let request = complaintRequest();
+    for (let index = 0; index < 20; index += 1) request = request.field(`extra${index}`, 'x');
+    const response = await request.attach('image', fixture);
+    expect(response.status).toBe(400);
+    expect(response.body.error.message).toBe('Multipart upload has too many fields');
+    expect(await Complaint.countDocuments()).toBe(0);
+  });
+
   it('rejects unexpected file fields and invalid content before AI or cloud calls', async () => {
     const upload = vi.spyOn(uploadService, 'uploadComplaintImage');
     const unexpected = await complaintRequest().attach('avatar', fixture);

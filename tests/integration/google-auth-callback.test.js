@@ -255,4 +255,11 @@ describe('Google authentication callback', () => {
       .toMatchObject({ level: 40, reason: 'PROVIDER_ERROR', requestId: response.headers['x-request-id'] });
     expect(logs.text()).not.toContain('secret provider body');
   });
+
+  it('answers 503 when Google sign-in is not configured', async () => {
+    vi.stubEnv('GOOGLE_CLIENT_ID', '');
+    const response = await request(testServer()).get('/api/v1/auth/google');
+    expect(response.status).toBe(503);
+    expect(response.body.error).toMatchObject({ code: 'SERVICE_UNAVAILABLE', message: 'Google sign-in is not configured' });
+  });
 });

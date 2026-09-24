@@ -113,4 +113,15 @@ describe('category administration API', () => {
     expect((await post({ name: 'x'.repeat(61) })).status).toBe(400);
     expect((await post({ name: 'x' })).status).toBe(400);
   });
+
+  it('reads one category, and answers 404 for an unknown one on read, update and delete', async () => {
+    const category = await createCategoryFixture({ name: 'Streetlights' });
+    const found = await admin.get(`/api/v1/categories/${category.id}`);
+    expect(found.status).toBe(200);
+    expect(found.body.category.name).toBe('Streetlights');
+    const unknown = '0123456789abcdef01234567';
+    expect((await admin.get(`/api/v1/categories/${unknown}`)).status).toBe(404);
+    expect((await unsafeRequest(admin, 'patch', `/api/v1/categories/${unknown}`).send({ description: 'x' })).status).toBe(404);
+    expect((await unsafeRequest(admin, 'delete', `/api/v1/categories/${unknown}`)).status).toBe(404);
+  });
 });

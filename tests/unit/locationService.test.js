@@ -56,4 +56,14 @@ describe('location service', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(okJson({ features: [{ properties: { street: 'Allen Avenue', housenumber: '5', city: 'Ikeja', osm_id: 'secret' } }] }));
     await expect(locationService.reverseGeocode(6.6, 3.3)).resolves.toBe('Allen Avenue 5, Ikeja');
   });
+
+  it('biases suggestions toward the device position only when both coordinates are given', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(okJson({ features: [] }));
+    await locationService.autocomplete('market', { latitude: 6.6, longitude: 3.35 });
+    const biased = new URL(fetchMock.mock.calls[0][0]);
+    expect([biased.searchParams.get('lat'), biased.searchParams.get('lon')]).toEqual(['6.6', '3.35']);
+    await locationService.autocomplete('market', { latitude: 6.6 });
+    const unbiased = new URL(fetchMock.mock.calls[1][0]);
+    expect(unbiased.searchParams.has('lat')).toBe(false);
+  });
 });

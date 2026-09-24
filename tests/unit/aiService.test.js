@@ -202,4 +202,28 @@ describe('AI classification contract', () => {
         error: null,
       });
   });
+
+  it('sends an attached image with the prompt, as base64 with its MIME type', async () => {
+    const os = require('node:os');
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ccir-ai-test-')), 'photo.png');
+    fs.writeFileSync(file, Buffer.from([1, 2, 3, 4]));
+    const fetchMock = vi.fn().mockResolvedValue(providerResponse(validOutput()));
+    vi.stubGlobal('fetch', fetchMock);
+    const { classifyComplaint } = loadService();
+
+    await expect(classifyComplaint({ description: 'pothole', imageTempFilePath: file, imageMimeType: 'image/png', categoryNames: ['Roads', 'Other'] }))
+      .resolves.toMatchObject({ category: 'Roads', error: null });
+    const [{ parts }] = JSON.parse(fetchMock.mock.calls[0][1].body).contents;
+    expect(parts[1]).toEqual({ inlineData: { mimeType: 'image/png', data: Buffer.from([1, 2, 3, 4]).toString('base64') } });
+    fs.rmSync(path.dirname(file), { recursive: true, force: true });
+  });
+
+  it('falls back with INVALID_OUTPUT when the provider body is not JSON', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: vi.fn().mockRejectedValue(new SyntaxError('Unexpected token <')) }));
+    const { classifyComplaint } = loadService();
+    await expect(classifyComplaint({ description: 'pothole', categoryNames: ['Roads', 'Other'] }))
+      .resolves.toMatchObject({ error: 'INVALID_OUTPUT', category: 'Other' });
+  });
 });

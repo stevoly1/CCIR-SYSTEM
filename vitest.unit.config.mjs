@@ -9,6 +9,9 @@ export default defineConfig({
     setupFiles: ['./tests/setup/unit.mjs'],
     clearMocks: true,
     restoreMocks: true,
+    // Environment and global stubs never leak from one test into the next.
+    unstubEnvs: true,
+    unstubGlobals: true,
     testTimeout: 5000,
     hookTimeout: 10000,
   },
