@@ -1889,8 +1889,12 @@ paths:
             $ref: '#/components/schemas/ObjectId'
         - name: assignedTo
           in: query
+          description: A staff member's id, or `none` for reports nobody is assigned to. Staff only.
           schema:
-            $ref: '#/components/schemas/ObjectId'
+            oneOf:
+              - $ref: '#/components/schemas/ObjectId'
+              - type: string
+                enum: [none]
         - $ref: '#/components/parameters/Search'
         - name: sort
           in: query

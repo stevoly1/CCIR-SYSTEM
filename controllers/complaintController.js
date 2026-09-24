@@ -144,7 +144,7 @@ const getAllComplaints = async (req, res) => {
     if (req.query.status) filter.status = req.query.status;
     if (req.query.priority) filter.priority = req.query.priority;
     if (req.query.category) filter.category = req.query.category;
-    if (req.query.assignedTo) filter.assignedTo = req.query.assignedTo;
+    if (req.query.assignedTo) filter.assignedTo = req.query.assignedTo === 'none' ? null : req.query.assignedTo;
     if (req.query.search) {
         const regex = new RegExp(escapeRegExp(req.query.search.trim()), 'i');
         filter.$or = [

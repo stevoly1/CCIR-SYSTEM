@@ -67,7 +67,8 @@ const complaintListQuerySchema = z.strictObject({
     status: z.enum(STATUSES).optional(),
     priority: z.enum(PRIORITIES).optional(),
     category: objectIdSchema.optional(),
-    assignedTo: objectIdSchema.optional(),
+    // A staff member's id, or `none` for reports nobody is assigned to.
+    assignedTo: z.union([objectIdSchema, z.literal('none')]).optional(),
     search: searchSchema,
     sort: sortSchema,
 });

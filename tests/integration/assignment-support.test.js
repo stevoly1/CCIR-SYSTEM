@@ -43,4 +43,26 @@ describe('assignment support', () => {
     expect(response.body.complaints).toHaveLength(1);
     expect(response.body.complaints[0].assignee.userId).toBe(user.id);
   });
+
+  // Triage needs the reports nobody has taken yet.
+  it('lets staff list unassigned reports with assignedTo=none', async () => {
+    const { agent } = await createAuthenticatedAgent({ role: 'admin' });
+    const agency = await createUserFixture({ role: 'agency' });
+    await createComplaintFixture({ assignedTo: agency._id });
+    const open = await createComplaintFixture();
+    const response = await agent.get('/api/v1/complaints?assignedTo=none');
+    expect(response.status).toBe(200);
+    expect(response.body.complaints.map((c) => c._id)).toEqual([open.id]);
+    expect(response.body.complaints[0].assignee).toBeNull();
+  });
+
+  it('still forbids citizens from asking for unassigned reports', async () => {
+    const { agent } = await createAuthenticatedAgent({ role: 'citizen' });
+    expect((await agent.get('/api/v1/complaints?assignedTo=none')).status).toBe(403);
+  });
+
+  it('refuses any other word in place of an assignee', async () => {
+    const { agent } = await createAuthenticatedAgent({ role: 'admin' });
+    expect((await agent.get('/api/v1/complaints?assignedTo=nobody')).status).toBe(400);
+  });
 });
