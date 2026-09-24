@@ -3,7 +3,8 @@ const pino = require('pino');
 // Field names whose values never reach a log line, at any depth up to MAX_DEPTH.
 // `code` and `state` are deliberately absent: `code` is the application's error-code field,
 // and OAuth code/state values only ever arrive in query strings, which are scrubbed below.
-const SECRET_KEYS = ['password', 'newPassword', 'token', 'refreshToken', 'accessToken', 'apiKey', 'secret', 'cookie', 'cookies', 'authorization'];
+// Personal-data fields are included so that leaving them out never depends on each call site.
+const SECRET_KEYS = ['password', 'newPassword', 'token', 'refreshToken', 'accessToken', 'apiKey', 'secret', 'cookie', 'cookies', 'authorization', 'email', 'phone', 'phoneNumber', 'address'];
 const MAX_DEPTH = 4;
 const REDACT_PATHS = SECRET_KEYS.flatMap((key) => Array.from({ length: MAX_DEPTH }, (_, depth) => `${'*.'.repeat(depth)}${key}`));
 
@@ -69,6 +70,10 @@ const createLogger = ({ destination, level = defaultLevel() } = {}) => pino({
   },
   hooks: {
     logMethod(args, method) {
+      // Given an error (or { err }) and no message, pino would use the raw error message as msg.
+      const [first, ...rest] = args;
+      const error = first instanceof Error ? first : first?.err instanceof Error ? first.err : null;
+      if (error && rest.length === 0) return method.call(this, first, scrubSecrets(String(error.message ?? '')));
       return method.apply(this, args.map(scrubSecrets));
     },
   },

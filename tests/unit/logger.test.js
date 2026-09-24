@@ -20,6 +20,23 @@ describe('logger', () => {
     expect(logs.text()).toContain('[REDACTED]');
   });
 
+  // Personal data must not depend on each call site remembering to leave it out.
+  it.each(['email', 'phone', 'phoneNumber', 'address'])('redacts the personal-data field %s', (key) => {
+    getLogger().info({ [key]: 'personal-value-1', nested: { [key]: 'personal-value-1' } }, 'x');
+    expect(logs.text()).not.toContain('personal-value-1');
+  });
+
+  // With no message, pino uses the error's own message as msg, which bypassed the scrubbing.
+  it.each([
+    ['an error alone', (error) => getLogger().error(error)],
+    ['{ err } alone', (error) => getLogger().error({ err: error })],
+  ])('scrubs the message taken from %s', (_label, log) => {
+    log(new Error('connect failed for mongodb+srv://admin:S3cretPw@cluster.example.test/ccir?token=abc123'));
+    expect(logs.text()).not.toContain('S3cretPw');
+    expect(logs.text()).not.toContain('abc123');
+    expect(logs.lines[0].msg).toContain('connect failed');
+  });
+
   it.each(['Authorization', 'Cookie', 'set-cookie', 'Set-Cookie', 'x-api-key', 'X-Goog-Api-Key'])(
     'redacts the %s header whatever its case or punctuation',
     (header) => {
@@ -29,9 +46,9 @@ describe('logger', () => {
   );
 
   it('redacts secrets inside arrays of objects', () => {
-    getLogger().info({ users: [{ email: 'a@example.test', password: 'array-secret-value' }] }, 'x');
+    getLogger().info({ users: [{ role: 'agency', password: 'array-secret-value' }] }, 'x');
     expect(logs.text()).not.toContain('array-secret-value');
-    expect(logs.lines[0].users[0].email).toBe('a@example.test');
+    expect(logs.lines[0].users[0].role).toBe('agency');
   });
 
   it('does not change the object it was given', () => {
