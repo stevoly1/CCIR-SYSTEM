@@ -94,16 +94,22 @@ describe('current persisted user authority', () => {
     findUser.mockRestore();
   });
 
-  it('uses the same public login failure for inactive and invalid accounts', async () => {
-    const inactive = await createUserFixture({ isActive: false });
-    const inactiveResponse = await loginWithoutAgent(inactive);
+  // A suspended account is named as such only to someone who knows its password (owner decision,
+  // 24 September 2026; see account-suspension.test.js). Everyone else gets the one public failure.
+  it('uses the same public login failure for a suspended account with a wrong password, a retired account, and an unknown one', async () => {
+    const suspended = await createUserFixture({ isActive: false });
+    const retired = await createUserFixture({ isActive: false, retiredAt: new Date() });
+    const suspendedResponse = await loginWithoutAgent(suspended, 'wrong-password');
+    const retiredResponse = await loginWithoutAgent(retired);
     const invalidResponse = await unsafeRequest(request(testServer()), 'post', '/api/v1/auth/login').send({
       email: 'missing-user@example.test',
       password: 'fixture-password',
     });
 
-    expect(inactiveResponse.status).toBe(401);
-    expect(inactiveResponse.body).toEqual(invalidResponse.body);
+    for (const response of [suspendedResponse, retiredResponse]) {
+      expect(response.status).toBe(401);
+      expect(response.body).toEqual(invalidResponse.body);
+    }
   });
 
   it('rejects a refresh token whose stored owner differs from its JWT owner', async () => {
