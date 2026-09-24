@@ -4,6 +4,7 @@ node_modules/
 !.env.example
 *.log
 client/dist/
+coverage/
 client/node_modules/
 .DS_Store
 docs/
