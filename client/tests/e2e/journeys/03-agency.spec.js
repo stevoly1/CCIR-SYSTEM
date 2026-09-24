@@ -15,7 +15,7 @@ test('J4 assigned agency user progresses a report; unassigned reports are read-o
 
   await page.getByLabel('Priority').selectOption('CRITICAL');
   await page.getByRole('button', { name: 'Save update' }).click();
-  await expect(page.getByLabel('Report timeline')).toContainText('Priority changed from HIGH to CRITICAL');
+  await expect(page.getByLabel('Report timeline')).toContainText('Priority changed from High to Critical');
 
   await page.getByLabel('Status').selectOption('RESOLVED');
   await page.getByLabel('Public note (visible to the reporter)').fill('Repaired and resurfaced');

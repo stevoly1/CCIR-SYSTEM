@@ -37,6 +37,13 @@ describe('CategoriesPage', () => {
         expect(screen.queryByRole('button', { name: 'Delete Roads' })).not.toBeInTheDocument();
     });
 
+    it('names default priorities in words in the form and the table', () => {
+        render(<CategoriesPage />);
+        expect(within(screen.getByLabelText('Default priority')).getAllByRole('option').map((o) => o.textContent))
+            .toEqual(['Low', 'Medium', 'High', 'Critical']);
+        expect(within(screen.getByRole('row', { name: /Roads/ })).getByText('High')).toBeInTheDocument();
+    });
+
     it('shows a duplicate name inline on the name field', async () => {
         dispatch.mockImplementation(async (action) => (action.type === 'create'
             ? { type: 'create/rejected', payload: { code: 'CATEGORY_NAME_CONFLICT', message: 'A category with this name already exists' } }

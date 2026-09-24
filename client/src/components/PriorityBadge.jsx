@@ -1,9 +1,11 @@
 
+import { PRIORITY_LABELS } from './labels';
+
 const PRIORITY_STYLES = {
-    LOW: { color: 'var(--color-priority-low)', label: 'Low' },
-    MEDIUM: { color: 'var(--color-priority-medium)', label: 'Medium' },
-    HIGH: { color: 'var(--color-priority-high)', label: 'High' },
-    CRITICAL: { color: 'var(--color-priority-critical)', label: 'Critical' },
+    LOW: { color: 'var(--color-priority-low)', label: PRIORITY_LABELS.LOW },
+    MEDIUM: { color: 'var(--color-priority-medium)', label: PRIORITY_LABELS.MEDIUM },
+    HIGH: { color: 'var(--color-priority-high)', label: PRIORITY_LABELS.HIGH },
+    CRITICAL: { color: 'var(--color-priority-critical)', label: PRIORITY_LABELS.CRITICAL },
 };
 
 const PriorityBadge = ({ priority }) => {

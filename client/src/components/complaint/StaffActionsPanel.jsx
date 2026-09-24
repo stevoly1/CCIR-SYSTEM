@@ -2,9 +2,8 @@ import { useState } from 'react';
 import { useDispatch } from 'react-redux';
 import toast from 'react-hot-toast';
 import { RELOAD_CODES, updateComplaintStatus } from '../../slices/complaintSlice';
+import { PRIORITIES, PRIORITY_LABELS, STATUS_LABELS, labelFor } from '../labels';
 
-const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
-const label = (status) => status.replace('_', ' ');
 
 // Status and priority controls driven entirely by server-computed permissions:
 // the status list is `allowedTransitions`, and nothing unchanged is sent.
@@ -64,14 +63,14 @@ const StaffActionsPanel = ({ complaint, onUpdated, onConflict }) => {
                     disabled={complaint.allowedTransitions.length === 0}
                 >
                     <option value="">No status change</option>
-                    {complaint.allowedTransitions.map((s) => <option key={s} value={s}>{label(s)}</option>)}
+                    {complaint.allowedTransitions.map((s) => <option key={s} value={s}>{labelFor(STATUS_LABELS, s)}</option>)}
                 </select>
             </div>
             {complaint.canChangePriority && (
                 <div className="field">
                     <label htmlFor="staff-priority">Priority</label>
                     <select id="staff-priority" value={priority} onChange={(e) => setPriority(e.target.value)}>
-                        {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
+                        {PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_LABELS[p]}</option>)}
                     </select>
                 </div>
             )}

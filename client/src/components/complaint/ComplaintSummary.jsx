@@ -1,5 +1,6 @@
 import { MapPin, Sparkles } from 'lucide-react';
 import { categoryLabel } from './categoryLabel';
+import { COORDINATE_SOURCE_LABELS, labelFor } from '../labels';
 
 // The report's content. Staff see recorded coordinates (5 decimal places) and their
 // source; the owner sees only the address and whether a precise position exists.
@@ -53,7 +54,7 @@ const ComplaintSummary = ({ complaint, staffView }) => {
                 </p>
                 {coordinates && (
                     <span className="meta">
-                        {`Coordinates: ${coordinates.latitude.toFixed(5)}, ${coordinates.longitude.toFixed(5)} (${coordinates.coordinateSource})`}
+                        {`Coordinates: ${coordinates.latitude.toFixed(5)}, ${coordinates.longitude.toFixed(5)} (${labelFor(COORDINATE_SOURCE_LABELS, coordinates.coordinateSource)})`}
                     </span>
                 )}
                 {!staffView && complaint.hasPrecisePosition && <span className="meta">Precise position recorded</span>}

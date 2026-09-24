@@ -1,9 +1,10 @@
 import StatusBadge from '../StatusBadge';
+import { PRIORITY_LABELS, labelFor } from '../labels';
 
 // Renders the presenter's timeline contract. Citizens receive role-level `actorLabel`s
 // and public notes only; the staff view adds `actor` identities and internal notes.
 
-const priorityText = (change) => `Priority changed from ${change.from} to ${change.to}`;
+const priorityText = (change) => `Priority changed from ${labelFor(PRIORITY_LABELS, change.from)} to ${labelFor(PRIORITY_LABELS, change.to)}`;
 
 const ComplaintTimeline = ({ entries = [], staffView = false }) => (
     <ol className="card-list" aria-label="Report timeline" style={{ listStyle: 'none', padding: 0 }}>

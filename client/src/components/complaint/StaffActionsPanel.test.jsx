@@ -21,6 +21,13 @@ describe('StaffActionsPanel', () => {
         expect(options).toEqual(['', 'PENDING', 'IN_PROGRESS', 'REJECTED']);
     });
 
+    it('names statuses and priorities in words rather than stored codes', () => {
+        render(<StaffActionsPanel complaint={base} onUpdated={vi.fn()} onConflict={vi.fn()} />);
+        const texts = (label) => within(screen.getByLabelText(label)).getAllByRole('option').map((o) => o.textContent);
+        expect(texts('Status')).toEqual(['No status change', 'Pending', 'In Progress', 'Rejected']);
+        expect(texts('Priority')).toEqual(['Low', 'Medium', 'High', 'Critical']);
+    });
+
     it('sends a priority-only update with notes and the version', async () => {
         const user = userEvent.setup();
         render(<StaffActionsPanel complaint={base} onUpdated={vi.fn()} onConflict={vi.fn()} />);

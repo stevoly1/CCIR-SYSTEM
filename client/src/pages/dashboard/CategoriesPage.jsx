@@ -5,8 +5,7 @@ import Topbar from '../../components/Topbar';
 import Modal from '../../components/Modal';
 import ConfirmModal from '../../components/ConfirmModal';
 import { createCategory, deleteCategory, fetchCategories, updateCategory } from '../../slices/categorySlice';
-
-const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
+import { PRIORITIES, PRIORITY_LABELS, labelFor } from '../../components/labels';
 const EMPTY = { name: '', description: '', defaultPriority: 'MEDIUM' };
 const isFallback = (category) => category.name.trim().toLowerCase() === 'other';
 
@@ -29,7 +28,7 @@ const CategoryForm = ({ value, onChange, error, idPrefix }) => (
             <label htmlFor={`${idPrefix}-priority`}>Default priority</label>
             <select id={`${idPrefix}-priority`} value={value.defaultPriority}
                 onChange={(e) => onChange({ ...value, defaultPriority: e.target.value })}>
-                {PRIORITIES.map((p) => <option key={p} value={p}>{p}</option>)}
+                {PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_LABELS[p]}</option>)}
             </select>
         </div>
     </>
@@ -108,7 +107,7 @@ const CategoriesPage = () => {
                             <tr key={category._id} aria-label={category.name}>
                                 <td>{category.name}</td>
                                 <td>{category.description}</td>
-                                <td>{category.defaultPriority}</td>
+                                <td>{labelFor(PRIORITY_LABELS, category.defaultPriority)}</td>
                                 <td>{category.isActive ? 'Active' : 'Inactive'}</td>
                                 <td className="num">{category.complaintCount ?? 0}</td>
                                 <td>

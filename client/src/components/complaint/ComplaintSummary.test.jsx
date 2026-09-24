@@ -9,7 +9,12 @@ const base = {
 describe('ComplaintSummary', () => {
     it('shows staff the coordinates to five decimal places with their source', () => {
         render(<ComplaintSummary staffView complaint={{ ...base, location: { address: 'Bus stop', latitude: 6.601812345, longitude: 3.351498765, coordinateSource: 'DEVICE' } }} />);
-        expect(screen.getByText('Coordinates: 6.60181, 3.35150 (DEVICE)')).toBeInTheDocument();
+        expect(screen.getByText("Coordinates: 6.60181, 3.35150 (from the reporter's device)")).toBeInTheDocument();
+    });
+
+    it('names a suggested address as the coordinate source in words', () => {
+        render(<ComplaintSummary staffView complaint={{ ...base, location: { address: 'Bus stop', latitude: 6.6, longitude: 3.35, coordinateSource: 'SUGGESTION' } }} />);
+        expect(screen.getByText('Coordinates: 6.60000, 3.35000 (from an address suggestion)')).toBeInTheDocument();
     });
 
     it('shows the owner only the address and a precise-position flag', () => {

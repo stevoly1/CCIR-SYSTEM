@@ -38,7 +38,7 @@ describe('ComplaintTimeline', () => {
             _id: '4', type: 'PRIORITY_CHANGED', status: 'IN_REVIEW', priorityChange: { from: 'LOW', to: 'HIGH' },
             actorLabel: 'Administrator', createdAt: '2026-09-04T10:00:00Z',
         }]} />);
-        expect(screen.getByText('Priority changed from LOW to HIGH')).toBeInTheDocument();
+        expect(screen.getByText('Priority changed from Low to High')).toBeInTheDocument();
     });
 
     it('labels renamed categories with their filed name', () => {
