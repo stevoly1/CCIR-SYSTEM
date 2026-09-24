@@ -90,7 +90,7 @@ const ReportIssuePage = () => {
 
     return (
         <div>
-            <Topbar title="Report an Issue" subtitle="Describe the problem and, if you can, add a photo and location." />
+            <Topbar title="Report an Issue" subtitle="Describe the problem and where it is. Add a photo if you can." />
 
             <form onSubmit={handleSubmit} style={{ maxWidth: 640 }}>
                 {error && <div className="form-error-banner">{error}</div>}
