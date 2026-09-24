@@ -47,6 +47,37 @@ describe('logger', () => {
     },
   );
 
+  // Key-based redaction used to rely on pino's wildcard paths, which throw on a top-level URL or
+  // Buffer and stop at a fixed depth; the final line is now scrubbed instead.
+  it('logs top-level URL and Buffer values without throwing, and scrubs the URL', () => {
+    expect(() => getLogger().info({ link: new URL('https://example.test/cb?token=url-secret-1'), data: Buffer.from('ok') }, 'values')).not.toThrow();
+    expect(logs.lines[0].msg).toBe('values');
+    expect(logs.text()).not.toContain('url-secret-1');
+  });
+
+  it.each(['passwordHash', 'privateKey', 'jwt', 'name', 'fullName'])('redacts the %s field', (key) => {
+    getLogger().info({ [key]: 'named-secret-1', nested: { [key]: 'named-secret-1' } }, 'x');
+    expect(logs.text()).not.toContain('named-secret-1');
+  });
+
+  it('redacts secret-named fields at any depth', () => {
+    getLogger().info({ a: { b: { c: { d: { e: { f: { password: 'deep-secret-1', note: 'kept' } } } } } } }, 'deep');
+    expect(logs.text()).not.toContain('deep-secret-1');
+    expect(logs.text()).toContain('kept');
+  });
+
+  it('redacts secret-named fields held inside class instances', () => {
+    class Holder { constructor() { this.token = 'instance-secret-1'; this.label = 'kept'; } }
+    getLogger().info({ holder: new Holder() }, 'instance');
+    expect(logs.text()).not.toContain('instance-secret-1');
+    expect(logs.text()).toContain('kept');
+  });
+
+  it('keeps an explicit msg field when an error is logged without a message argument', () => {
+    getLogger().error({ err: new Error('raw detail'), msg: 'Upload step failed' });
+    expect(logs.lines[0].msg).toBe('Upload step failed');
+  });
+
   it('redacts secrets inside arrays of objects', () => {
     getLogger().info({ users: [{ role: 'agency', password: 'array-secret-value' }] }, 'x');
     expect(logs.text()).not.toContain('array-secret-value');
