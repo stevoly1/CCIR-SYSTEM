@@ -111,7 +111,7 @@ const ReportIssuePage = () => {
                 <LocationField value={location} onChange={setLocation} />
 
                 <div className="field">
-                    <label>Photos (optional, up to {MAX_IMAGES})</label>
+                    <span id="photos-heading" className="field-heading">Photos (optional, up to {MAX_IMAGES})</span>
                     <div style={{
                         display: 'flex', flexWrap: 'wrap', gap: 10, width: '100%',
                         background: '#fff', border: '1px solid var(--color-border)',
@@ -126,17 +126,27 @@ const ReportIssuePage = () => {
                             </div>
                         ))}
                         {images.length < MAX_IMAGES && (
-                            <label htmlFor="image" style={{
+                            // The input is visually hidden but focusable, so keyboard users can reach it.
+                            <label className="photo-picker" style={{
                                 display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                                 gap: 4, width: 100, height: 100, border: '1.5px dashed var(--color-border)', borderRadius: 'var(--radius-sm)',
                                 cursor: 'pointer', color: 'var(--color-text-muted)',
                             }}>
-                                <ImagePlus size={20} />
-                                <span style={{ fontSize: '0.72rem' }}>Add photo</span>
+                                <ImagePlus size={20} aria-hidden="true" />
+                                <span style={{ fontSize: '0.72rem' }} aria-hidden="true">Add photo</span>
+                                <input
+                                    id="image"
+                                    type="file"
+                                    className="visually-hidden"
+                                    aria-label="Add photos"
+                                    aria-describedby="photos-heading"
+                                    accept="image/jpeg,image/png,image/webp"
+                                    multiple
+                                    onChange={handleImageChange}
+                                />
                             </label>
                         )}
                     </div>
-                    <input id="image" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={handleImageChange} style={{ display: 'none' }} />
                 </div>
 
                 <button className="btn btn-primary" type="submit" disabled={createStatus === 'loading'}>

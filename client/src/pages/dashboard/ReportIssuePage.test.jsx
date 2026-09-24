@@ -91,4 +91,13 @@ describe('ReportIssuePage image selection', () => {
         expect(screen.getByRole('button', { name: 'Remove photo 1' })).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Remove photo 2' })).not.toBeInTheDocument();
     });
+
+    it('lets keyboard users reach the photo picker through a named, focusable input', () => {
+        const input = renderInput();
+        expect(screen.getByLabelText('Add photos')).toBe(input);
+        expect(input).not.toHaveStyle({ display: 'none' });
+        expect(input).toHaveClass('visually-hidden');
+        input.focus();
+        expect(input).toHaveFocus();
+    });
 });
