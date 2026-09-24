@@ -129,13 +129,14 @@ These commands need [MongoDB Database Tools](https://www.mongodb.com/try/downloa
 
 ```bash
 npm run db:backup -- --out backups     # the database in MONGO_URL → backups/ccir-<time>.archive.gz + a manifest
-RESTORE_TARGET_URL='<target connection string>' npm run db:restore -- --archive backups/ccir-<time>.archive.gz
+read -rs RESTORE_TARGET_URL && export RESTORE_TARGET_URL   # paste the target connection string; it is not echoed or kept in history
+npm run db:restore -- --archive backups/ccir-<time>.archive.gz
 npm run db:rehearse                    # proves backup and restore on a throwaway in-memory database (needs the dev dependencies)
 ```
 
 A backup compares the database before and after the dump, so its manifest always matches its archive. If the application wrote in between, that attempt is discarded and retried; after three attempts it stops and keeps nothing. Collections that expire by themselves (refresh tokens, throttle counters, Google sign-in state) are backed up and restored but not compared, because MongoDB changes them even with the application stopped. The archive is created readable by its owner only.
 
-Restore takes its target from `RESTORE_TARGET_URL`, never from `MONGO_URL`. `--uri` is accepted only for a target without a password, because the command line is visible to other users and kept in shell history. The target must name its database. A restore:
+Restore takes its target from `RESTORE_TARGET_URL`, never from `MONGO_URL`. `--uri` is accepted only for a target without a password, because the command line is visible to other users and kept in shell history. Secrets given as connection options (such as `tlsCertificateKeyFilePassword`) belong in `RESTORE_TARGET_URL` too. The target must name its database. A restore:
 - refuses an archive that does not match its manifest checksum;
 - refuses a non-empty target unless both `--drop` and `--confirm-drop` are given, and then makes the target an exact copy of the backup, dropping collections the backup does not have;
 - afterwards checks every collection against the manifest.
