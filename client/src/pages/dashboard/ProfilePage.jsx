@@ -41,7 +41,7 @@ const ProfilePage = () => {
                 </div>
                 <div className="field">
                     <label htmlFor="phone">Phone</label>
-                    <input id="phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Optional" />
+                    <input id="phone" type="tel" autoComplete="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Optional" />
                 </div>
                 <button className="btn btn-primary" type="submit" disabled={saving}>
                     {saving ? <span className="spinner" /> : 'Save changes'}

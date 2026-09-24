@@ -993,6 +993,8 @@ paths:
                 phone:
                   type: string
                   maxLength: 30
+                  pattern: '^$|^\+?[0-9 ().-]+$'
+                  description: A phone number of 7 to 15 digits, optionally starting with +; spaces, dashes, dots and brackets are allowed. An empty value clears it.
             example:
               name: Ada Citizen
               email: ada@example.test
@@ -1341,6 +1343,8 @@ paths:
                 phone:
                   type: string
                   maxLength: 30
+                  pattern: '^$|^\+?[0-9 ().-]+$'
+                  description: A phone number of 7 to 15 digits, optionally starting with +; spaces, dashes, dots and brackets are allowed. An empty value clears it.
             example:
               phone: '+2348000000001'
       responses:
@@ -1481,6 +1485,8 @@ paths:
                 phone:
                   type: string
                   maxLength: 30
+                  pattern: '^$|^\+?[0-9 ().-]+$'
+                  description: A phone number of 7 to 15 digits, optionally starting with +; spaces, dashes, dots and brackets are allowed. An empty value clears it.
                 role:
                   $ref: '#/components/schemas/Role'
                 isActive:

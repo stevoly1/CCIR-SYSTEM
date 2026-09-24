@@ -182,6 +182,7 @@ const UsersPage = () => {
                             <label htmlFor="edit-phone">Phone</label>
                             <input
                                 id="edit-phone"
+                                type="tel"
                                 value={editForm.phone}
                                 onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
                                 placeholder="Optional"
