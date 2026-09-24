@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router';
 import { Search } from 'lucide-react';
 import Topbar from '../../components/Topbar';
 import ComplaintCard from '../../components/ComplaintCard';
+import Pager from '../../components/Pager';
 import { fetchComplaints } from '../../slices/complaintSlice';
 
 const STATUS_FILTERS = [
@@ -16,6 +17,8 @@ const STATUS_FILTERS = [
     { label: 'Withdrawn', value: 'WITHDRAWN' },
 ];
 
+const PAGE_SIZE = 50;
+
 const ReportsListPage = () => {
     const dispatch = useDispatch();
     const { user } = useSelector((state) => state.auth);
@@ -24,6 +27,7 @@ const ReportsListPage = () => {
     const status = searchParams.get('status') || '';
     const search = searchParams.get('search') || '';
     const mine = searchParams.get('mine') === '1';
+    const page = Math.max(1, Number.parseInt(searchParams.get('page'), 10) || 1);
     const isAgency = user?.role === 'agency';
     const isStaff = user?.role === 'admin' || user?.role === 'agency';
 
@@ -31,21 +35,35 @@ const ReportsListPage = () => {
     const debounceRef = useRef(null);
 
     useEffect(() => {
-        const params = { limit: 50 };
+        const params = { limit: PAGE_SIZE, page };
         if (status) params.status = status;
         if (search) params.search = search;
         if (isAgency && mine && user?._id) params.assignedTo = user._id;
         dispatch(fetchComplaints(params));
-    }, [dispatch, status, search, isAgency, mine, user?._id]);
+    }, [dispatch, status, search, isAgency, mine, page, user?._id]);
+
+    // Any change to what is listed starts again from its first page.
+    const withoutPage = () => {
+        const next = new URLSearchParams(searchParams);
+        next.delete('page');
+        return next;
+    };
+
+    const setPage = (value) => {
+        const next = new URLSearchParams(searchParams);
+        if (value > 1) next.set('page', String(value)); else next.delete('page');
+        setSearchParams(next);
+        document.querySelector('.main-content')?.scrollIntoView?.({ block: 'start' });
+    };
 
     const toggleMine = () => {
-        const next = new URLSearchParams(searchParams);
+        const next = withoutPage();
         if (mine) next.delete('mine'); else next.set('mine', '1');
         setSearchParams(next);
     };
 
     const setStatusFilter = (value) => {
-        const next = new URLSearchParams(searchParams);
+        const next = withoutPage();
         if (value) next.set('status', value); else next.delete('status');
         setSearchParams(next);
     };
@@ -54,7 +72,7 @@ const ReportsListPage = () => {
         setSearchInput(value);
         clearTimeout(debounceRef.current);
         debounceRef.current = setTimeout(() => {
-            const next = new URLSearchParams(searchParams);
+            const next = withoutPage();
             if (value.trim()) next.set('search', value.trim()); else next.delete('search');
             setSearchParams(next);
         }, 400);
@@ -114,6 +132,10 @@ const ReportsListPage = () => {
                     <ComplaintCard key={complaint._id} complaint={complaint} />
                 ))}
             </div>
+
+            {listStatus !== 'loading' && (
+                <Pager page={pagination.page ?? page} pages={pagination.pages} onChange={setPage} label="Report pages" />
+            )}
         </div>
     );
 };

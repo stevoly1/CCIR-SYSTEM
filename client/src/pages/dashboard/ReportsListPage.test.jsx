@@ -10,12 +10,12 @@ vi.mock('react-redux', () => ({ useDispatch: () => dispatch, useSelector: (selec
 vi.mock('../../components/Topbar', () => ({ default: () => null }));
 vi.mock('../../slices/complaintSlice', () => ({ fetchComplaints: vi.fn((params) => ({ type: 'fetch', params })) }));
 
-const renderAs = (role) => {
+const renderAs = (role, { url = '/dashboard/reports', pagination = { total: 0 } } = {}) => {
     state = {
         auth: { user: { _id: 'me-1', role } },
-        complaints: { items: [], listStatus: 'succeeded', pagination: { total: 0 } },
+        complaints: { items: [], listStatus: 'succeeded', pagination },
     };
-    return render(<MemoryRouter><ReportsListPage /></MemoryRouter>);
+    return render(<MemoryRouter initialEntries={[url]}><ReportsListPage /></MemoryRouter>);
 };
 
 describe('ReportsListPage filters', () => {
@@ -37,5 +37,29 @@ describe('ReportsListPage filters', () => {
         await user.click(screen.getByRole('button', { name: 'Assigned to me' }));
         await waitFor(() => expect(fetchComplaints).toHaveBeenLastCalledWith(expect.objectContaining({ assignedTo: 'me-1' })));
         expect(screen.getByRole('button', { name: 'Assigned to me' })).toHaveAttribute('aria-pressed', 'true');
+    });
+});
+
+describe('ReportsListPage paging', () => {
+    beforeEach(() => { dispatch.mockReset(); vi.mocked(fetchComplaints).mockClear(); });
+
+    it('requests the page named in the address', async () => {
+        renderAs('admin', { url: '/dashboard/reports?page=2', pagination: { page: 2, pages: 3, total: 120 } });
+        await waitFor(() => expect(fetchComplaints).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 })));
+    });
+
+    it('offers the next page when the results span several pages', async () => {
+        const user = userEvent.setup();
+        renderAs('admin', { pagination: { page: 1, pages: 3, total: 120 } });
+        expect(screen.getByRole('navigation', { name: 'Report pages' })).toHaveTextContent('Page 1 of 3');
+        await user.click(screen.getByRole('button', { name: 'Next page' }));
+        await waitFor(() => expect(fetchComplaints).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 })));
+    });
+
+    it('returns to the first page when the filter changes', async () => {
+        const user = userEvent.setup();
+        renderAs('admin', { url: '/dashboard/reports?page=3', pagination: { page: 3, pages: 3, total: 120 } });
+        await user.click(screen.getByRole('button', { name: 'Resolved' }));
+        await waitFor(() => expect(fetchComplaints).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'RESOLVED', page: 1 })));
     });
 });
