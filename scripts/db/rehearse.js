@@ -8,6 +8,7 @@ const path = require('node:path');
 const mongoose = require('mongoose');
 const { MongoMemoryReplSet } = require('mongodb-memory-server');
 const { MONGODB_TEST_VERSION } = require('../../tests/setup/mongoVersion.cjs');
+const { startWithPortRetry } = require('../../tests/setup/memoryMongo.cjs');
 const { backup } = require('./backup');
 const { restore } = require('./restore');
 const { databaseSnapshot } = require('./common');
@@ -27,14 +28,16 @@ const seedEveryCollection = async (uri) => {
   }
   await ComplaintDeletion.create({ complaintId: new mongoose.Types.ObjectId(), referenceCode: 'CCIR-RHDEL001', statusAtDeletion: 'PENDING', deletedBy: { userId: admin._id, displayName: 'Rehearsal Admin', role: 'admin' }, reason: 'rehearsal', deletedAt: new Date() });
   await RefreshToken.create({ token: 'rehearsal-token', user: citizen._id, expiresAt: new Date(Date.now() + 86400000) });
-  await AuthThrottle.create({ _id: 'rehearsal:key', count: 1, resetAt: new Date(Date.now() + 60000) });
-  await OAuthState.create({ digest: 'a'.repeat(64), expiresAt: new Date(Date.now() + 60000) });
+  // Expiries a day ahead: the comparison below covers these self-expiring rows too, and MongoDB's
+  // expiry sweep must not delete them during a slow rehearsal.
+  await AuthThrottle.create({ _id: 'rehearsal:key', count: 1, resetAt: new Date(Date.now() + 86400000) });
+  await OAuthState.create({ digest: 'a'.repeat(64), expiresAt: new Date(Date.now() + 86400000) });
   await AdminControl.create({ _id: 'accountLifecycle', revision: 1 });
   await mongoose.disconnect();
 };
 
 const rehearse = async () => {
-  const replSet = await MongoMemoryReplSet.create({ binary: { version: MONGODB_TEST_VERSION }, replSet: { count: 1, storageEngine: 'wiredTiger' } });
+  const replSet = await startWithPortRetry(() => MongoMemoryReplSet.create({ binary: { version: MONGODB_TEST_VERSION }, replSet: { count: 1, storageEngine: 'wiredTiger' } }));
   const out = fs.mkdtempSync(path.join(os.tmpdir(), 'ccir-rehearsal-'));
   try {
     const source = withDatabase(replSet.getUri(), 'ccir-rehearsal-source');

@@ -5,6 +5,7 @@ const { testServer } = require('../helpers/testServer');
 const { checkReadiness } = require('../../services/readinessService');
 const Complaint = require('../../models/Complaint');
 const { MONGODB_TEST_VERSION } = require('../setup/mongoVersion.cjs');
+const { startWithPortRetry } = require('../setup/memoryMongo.cjs');
 
 // Distinctive values, so a leak into the response names itself.
 const ALL_SERVICES = {
@@ -107,7 +108,7 @@ describe('checkReadiness database failures', () => {
   });
 
   it('is unavailable on a standalone server that cannot run transactions', async () => {
-    const standalone = await MongoMemoryServer.create({ binary: { version: MONGODB_TEST_VERSION } });
+    const standalone = await startWithPortRetry(() => MongoMemoryServer.create({ binary: { version: MONGODB_TEST_VERSION } }));
     const connection = await mongoose.createConnection(standalone.getUri()).asPromise();
     try {
       const result = await checkReadiness({ connection });

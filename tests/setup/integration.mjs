@@ -7,6 +7,7 @@ import { MongoMemoryReplSet } from 'mongodb-memory-server';
 
 let mongoServer;
 const { MONGODB_TEST_VERSION: MONGODB_VERSION } = createRequire(import.meta.url)('./mongoVersion.cjs');
+const { startWithPortRetry } = createRequire(import.meta.url)('./memoryMongo.cjs');
 
 process.env.JWT_TOKEN ||= 'integration-access-secret';
 process.env.JWT_REFRESH_TOKEN ||= 'integration-refresh-secret';
@@ -20,10 +21,10 @@ process.env.AUTH_THROTTLE_HMAC_SECRET ||= 'integration-auth-throttle-secret';
 process.env.NODE_ENV = 'test';
 
 beforeAll(async () => {
-  mongoServer = await MongoMemoryReplSet.create({
+  mongoServer = await startWithPortRetry(() => MongoMemoryReplSet.create({
     binary: { version: MONGODB_VERSION },
     replSet: { count: 1, storageEngine: 'wiredTiger' },
-  });
+  }));
   // Tests that start their own processes (CLI scripts, the backup rehearsal) connect here.
   process.env.TEST_MONGO_URI = mongoServer.getUri();
   await mongoose.connect(mongoServer.getUri(), { dbName: 'ccir-integration' });

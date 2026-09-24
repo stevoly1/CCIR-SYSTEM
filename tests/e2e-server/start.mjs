@@ -28,10 +28,11 @@ delete process.env.RESEND_API_KEY;
 const mongoose = require('mongoose');
 const { MongoMemoryReplSet } = require('mongodb-memory-server');
 
-const replSet = await MongoMemoryReplSet.create({
+const { startWithPortRetry } = require('../setup/memoryMongo.cjs');
+const replSet = await startWithPortRetry(() => MongoMemoryReplSet.create({
   binary: { version: require('../setup/mongoVersion.cjs').MONGODB_TEST_VERSION },
   replSet: { count: 1, storageEngine: 'wiredTiger' },
-});
+}));
 await mongoose.connect(replSet.getUri(), { dbName: 'ccir-e2e' });
 
 require('./fakes.cjs').install();
