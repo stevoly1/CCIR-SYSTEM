@@ -98,38 +98,40 @@ const CategoriesPage = () => {
             </form>
 
             {status === 'loading' && <div className="empty-state">Loading categories…</div>}
-            <table className="data-table" aria-label="Categories">
-                <thead>
-                    <tr><th>Name</th><th>Description</th><th>Default priority</th><th>Status</th><th>Reports</th><th>Actions</th></tr>
-                </thead>
-                <tbody>
-                    {items.map((category) => (
-                        <tr key={category._id} aria-label={category.name}>
-                            <td>{category.name}</td>
-                            <td>{category.description}</td>
-                            <td>{category.defaultPriority}</td>
-                            <td>{category.isActive ? 'Active' : 'Inactive'}</td>
-                            <td>{category.complaintCount ?? 0}</td>
-                            <td>
-                                {isFallback(category) ? (
-                                    <span className="meta">System fallback — can&apos;t be renamed, deactivated, or deleted</span>
-                                ) : (
-                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                                        <button type="button" className="btn btn-outline" aria-label={`Edit ${category.name}`} onClick={() => { setEditError(''); setEditing({ ...category }); }}>Edit</button>
-                                        {category.isActive
-                                            ? <button type="button" className="btn btn-outline" aria-label={`Deactivate ${category.name}`} onClick={() => setConfirm({ kind: 'deactivate', category })}>Deactivate</button>
-                                            : <button type="button" className="btn btn-outline" aria-label={`Activate ${category.name}`} onClick={() => setConfirm({ kind: 'activate', category })}>Activate</button>}
-                                        {!category.isActive && (category.complaintCount ?? 0) === 0 && (
-                                            <button type="button" className="btn btn-outline" aria-label={`Delete ${category.name}`} onClick={() => setConfirm({ kind: 'delete', category })}>Delete</button>
-                                        )}
-                                    </div>
-                                )}
-                                {rowErrors[category._id] && <p role="alert" className="field-error">{rowErrors[category._id]}</p>}
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+            <div className="data-table-wrap">
+                <table className="data-table" aria-label="Categories">
+                    <thead>
+                        <tr><th>Name</th><th>Description</th><th>Default priority</th><th>Status</th><th className="num">Reports</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody>
+                        {items.map((category) => (
+                            <tr key={category._id} aria-label={category.name}>
+                                <td>{category.name}</td>
+                                <td>{category.description}</td>
+                                <td>{category.defaultPriority}</td>
+                                <td>{category.isActive ? 'Active' : 'Inactive'}</td>
+                                <td className="num">{category.complaintCount ?? 0}</td>
+                                <td>
+                                    {isFallback(category) ? (
+                                        <span className="meta">System fallback — can&apos;t be renamed, deactivated, or deleted</span>
+                                    ) : (
+                                        <div className="data-table-actions">
+                                            <button type="button" className="btn btn-outline" aria-label={`Edit ${category.name}`} onClick={() => { setEditError(''); setEditing({ ...category }); }}>Edit</button>
+                                            {category.isActive
+                                                ? <button type="button" className="btn btn-outline" aria-label={`Deactivate ${category.name}`} onClick={() => setConfirm({ kind: 'deactivate', category })}>Deactivate</button>
+                                                : <button type="button" className="btn btn-outline" aria-label={`Activate ${category.name}`} onClick={() => setConfirm({ kind: 'activate', category })}>Activate</button>}
+                                            {!category.isActive && (category.complaintCount ?? 0) === 0 && (
+                                                <button type="button" className="btn btn-outline" aria-label={`Delete ${category.name}`} onClick={() => setConfirm({ kind: 'delete', category })}>Delete</button>
+                                            )}
+                                        </div>
+                                    )}
+                                    {rowErrors[category._id] && <p role="alert" className="field-error">{rowErrors[category._id]}</p>}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
 
             {editing && (
                 <Modal title={`Edit ${editing.name}`} onClose={() => setEditing(null)}>

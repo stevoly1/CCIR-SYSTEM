@@ -455,6 +455,68 @@
     margin-left: auto;
 }
 
+/* Administrative tables (categories): a card like the report and user lists, scrolling
+   sideways on narrow screens instead of spilling past the page. */
+.data-table-wrap {
+    background: #fff;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    overflow-x: auto;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.94rem;
+}
+
+.data-table th,
+.data-table td {
+    text-align: left;
+    vertical-align: middle;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.data-table th {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
+
+.data-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.data-table td:first-child {
+    font-weight: 600;
+}
+
+.data-table .num {
+    text-align: right;
+}
+
+.data-table-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.data-table-actions .btn {
+    padding: 8px 14px;
+    font-size: 0.85rem;
+}
+
+.data-table .meta {
+    display: block;
+    max-width: 260px;
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+}
+
 .empty-state {
     background: #fff;
     border: 1.5px dashed var(--color-border);
