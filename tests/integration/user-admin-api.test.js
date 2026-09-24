@@ -104,3 +104,40 @@ describe('administrator user list and account management', () => {
     expect(await RefreshToken.countDocuments({ user: target._id })).toBe(0);
   });
 });
+
+// Changing a password or email needs proof of the current password (a later feature), so the
+// profile edit takes only name and phone: a session alone must not be able to take over an account.
+describe('profile edits', () => {
+  const request = require('supertest');
+  const { testServer } = require('../helpers/testServer');
+  const loginStatus = (email, password) => unsafeRequest(request(testServer()), 'post', '/api/v1/auth/login')
+    .send({ email, password }).then((response) => response.status);
+
+  it('refuses a password change and keeps the current password working', async () => {
+    const { agent, user, password } = await createAuthenticatedAgent({ role: 'citizen' });
+    const response = await unsafeRequest(agent, 'patch', '/api/v1/users/profile').send({ password: 'taken-over-1' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('VALIDATION_ERROR');
+    expect(await loginStatus(user.email, 'taken-over-1')).toBe(401);
+    expect(await loginStatus(user.email, password)).toBe(200);
+  });
+
+  it('refuses an email change', async () => {
+    const { agent, user } = await createAuthenticatedAgent({ role: 'citizen' });
+    const response = await unsafeRequest(agent, 'patch', '/api/v1/users/profile').send({ name: 'Same Person', email: 'someone-else@example.test' });
+
+    expect(response.status).toBe(400);
+    const stored = await User.findById(user.id);
+    expect(stored.email).toBe(user.email);
+    expect(stored.name).not.toBe('Same Person');
+  });
+
+  it('still saves the name and phone', async () => {
+    const { agent, user } = await createAuthenticatedAgent({ role: 'citizen' });
+    const response = await unsafeRequest(agent, 'patch', '/api/v1/users/profile').send({ name: 'New Name', phone: '+234 801 234 5678' });
+
+    expect(response.status).toBe(200);
+    expect(await User.findById(user.id)).toMatchObject({ name: 'New Name', phone: '+234 801 234 5678' });
+  });
+});

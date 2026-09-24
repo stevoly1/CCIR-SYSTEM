@@ -35,7 +35,12 @@ const loginSchema = z.strictObject({
     password: z.string().min(6, { message: 'Password must be at least 6 characters long' }).max(128),
 });
 
-const updateProfileSchema = signupSchema.partial();
+// Only name and phone: changing a password or email needs proof of the current password, which a
+// session alone is not, so those arrive later as their own confirmed flows.
+const updateProfileSchema = z.strictObject({
+    name: nameSchema.optional(),
+    phone: phoneSchema,
+});
 
 const adminUpdateUserSchema = z.strictObject({
     name: nameSchema.optional(),

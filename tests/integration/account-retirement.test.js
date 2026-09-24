@@ -113,7 +113,7 @@ describe('transactional account retirement', () => {
 
     const [update, retirement] = await Promise.all([
       unsafeRequest(agent, 'patch', '/api/v1/users/profile')
-        .send({ name: 'Racing Name', email: 'racing@example.test' }),
+        .send({ name: 'Racing Name', phone: '+2348000000009' }),
       unsafeRequest(agent, 'delete', '/api/v1/users/profile'),
     ]);
 

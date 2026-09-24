@@ -1320,6 +1320,7 @@ paths:
     patch:
       tags: [users]
       summary: Update the signed-in user's account
+      description: Changes the name and phone only. Password and email cannot be changed here, because a session alone does not prove the current password; any other field is refused with 400 `VALIDATION_ERROR`.
       operationId: updateProfile
       requestBody:
         required: true
@@ -1333,13 +1334,6 @@ paths:
                   type: string
                   minLength: 2
                   maxLength: 60
-                email:
-                  type: string
-                  format: email
-                password:
-                  type: string
-                  minLength: 6
-                  maxLength: 128
                 phone:
                   type: string
                   maxLength: 30
