@@ -184,7 +184,7 @@ const UsersPage = () => {
                                         {u.role}
                                     </span>
                                     {state && <span className="badge" style={state.style}>{state.label}</span>}
-                                    <div style={{ display: 'flex', gap: 8 }}>
+                                    <div className="user-row-buttons">
                                         <button className="icon-btn" onClick={() => openEdit(u)} disabled={retired} title={retired ? 'Retired accounts cannot be changed' : 'Edit user'} aria-label="Edit user">
                                             <Pencil size={15} />
                                         </button>

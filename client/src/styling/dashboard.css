@@ -477,6 +477,18 @@
     margin-left: auto;
 }
 
+.user-row-buttons {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
+}
+
+/* Retired accounts carry a long placeholder address; it breaks rather than being cut off. */
+.user-row .complaint-info .meta {
+    display: block;
+    overflow-wrap: anywhere;
+}
+
 /* Administrative tables (categories): a card like the report and user lists, scrolling
    sideways on narrow screens instead of spilling past the page. */
 .data-table-wrap {
@@ -690,9 +702,11 @@
     .user-row .complaint-info {
         flex: 1 1 calc(100% - 52px);
     }
+    /* Badges first; the buttons wrap onto their own line, kept to the right, when there is no room. */
     .user-row-actions {
         width: 100%;
-        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 10px;
         padding-left: 52px;
         margin-left: 0;
     }
