@@ -28,4 +28,12 @@ describe('ComplaintSummary', () => {
         render(<ComplaintSummary staffView={false} complaint={{ ...base, address: null, hasPrecisePosition: false }} />);
         expect(screen.getByText('No address recorded')).toBeInTheDocument();
     });
+
+    it('titles each read-only section with a heading, not a form label', () => {
+        const { container } = render(<ComplaintSummary staffView={false} complaint={base} />);
+        expect(container.querySelector('label')).toBeNull();
+        for (const name of ['Description', 'Category', 'Location', 'AI summary']) {
+            expect(screen.getByRole('heading', { name })).toBeInTheDocument();
+        }
+    });
 });

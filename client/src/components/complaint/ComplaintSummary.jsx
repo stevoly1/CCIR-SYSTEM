@@ -2,7 +2,7 @@ import { MapPin, Sparkles } from 'lucide-react';
 import { categoryLabel } from './categoryLabel';
 import { COORDINATE_SOURCE_LABELS, labelFor } from '../labels';
 
-// The report's content. Staff see recorded coordinates (5 decimal places) and their
+// The report's content, as read-only sections titled with headings (not form labels). Staff see recorded coordinates (5 decimal places) and their
 // source; the owner sees only the address and whether a precise position exists.
 const ComplaintSummary = ({ complaint, staffView }) => {
     const images = complaint.images ?? [];
@@ -36,19 +36,19 @@ const ComplaintSummary = ({ complaint, staffView }) => {
             )}
 
             <div className="field">
-                <label>Description</label>
+                <h3 className="field-heading">Description</h3>
                 <p style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: 14 }}>
                     {complaint.description}
                 </p>
             </div>
 
             <div className="field">
-                <label>Category</label>
+                <h3 className="field-heading">Category</h3>
                 <p>{categoryLabel(complaint.category)}</p>
             </div>
 
             <div className="field">
-                <label>Location</label>
+                <h3 className="field-heading">Location</h3>
                 <p style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <MapPin size={15} color="var(--color-text-muted)" style={{ flexShrink: 0 }} /> {complaint.address || 'No address recorded'}
                 </p>
@@ -62,9 +62,9 @@ const ComplaintSummary = ({ complaint, staffView }) => {
 
             {complaint.ai?.summary && (
                 <div className="field">
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <Sparkles size={14} color="var(--color-accent-lavender-text)" /> AI summary
-                    </label>
+                    <h3 className="field-heading" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Sparkles size={14} color="var(--color-accent-lavender-text)" aria-hidden="true" /> AI summary
+                    </h3>
                     <p style={{ color: 'var(--color-text-muted)' }}>{complaint.ai.summary}</p>
                 </div>
             )}
