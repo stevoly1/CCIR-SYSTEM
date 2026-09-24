@@ -1,6 +1,6 @@
 // npm run db:backup -- --out <dir>
 // Backs up the database named in MONGO_URL (hosted mongodb+srv:// or self-managed mongodb://) to a
-// gzipped mongodump archive plus a manifest of per-collection counts and checksums.
+// gzipped mongodump archive plus a manifest of per-collection counts, checksums and indexes.
 require('dotenv').config({ quiet: true });
 const fs = require('node:fs');
 const path = require('node:path');
@@ -53,7 +53,7 @@ const backup = async ({ uri = process.env.MONGO_URL, out = 'backups', attempts =
       archive: path.basename(archive),
       archiveSha256: sha256File(archive),
       collections: Object.fromEntries(Object.entries(snapshot.collections)
-        .map(([name, c]) => [name, { count: c.count, sha256: c.sha256, ...(c.selfExpiring ? { selfExpiring: true } : {}) }])),
+        .map(([name, c]) => [name, { count: c.count, sha256: c.sha256, indexes: c.indexes, ...(c.selfExpiring ? { selfExpiring: true } : {}) }])),
     };
     const manifestPath = archive.replace(/\.archive\.gz$/, '.manifest.json');
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);

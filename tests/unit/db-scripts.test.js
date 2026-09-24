@@ -156,6 +156,22 @@ describe('database script helpers', () => {
       expect(restoreMismatches(manifest, { refreshtokens: { count: 5, sha256: 'b' } })).toEqual(['complaints']);
     });
 
+    // A restore must also bring back the indexes: without the unique ones the app refuses traffic,
+    // and without a TTL one security data stops expiring.
+    it('names a collection whose indexes differ from the backup', () => {
+      const withIndexes = { complaints: { count: 2, sha256: 'a', indexes: [{ key: { _id: 1 }, unique: false, sparse: false }, { key: { referenceCode: 1 }, unique: true, sparse: false }] } };
+      expect(restoreMismatches(withIndexes, { complaints: { count: 2, sha256: 'a', indexes: [{ key: { _id: 1 }, unique: false, sparse: false }] } })).toEqual(['complaints (indexes)']);
+      expect(restoreMismatches(withIndexes, { complaints: { count: 2, sha256: 'a', indexes: withIndexes.complaints.indexes } })).toEqual([]);
+    });
+
+    it('does not compare indexes for a manifest written before they were recorded', () => {
+      expect(restoreMismatches({ complaints: { count: 2, sha256: 'a' } }, { complaints: { count: 2, sha256: 'a', indexes: [] } })).toEqual([]);
+    });
+
+    it('names a self-expiring collection that was not restored at all', () => {
+      expect(restoreMismatches(manifest, { complaints: { count: 2, sha256: 'a' } })).toEqual(['refreshtokens (missing)']);
+    });
+
     it('names a non-empty collection the backup does not have, and ignores an empty one', () => {
       const after = { complaints: { count: 2, sha256: 'a' }, refreshtokens: { count: 5, sha256: 'b' } };
       expect(restoreMismatches(manifest, { ...after, complaintdeletions: { count: 1, sha256: 'd' } })).toEqual(['complaintdeletions (not in the backup)']);

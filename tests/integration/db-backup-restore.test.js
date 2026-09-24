@@ -47,6 +47,35 @@ describe.skipIf(!hasTools)('backup and restore rehearsal (needs MongoDB Database
       fs.rmSync(out, { recursive: true, force: true });
     });
 
+    it('records each collection\'s indexes in the manifest, and a restore checks them', async () => {
+      const source = await open(`ccir-idx-src-${Date.now()}`);
+      await source.db.collection('things').insertMany([{ n: 1 }, { n: 2 }]);
+      await source.db.collection('things').createIndex({ n: 1 }, { unique: true });
+      const { archive, manifestPath, manifest } = await backup({ uri: withDatabase(process.env.TEST_MONGO_URI, source.name), out });
+      expect(manifest.collections.things.indexes).toEqual(expect.arrayContaining([expect.objectContaining({ key: { n: 1 }, unique: true })]));
+
+      // A manifest demanding an index the archive cannot supply fails the restore's check.
+      const tampered = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      tampered.collections.things.indexes.push({ key: { missing: 1 }, unique: true, sparse: false });
+      fs.writeFileSync(manifestPath, JSON.stringify(tampered));
+      const target = await open(`ccir-idx-dst-${Date.now()}`);
+      await expect(restore({ archive, uri: withDatabase(process.env.TEST_MONGO_URI, target.name) }))
+        .rejects.toThrow('things (indexes)');
+    });
+
+    it('keeps the checksum format, so older manifests still verify', async () => {
+      const { databaseSnapshot } = require('../../scripts/db/common');
+      const { EJSON } = mongoose.mongo.BSON;
+      const crypto = require('node:crypto');
+      const source = await open(`ccir-hash-${Date.now()}`);
+      const docs = [{ _id: 2, v: 'b' }, { _id: 1, v: 'a' }, { _id: 3, v: new Date(0) }];
+      await source.db.collection('items').insertMany(docs);
+      const expected = crypto.createHash('sha256');
+      [...docs].sort((x, y) => x._id - y._id).forEach((doc) => expected.update(EJSON.stringify(doc, { relaxed: false })));
+      const snapshot = await databaseSnapshot(withDatabase(process.env.TEST_MONGO_URI, source.name));
+      expect(snapshot.collections.items).toMatchObject({ count: 3, sha256: expected.digest('hex') });
+    });
+
     it('refuses a non-empty target, and replaces it only with --drop --confirm-drop', async () => {
       const stamp = Date.now();
       const source = await open(`ccir-bk-src-${stamp}`);

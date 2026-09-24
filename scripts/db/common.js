@@ -66,6 +66,7 @@ const sha256File = (file) => crypto.createHash('sha256').update(fs.readFileSync(
 
 // Every user collection with its document count, a checksum of its documents in _id order
 // (canonical Extended JSON, so types are compared exactly), and its index definitions.
+// Documents are streamed through a cursor, so a large collection is never held in memory.
 const databaseSnapshot = async (uri) => {
   const connection = await mongoose.createConnection(uri).asPromise();
   try {
@@ -74,16 +75,19 @@ const databaseSnapshot = async (uri) => {
     const names = (await db.listCollections({}, { nameOnly: true }).toArray())
       .map((c) => c.name).filter((n) => !n.startsWith('system.')).sort();
     for (const name of names) {
-      const docs = await db.collection(name).find({}).sort({ _id: 1 }).toArray();
       const hash = crypto.createHash('sha256');
-      docs.forEach((doc) => hash.update(EJSON.stringify(doc, { relaxed: false })));
+      let count = 0;
+      for await (const doc of db.collection(name).find({}).sort({ _id: 1 })) {
+        hash.update(EJSON.stringify(doc, { relaxed: false }));
+        count += 1;
+      }
       const indexes = (await db.collection(name).indexes())
         .map(({ key, unique = false, sparse = false, expireAfterSeconds }) => ({ key, unique, sparse, expireAfterSeconds }))
         .sort((a, b) => JSON.stringify(a.key).localeCompare(JSON.stringify(b.key)));
       // A TTL index means MongoDB deletes from the collection by itself (refresh tokens,
       // throttle counters, sign-in state), so its contents can change with the application stopped.
       const selfExpiring = indexes.some((index) => index.expireAfterSeconds !== undefined);
-      collections[name] = { count: docs.length, sha256: hash.digest('hex'), indexes, ...(selfExpiring ? { selfExpiring } : {}) };
+      collections[name] = { count, sha256: hash.digest('hex'), indexes, ...(selfExpiring ? { selfExpiring } : {}) };
     }
     const { version } = await db.admin().command({ buildInfo: 1 }).catch(() => ({}));
     return { database: db.databaseName, serverVersion: version, collections };
@@ -93,14 +97,22 @@ const databaseSnapshot = async (uri) => {
 };
 
 // Names what a restored database gets wrong against the backup manifest: a collection whose
-// contents differ or that is missing, and a non-empty collection the backup does not have.
-// Self-expiring collections are restored but not compared, because MongoDB may already have
-// deleted their expired documents from the copy.
+// contents differ or that is missing, one whose indexes differ, and a non-empty collection the
+// backup does not have. Self-expiring collections must exist, but their contents are not compared,
+// because MongoDB may already have deleted their expired documents from the copy. Manifests
+// written before indexes were recorded skip the index comparison.
+const sameIndexes = (expected, actual) => JSON.stringify(expected) === JSON.stringify(actual ?? []);
 const restoreMismatches = (manifestCollections, restoredCollections) => [
+  ...Object.entries(manifestCollections)
+    .filter(([name, c]) => c.selfExpiring && !restoredCollections[name])
+    .map(([name]) => `${name} (missing)`),
   ...Object.entries(manifestCollections)
     .filter(([name, c]) => !c.selfExpiring
       && (restoredCollections[name]?.count !== c.count || restoredCollections[name]?.sha256 !== c.sha256))
     .map(([name]) => name),
+  ...Object.entries(manifestCollections)
+    .filter(([name, c]) => c.indexes && restoredCollections[name] && !sameIndexes(c.indexes, restoredCollections[name].indexes))
+    .map(([name]) => `${name} (indexes)`),
   ...Object.entries(restoredCollections)
     .filter(([name, c]) => !manifestCollections[name] && c.count > 0)
     .map(([name]) => `${name} (not in the backup)`),
