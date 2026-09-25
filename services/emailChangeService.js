@@ -13,8 +13,10 @@ const { getLogger } = require('../utils/logger');
 const HOUR_MS = 60 * 60 * 1000;
 const addressTaken = () => new ConflictError('An account with this email already exists');
 
-// Nothing changes until the new address confirms: an administrator (or a stolen session) cannot
-// move an account to an inbox they control and then reset its password.
+// Nothing changes until the new address confirms, so a mistyped address cannot lock anyone out, and
+// the old address is always told (by the controller, even if the caller hangs up). Confirmation does
+// not stop someone who controls the new inbox, such as an administrator using their own address:
+// the notice to the old address is what reveals that.
 const requestEmailChange = async ({ targetUserId, actorUserId, newEmail, currentPassword, self }) => {
   const [target, actor] = await Promise.all([
     User.findById(targetUserId).select('+password'),
