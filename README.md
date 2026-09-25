@@ -171,7 +171,7 @@ Every pull request to `main`, and every push to `main`, runs four jobs on GitHub
 | `journeys` | The browser journeys in Chrome and WebKit on the production build | `npm --prefix client run test:e2e` |
 | `safety` | No private or environment files tracked or in history; no credentials in history, merge commits included (gitleaks; findings listed by file, line and rule, values withheld; a self-test proves merge commits are read); no high or critical advisory in production dependencies | `npm run check:tracked-files`, `npm run check:secrets` and `npm run check:secrets-self-test` (need [gitleaks](https://github.com/gitleaks/gitleaks)), `npm run check:audit` |
 
-A run passes only if every test ran: a skipped, todo, focused (`.only`) or flaky test fails it, and no test or config may ask for retries (`npm run check:test-results -- <results.json>` reads the Vitest or Playwright JSON results; CI runs Vitest with `--retry=0` because its results do not record retries). CI uses no secrets and no external service.
+A run passes only if every test ran: a skipped, todo, focused (`.only`) or flaky test fails it (`npm run check:test-results -- <results.json>` reads the Vitest or Playwright JSON results). Vitest's results do not record retries, so CI runs it with `--retry=0` and a unit test (`tests/unit/ci-no-retries.test.js`) refuses any retry setting in tests or their configuration. CI uses no secrets and no external service.
 
 ## License
 

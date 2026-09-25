@@ -1,4 +1,5 @@
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { fakeToken, buildRepository, main } = require('../../scripts/ci/secretScanSelfTest');
@@ -17,13 +18,16 @@ describe('secret scan self-test', () => {
     expect(fakeToken()).not.toBe(token);
   });
 
-  // The whole point: without -m, git log never shows the file, so a scan reading plain history
-  // cannot see it.
+  // The whole point: without a merge-diff option, git log never shows the file, so a scan reading
+  // plain history cannot see it. The repository also turns merge diffs into combined diffs, which
+  // gitleaks cannot read, so the scan must choose its own merge-diff format.
   it('builds a repository where only a merge commit ever adds the credential', () => {
-    const dir = buildRepository({ token: fakeToken(), config: '[extend]\nuseDefault = true\n' });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccir-scan-self-test-'));
     try {
+      buildRepository(dir, { token: fakeToken(), config: '[extend]\nuseDefault = true\n' });
       expect(gitLog(dir, '--diff-filter=A', 'HEAD')).not.toContain('leak.txt');
-      expect(gitLog(dir, '-m', '--diff-filter=A', 'HEAD')).toContain('leak.txt');
+      expect(gitLog(dir, '--diff-merges=first-parent', '--diff-filter=A', 'HEAD')).toContain('leak.txt');
+      expect(spawnSync('git', ['config', 'log.diffMerges'], { cwd: dir, encoding: 'utf8' }).stdout.trim()).toBe('cc');
       expect(fs.existsSync(path.join(dir, 'leak.txt'))).toBe(false);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -54,5 +58,13 @@ describe('secret scan self-test', () => {
     const stderr = capture();
     expect(main({ config: 'config', scan, stdout: capture(), stderr })).toBe(1);
     expect(stderr.text).toContain('missed a credential added only by a merge commit');
+  });
+
+  // The token is on disk from the moment the merge is made: a failure while building must not leave it.
+  it('removes the throwaway repository when building it fails', () => {
+    let builtIn;
+    const build = (dir) => { builtIn = dir; fs.writeFileSync(path.join(dir, 'leak.txt'), 'x'); throw new Error('git failed'); };
+    expect(() => main({ config: 'config', build, scan: () => 1, stdout: capture(), stderr: capture() })).toThrow('git failed');
+    expect(fs.existsSync(builtIn)).toBe(false);
   });
 });

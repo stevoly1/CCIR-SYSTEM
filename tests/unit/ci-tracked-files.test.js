@@ -42,11 +42,15 @@ describe('private-file guard', () => {
     ['.env-local', 'environment file'],
     ['client/.env_prod', 'environment file'],
     ['.env~', 'environment file'],
+    ['.env copy', 'environment file'],
+    ['.env (1)', 'environment file'],
+    ['.env#', 'environment file'],
+    ['.env+old', 'environment file'],
   ])('refuses %s', (path, reason) => {
     expect(privateReason(path)).toBe(reason);
   });
 
-  it.each(['.env.example', 'client/.env.example', '.ENV.EXAMPLE', 'README.md', 'scripts/db/backup.js', 'client/src/docs-link.jsx', 'tests/fixtures/documents.js', 'envelope.js', 'docsite/a.md', 'toolsets.js', 'src/environment.js', 'dotenv.js'])(
+  it.each(['.env.example', 'client/.env.example', '.ENV.EXAMPLE', 'README.md', 'scripts/db/backup.js', 'client/src/docs-link.jsx', 'tests/fixtures/documents.js', 'envelope.js', 'docsite/a.md', 'toolsets.js', 'src/environment.js', 'dotenv.js', '.envoy.yaml', 'client/.env.example'])(
     'accepts %s',
     (path) => {
       expect(privateReason(path)).toBeNull();
@@ -143,6 +147,8 @@ describe('private-file guard command', () => {
   // resolving one merge and removed by another would otherwise leave no trace the guard can see.
   it('catches a private path added and removed only by merge commits', () => {
     const dir = repo();
+    // A setting that turns merge diffs into combined diffs must not change what the guard sees.
+    git(dir, 'config', 'log.diffMerges', 'cc');
     commit(dir, 'README.md', 'readme');
     const base = git(dir, 'rev-parse', '--abbrev-ref', 'HEAD').stdout.trim();
     git(dir, 'checkout', '-qb', 'side');

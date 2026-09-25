@@ -8,7 +8,7 @@ const { execFileSync } = require('node:child_process');
 const RULES = [
   {
     reason: 'environment file',
-    test: (p) => (/(^|\/)\.env(rc)?([._~-]|$)/i.test(p) || /[^/]\.env$/i.test(p)) && !/(^|\/)\.env\.example$/i.test(p),
+    test: (p) => (/(^|\/)\.env(rc)?(?![a-z0-9])/i.test(p) || /[^/]\.env$/i.test(p)) && !/(^|\/)\.env\.example$/i.test(p),
   },
   { reason: 'private records', test: (p) => /^(docs|tools)(\/|$)/i.test(p) },
   { reason: 'Word document', test: (p) => /\.docx$/i.test(p) },
@@ -36,7 +36,7 @@ const main = ({ cwd = process.cwd(), stdout = process.stdout, stderr = process.s
     stderr.write('check:tracked-files needs the full history; this clone is shallow (use fetch-depth: 0).\n');
     return 1;
   }
-  const found = findPrivatePaths([...gitPaths(['ls-files'], cwd), ...gitPaths(['log', '-m', '--name-only', '--format=', 'HEAD'], cwd)]);
+  const found = findPrivatePaths([...gitPaths(['ls-files'], cwd), ...gitPaths(['log', '--diff-merges=first-parent', '--name-only', '--format=', 'HEAD'], cwd)]);
   if (found.length === 0) {
     stdout.write('check:tracked-files: no private paths tracked or in history.\n');
     return 0;

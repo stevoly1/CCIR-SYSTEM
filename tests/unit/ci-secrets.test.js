@@ -51,12 +51,14 @@ const reportPathOf = (args) => {
 describe('secret scan wrapper', () => {
   // CI logs of this public repository are public: a finding must never print the value, and only
   // the reviewed allowlist in .gitleaks.toml may silence one.
-  // gitleaks's own log options plus -m: git log shows no diff for a merge commit unless asked, so a
-  // value added while resolving a merge would never be scanned (see secretScanSelfTest.js).
+  // gitleaks's own log options plus --diff-merges=first-parent: git log shows no diff for a merge
+  // commit unless asked, so a value added while resolving a merge would never be scanned (see
+  // secretScanSelfTest.js). -m would follow a log.diffMerges setting into combined diffs gitleaks
+  // cannot read.
   it('scans the whole history, merge commits included, with the reviewed config, redacted, ignoring inline allow comments', () => {
     expect(gitleaksArgs('/tmp/report.json')).toEqual([
       'git', '--config', '.gitleaks.toml', '--redact', '--no-banner', '--ignore-gitleaks-allow',
-      '--log-opts=--full-history --all --diff-filter=tuxdb -m',
+      '--log-opts=--full-history --all --diff-filter=tuxdb --diff-merges=first-parent',
       '--report-format', 'json', '--report-path', '/tmp/report.json', '.',
     ]);
     // --verbose would print text around each match, which can hold a second value.

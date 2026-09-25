@@ -1,9 +1,11 @@
 // Proves the secret scan sees a credential that only a merge commit added: git log shows no diff
-// for merge commits unless asked (-m), so such a value would otherwise never be scanned. Builds a
+// for merge commits unless asked, so such a value would otherwise never be scanned. Builds a
 // throwaway repository whose only credential is a freshly generated fake GitHub token, added while
 // resolving a merge and removed by a later commit, then requires check:secrets to fail on it. The
-// token is random, lives only in a temporary folder and is never printed. CI runs this after the
-// real scan; locally it needs gitleaks, like check:secrets.
+// repository also sets log.diffMerges=cc, which turns merge diffs into combined diffs gitleaks
+// cannot read, so the scan must choose its own format. The token is random, lives only in a
+// temporary folder that is always removed, and is never printed. CI runs this after the real scan;
+// locally it needs gitleaks, like check:secrets.
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -23,13 +25,13 @@ const git = (cwd, ...args) => {
   return result.stdout;
 };
 
-// Returns the folder of a repository where leak.txt, holding the token, exists only through a
-// merge commit.
-const buildRepository = ({ token, config }) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccir-scan-self-test-'));
+// Builds, in dir, a repository where leak.txt, holding the token, exists only through a merge
+// commit.
+const buildRepository = (dir, { token, config }) => {
   const write = (name, text) => fs.writeFileSync(path.join(dir, name), text);
   const commit = (name, text, message) => { write(name, text); git(dir, 'add', name); git(dir, 'commit', '-qm', message); };
   git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'log.diffMerges', 'cc');
   commit('.gitleaks.toml', config, 'scan configuration');
   git(dir, 'checkout', '-qb', 'side');
   commit('side.txt', 'side\n', 'side');
@@ -39,7 +41,6 @@ const buildRepository = ({ token, config }) => {
   commit('leak.txt', `token = "${token}"\n`, 'merge side');
   git(dir, 'rm', '-q', 'leak.txt');
   git(dir, 'commit', '-qm', 'remove leak.txt');
-  return dir;
 };
 
 const capture = () => {
@@ -51,12 +52,14 @@ const capture = () => {
 // Returns the exit code. Options exist so the tests can run it in-process.
 const main = ({
   config = fs.readFileSync(path.resolve(__dirname, '../../.gitleaks.toml'), 'utf8'),
+  build = buildRepository,
   scan = (cwd, stderr) => checkSecrets.main({ cwd, stderr }),
   stdout = process.stdout,
   stderr = process.stderr,
 } = {}) => {
-  const dir = buildRepository({ token: fakeToken(), config });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccir-scan-self-test-'));
   try {
+    build(dir, { token: fakeToken(), config });
     const scanErrors = capture();
     const status = scan(dir, scanErrors);
     if (status === 1 && scanErrors.text.includes('leak.txt:1')) {

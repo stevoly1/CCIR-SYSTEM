@@ -10,12 +10,13 @@ const path = require('node:path');
 const { spawnSync, execFileSync } = require('node:child_process');
 
 // No --verbose: it prints text around each match, which can hold another value. --log-opts repeats
-// gitleaks's own git log options (v8.30.1 sources/git.go) and adds -m: git log shows no diff for a
-// merge commit unless asked, so a value added while resolving a merge would never be scanned
-// (secretScanSelfTest.js proves it is).
+// gitleaks's own git log options (v8.30.1 sources/git.go) and adds --diff-merges=first-parent: git
+// log shows no diff for a merge commit unless asked, so a value added while resolving a merge would
+// never be scanned (secretScanSelfTest.js proves it is). Not -m: it follows a log.diffMerges
+// setting into combined diffs ("diff --cc"), which gitleaks skips without a word.
 const gitleaksArgs = (reportPath) => [
   'git', '--config', '.gitleaks.toml', '--redact', '--no-banner', '--ignore-gitleaks-allow',
-  '--log-opts=--full-history --all --diff-filter=tuxdb -m',
+  '--log-opts=--full-history --all --diff-filter=tuxdb --diff-merges=first-parent',
   '--report-format', 'json', '--report-path', reportPath, '.',
 ];
 
