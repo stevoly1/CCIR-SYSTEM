@@ -17,7 +17,8 @@ const ALPHANUMERIC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012345
 const fakeToken = () => `ghp_${Array.from(crypto.randomBytes(36), (byte) => ALPHANUMERIC[byte % ALPHANUMERIC.length]).join('')}`;
 
 // maintenance.auto=false: commit and merge otherwise start a detached `git maintenance run --auto`,
-// which writes into .git/objects after they return and races the removal of the repository.
+// whose tasks (on git 2.55, a geometric repack by default) can still be writing pack files into
+// .git/objects after the command returns, racing the removal of the repository.
 const git = (cwd, ...args) => {
   const result = spawnSync('git', [
     '-c', 'user.email=self-test@example.test', '-c', 'user.name=Secret Scan Self-Test',

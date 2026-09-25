@@ -37,6 +37,7 @@ const commit = (dir, file, message = `add ${file}`) => {
 const setup = (seedFiles = ['README.md']) => {
   const remote = tempDir('ccir-push-remote-');
   git(remote, 'init', '-q', '--bare', '-b', 'main');
+  git(remote, 'config', 'receive.autogc', 'false');
   const seed = tempDir('ccir-push-seed-');
   git(seed, 'init', '-q', '-b', 'main');
   for (const file of seedFiles) commit(seed, file);
@@ -55,6 +56,24 @@ const push = (dir, lines) => {
   const status = main({ input: lines.join('\n') + '\n', cwd: dir, stderr });
   return { status, stderr: stderr.text };
 };
+
+// A push starts a detached `git maintenance run --auto` on the receiving side, which can still be
+// writing into the remote when afterAll removes it. git drops `-c` settings before it starts the
+// local receive-pack, so the remote's own configuration has to turn it off (receive.autogc).
+describe('test repositories', () => {
+  it('push to their remotes without starting background git maintenance', () => {
+    const trace = path.join(tempDir('ccir-push-trace-'), 'trace.json');
+    vi.stubEnv('GIT_TRACE2_EVENT', trace);
+    try {
+      setup();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    const events = fs.readFileSync(trace, 'utf8');
+    expect(events).toContain('"receive-pack"');
+    expect(events).not.toMatch(/"argv":\["git","maintenance"|"name":"maintenance"/);
+  });
+});
 
 describe('pre-push guard: reading what git sends', () => {
   it('reads one line per ref being pushed', () => {
@@ -284,7 +303,7 @@ describe('pre-push hook wrapper', () => {
     const hooks = tempDir('ccir-push-hooks-');
     fs.copyFileSync(wrapper, path.join(hooks, 'pre-push'));
     fs.chmodSync(path.join(hooks, 'pre-push'), 0o755);
-    const realPush = (...args) => spawnSync('git', ['-c', `core.hooksPath=${hooks}`, '-c', 'maintenance.auto=false', 'push', ...args], { cwd: dir, encoding: 'utf8' });
+    const realPush = (...args) => spawnSync('git', ['-c', `core.hooksPath=${hooks}`, 'push', ...args], { cwd: dir, encoding: 'utf8' });
     expect(realPush('-q', 'origin', 'main').status).toBe(0);
     commit(dir, 'docs/leak.md');
     const refused = realPush('-q', 'origin', 'main');

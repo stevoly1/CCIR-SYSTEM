@@ -34,23 +34,24 @@ describe('secret scan self-test', () => {
     }
   });
 
-  // git commit and git merge start a detached `git maintenance run --auto`, which writes a lock file
-  // into .git/objects after they return. Removing the repository straight away then races it and
-  // fails with ENOTEMPTY (seen on CI's git 2.55), so no git command here may start one.
+  // git commit and git merge start a detached `git maintenance run --auto`, whose tasks (on git 2.55,
+  // a geometric repack by default) can still be writing into .git/objects after they return.
+  // Removing the repository straight away then races them and fails with ENOTEMPTY (seen on CI), so
+  // no git command here may start one.
   it('builds the repository without starting background git maintenance', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccir-scan-self-test-'));
-    const trace = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ccir-scan-trace-')), 'trace.json');
-    const previous = process.env.GIT_TRACE2_EVENT;
-    process.env.GIT_TRACE2_EVENT = trace;
+    const traceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccir-scan-trace-'));
+    const trace = path.join(traceDir, 'trace.json');
+    let events;
+    vi.stubEnv('GIT_TRACE2_EVENT', trace);
     try {
       buildRepository(dir, { token: fakeToken(), config: '[extend]\nuseDefault = true\n' });
+      events = fs.readFileSync(trace, 'utf8');
     } finally {
-      if (previous === undefined) delete process.env.GIT_TRACE2_EVENT;
-      else process.env.GIT_TRACE2_EVENT = previous;
+      vi.unstubAllEnvs();
       fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(traceDir, { recursive: true, force: true });
     }
-    const events = fs.readFileSync(trace, 'utf8');
-    fs.rmSync(path.dirname(trace), { recursive: true, force: true });
     expect(events).toContain('"merge"');
     // A started maintenance process shows as a child_start of `git maintenance` and its own cmd_name.
     expect(events).not.toMatch(/"argv":\["git","maintenance"|"name":"maintenance"/);
