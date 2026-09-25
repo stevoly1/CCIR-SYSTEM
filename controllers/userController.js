@@ -95,11 +95,10 @@ const deleteUser = async (req, res) => {
     res.status(StatusCodes.OK).json({ msg: 'User retired' });
 };
 
+// Signs the user out everywhere, whether or not the request still carries the refresh cookie:
+// access tokens are tied to these sessions, so they stop working at once too.
 const logout = async (req, res) => {
-    const refreshToken = req.signedCookies.refreshToken;
-    if (refreshToken) {
-        await RefreshToken.deleteMany({ user: req.user.userId });
-    }
+    await RefreshToken.deleteMany({ user: req.user.userId });
     clearAttachedCookies(res);
     res.status(StatusCodes.OK).json({ msg: 'Logged out' });
 };

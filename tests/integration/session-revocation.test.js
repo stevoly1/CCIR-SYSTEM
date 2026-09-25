@@ -9,16 +9,19 @@ const { RefreshToken } = require('../../models');
 // that the session is still live, so signing out, suspension, a role change or retirement ends
 // access at once instead of up to ACCESS_TOKEN_LIFESPAN later.
 const cookieValue = (response, name) => {
-  const header = (response.headers['set-cookie'] ?? []).find((cookie) => cookie.startsWith(`${name}=`));
+  // The last one wins, as in a browser: a renewal first clears the stale cookie, then sets the new one.
+  const header = (response.headers['set-cookie'] ?? []).findLast((cookie) => cookie.startsWith(`${name}=`));
   return header && header.split(';')[0].slice(name.length + 1);
 };
+const onlyRefresh = (raw) => request(testServer()).get('/api/v1/users/profile').set('Cookie', `refreshToken=${raw}`);
+const sidOf = (raw) => jwt.decode(decodeURIComponent(raw).slice(2).split('.').slice(0, 3).join('.'))?.sid;
 const onlyAccess = (raw) => request(testServer()).get('/api/v1/users/profile').set('Cookie', `accessToken=${raw}`);
 const signedAccess = (payload) => encodeURIComponent(`s:${sign(jwt.sign(payload, process.env.JWT_TOKEN, { expiresIn: '15m' }), process.env.COOKIE)}`);
 
 const signIn = async () => {
   const { agent, user, password } = await createAuthenticatedAgent({ role: 'citizen' });
   const login = await unsafeRequest(request(testServer()), 'post', '/api/v1/auth/login').send({ email: user.email, password });
-  return { agent, user, access: cookieValue(login, 'accessToken') };
+  return { agent, user, access: cookieValue(login, 'accessToken'), refresh: cookieValue(login, 'refreshToken') };
 };
 
 describe('access tokens end with their session', () => {
@@ -58,8 +61,27 @@ describe('access tokens end with their session', () => {
   });
 
   it('issues a session-bound access token when the refresh path renews it', async () => {
-    const { agent } = await signIn();
-    const renewed = await agent.get('/api/v1/users/profile').set('Cookie', '');
+    const { refresh } = await signIn();
+    const renewed = await onlyRefresh(refresh);
     expect(renewed.status).toBe(200);
+    const access = cookieValue(renewed, 'accessToken');
+    expect(sidOf(access)).toMatch(/^[0-9a-f]{24}$/);
+    expect((await onlyAccess(access)).status).toBe(200);
+  });
+
+  it('renews an access token issued before sessions were named, when the refresh cookie is still valid', async () => {
+    const { user, refresh } = await signIn();
+    const old = signedAccess({ userId: user.id });
+    const renewed = await request(testServer()).get('/api/v1/users/profile').set('Cookie', `accessToken=${old}; refreshToken=${refresh}`);
+    expect(renewed.status).toBe(200);
+    expect(sidOf(cookieValue(renewed, 'accessToken'))).toMatch(/^[0-9a-f]{24}$/);
+  });
+
+  it('ends the sessions when signing out with only the access token', async () => {
+    const { access, refresh } = await signIn();
+    const logout = await unsafeRequest(request(testServer()), 'post', '/api/v1/users/logout').set('Cookie', `accessToken=${access}`).send();
+    expect(logout.status).toBe(200);
+    expect((await onlyAccess(access)).status).toBe(401);
+    expect((await onlyRefresh(refresh)).status).toBe(401);
   });
 });
