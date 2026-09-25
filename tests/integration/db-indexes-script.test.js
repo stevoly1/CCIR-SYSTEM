@@ -26,7 +26,8 @@ const runInProcess = async (uri, options = {}) => {
   let output = '';
   const out = { write: (chunk) => { output += chunk; } };
   const settings = { autoIndex: mongoose.get('autoIndex'), autoCreate: mongoose.get('autoCreate') };
-  await Promise.all(Object.values(mongoose.models).map((model) => model.init().catch(() => {})));
+  // Every model on the shared connection, including any made with connection.model().
+  await Promise.all(Object.values(mongoose.connection.models).map((model) => model.init().catch(() => {})));
   await mongoose.connection.close();
   try {
     const result = await run({ uri, out, ...options });
