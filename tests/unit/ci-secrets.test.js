@@ -1,18 +1,65 @@
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { GITLEAKS_ARGS, main } = require('../../scripts/ci/checkSecrets');
+const { gitleaksArgs, formatFindings, main } = require('../../scripts/ci/checkSecrets');
 
 const script = path.resolve(__dirname, '../../scripts/ci/checkSecrets.js');
 
+// Every test builds its own repository: CI checks this project out shallow for the test jobs, so
+// nothing here may depend on how this checkout was cloned.
+const tempDirs = [];
+const tempDir = (prefix) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+};
+afterAll(() => {
+  for (const dir of tempDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+const git = (cwd, ...args) => spawnSync('git', args, { cwd });
+const repo = (commits = ['a']) => {
+  const dir = tempDir('ccir-secrets-');
+  git(dir, 'init', '-q');
+  git(dir, 'config', 'user.email', 'scan@example.test');
+  git(dir, 'config', 'user.name', 'Scan Test');
+  for (const name of commits) {
+    fs.writeFileSync(path.join(dir, name), name);
+    git(dir, 'add', name);
+    git(dir, 'commit', '-qm', name);
+  }
+  return dir;
+};
+const capture = () => {
+  const out = { text: '' };
+  out.write = (t) => { out.text += t; };
+  return out;
+};
+const reportPathOf = (args) => args[args.indexOf('--report-path') + 1];
+
 describe('secret scan wrapper', () => {
-  // CI logs of this public repository are public: a finding must never print the value.
-  it('scans the whole git history with the reviewed config and redacts findings', () => {
-    expect(GITLEAKS_ARGS).toEqual(['git', '--config', '.gitleaks.toml', '--redact', '--no-banner', '--verbose', '.']);
+  // CI logs of this public repository are public: a finding must never print the value, and only
+  // the reviewed allowlist in .gitleaks.toml may silence one.
+  it('scans the whole history with the reviewed config, redacted, ignoring inline allow comments', () => {
+    expect(gitleaksArgs('/tmp/report.json')).toEqual([
+      'git', '--config', '.gitleaks.toml', '--redact', '--no-banner', '--ignore-gitleaks-allow',
+      '--report-format', 'json', '--report-path', '/tmp/report.json', '.',
+    ]);
+    // --verbose would print text around each match, which can hold a second value.
+    expect(gitleaksArgs('/tmp/report.json')).not.toContain('--verbose');
   });
 
-  it('fails with an explanation when gitleaks is not installed', () => {
+  it('lists findings by place and rule only, never their content', () => {
+    const findings = [
+      { File: 'config/a.js', StartLine: 12, RuleID: 'generic-api-key', Commit: '0123456789abcdef0123', Secret: 'REDACTED', Match: 'key = REDACTED', Line: 'key = REDACTED other=hunter2' },
+    ];
+    expect(formatFindings(findings)).toBe('  config/a.js:12 generic-api-key (commit 0123456789ab)\n');
+    expect(formatFindings(findings)).not.toMatch(/hunter2|REDACTED/);
+  });
+
+  it('fails with an explanation when gitleaks is not installed, from the command line too', () => {
     const result = spawnSync(process.execPath, [script], {
-      cwd: path.resolve(__dirname, '../..'),
+      cwd: repo(),
       env: { ...process.env, GITLEAKS_BIN: '/nonexistent/gitleaks' },
       encoding: 'utf8',
     });
@@ -21,33 +68,55 @@ describe('secret scan wrapper', () => {
   });
 
   describe('in process', () => {
-    const repoRoot = path.resolve(__dirname, '../..');
-    const capture = () => { const out = { text: '' }; out.write = (t) => { out.text += t; }; return out; };
-
     it('passes gitleaks the arguments and returns its exit code', () => {
+      const dir = repo();
       const calls = [];
-      const spawn = (binary, args) => { calls.push([binary, args]); return { status: 1 }; };
-      expect(main({ cwd: repoRoot, binary: 'gitleaks', spawn, stderr: capture() })).toBe(1);
-      expect(calls).toEqual([['gitleaks', GITLEAKS_ARGS]]);
-      expect(main({ cwd: repoRoot, binary: 'gitleaks', spawn: () => ({ status: 0 }), stderr: capture() })).toBe(0);
+      const spawn = (binary, args) => { calls.push([binary, args]); return { status: 0 }; };
+      expect(main({ cwd: dir, binary: 'gitleaks', spawn, stderr: capture() })).toBe(0);
+      expect(calls).toHaveLength(1);
+      expect(calls[0][0]).toBe('gitleaks');
+      expect(calls[0][1]).toEqual(gitleaksArgs(reportPathOf(calls[0][1])));
+    });
+
+    it('lists what gitleaks found, without content, and fails', () => {
+      const dir = repo();
+      const stderr = capture();
+      const spawn = (binary, args) => {
+        fs.writeFileSync(reportPathOf(args), JSON.stringify([
+          { File: 'b.js', StartLine: 3, RuleID: 'jwt', Commit: 'fedcba9876543210', Secret: 'REDACTED', Line: 'x' },
+        ]));
+        return { status: 1 };
+      };
+      expect(main({ cwd: dir, spawn, stderr })).toBe(1);
+      expect(stderr.text).toContain('b.js:3 jwt (commit fedcba987654)');
+    });
+
+    it('returns a gitleaks failure that wrote no report as it is', () => {
+      expect(main({ cwd: repo(), spawn: () => ({ status: 2 }), stderr: capture() })).toBe(2);
+      expect(main({ cwd: repo(), spawn: () => ({ status: null }), stderr: capture() })).toBe(1);
     });
 
     it('explains a missing gitleaks', () => {
       const stderr = capture();
-      expect(main({ cwd: repoRoot, binary: '/nonexistent/gitleaks', stderr })).toBe(1);
+      expect(main({ cwd: repo(), binary: '/nonexistent/gitleaks', stderr })).toBe(1);
       expect(stderr.text).toContain('gitleaks is not installed');
     });
 
+    // gitleaks reads .gitleaksignore by default, which would silence findings outside the reviewed
+    // allowlist.
+    it('refuses a .gitleaksignore file', () => {
+      const dir = repo();
+      fs.writeFileSync(path.join(dir, '.gitleaksignore'), 'abc:file:rule:1\n');
+      const stderr = capture();
+      let ran = false;
+      expect(main({ cwd: dir, spawn: () => { ran = true; return { status: 0 }; }, stderr })).toBe(1);
+      expect(ran).toBe(false);
+      expect(stderr.text).toContain('.gitleaksignore');
+    });
+
     it('refuses a shallow clone, which would hide history', () => {
-      const fs = require('node:fs');
-      const os = require('node:os');
-      const source = fs.mkdtempSync(path.join(os.tmpdir(), 'ccir-secrets-src-'));
-      const git = (cwd, ...args) => spawnSync('git', args, { cwd });
-      git(source, 'init', '-q');
-      git(source, 'config', 'user.email', 'scan@example.test');
-      git(source, 'config', 'user.name', 'Scan Test');
-      for (const name of ['a', 'b']) { fs.writeFileSync(path.join(source, name), name); git(source, 'add', name); git(source, 'commit', '-qm', name); }
-      const shallow = fs.mkdtempSync(path.join(os.tmpdir(), 'ccir-secrets-shallow-'));
+      const source = repo(['a', 'b']);
+      const shallow = tempDir('ccir-secrets-shallow-');
       spawnSync('git', ['clone', '-q', '--depth', '1', `file://${source}`, shallow]);
       const stderr = capture();
       expect(main({ cwd: shallow, spawn: () => ({ status: 0 }), stderr })).toBe(1);
