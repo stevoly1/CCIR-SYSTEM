@@ -139,6 +139,25 @@ describe('UsersPage', () => {
       expect(within(rowOf('Chi Admin (you)')).queryByText(/Suspended|Retired/)).not.toBeInTheDocument();
     });
 
+    it('shows when, and why, an account was suspended', async () => {
+      withUsers(admin, { ...suspended, suspendedAt: '2026-09-20T10:00:00.000Z', suspensionReason: 'Repeated abusive reports' }, { ...suspended, _id: 'u-sus2', name: 'Old Suspension' });
+      render(<UsersPage />);
+      const row = await rowFor('Sam Suspended');
+      expect(within(row).getByText(/Suspended on .+ — Repeated abusive reports/)).toBeInTheDocument();
+      // Accounts suspended before the date was recorded show only the badge.
+      expect(within(rowOf('Old Suspension')).queryByText(/Suspended on/)).not.toBeInTheDocument();
+    });
+
+    it('keeps the role filter when it is changed while a search is waiting to run', async () => {
+      const user = userEvent.setup();
+      render(<UsersPage />);
+      await screen.findByText('Ada Citizen');
+      await user.type(screen.getByLabelText(/search/i), 'ad');
+      await user.selectOptions(screen.getByRole('combobox', { name: 'Filter by role' }), 'agency');
+      await new Promise((resolve) => { setTimeout(resolve, 600); });
+      expect(axiosClient.get).toHaveBeenLastCalledWith('/users', { params: { search: 'ad', role: 'agency', page: 1, limit: 50 } });
+    });
+
     it('offers no action on a retired account, and no suspension of one\'s own', async () => {
       withUsers(admin, retired);
       render(<UsersPage />);

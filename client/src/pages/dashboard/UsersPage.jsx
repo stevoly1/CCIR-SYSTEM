@@ -73,6 +73,8 @@ const UsersPage = () => {
 
     const handleRoleChange = (value) => {
         setRole(value);
+        // A search still waiting to run would reload the list without this role.
+        clearTimeout(debounceRef.current);
         void loadUsers(search, 1, value);
     };
 
@@ -178,6 +180,12 @@ const UsersPage = () => {
                                 <div className="complaint-info">
                                     <div className="desc">{u.name}{isSelf && ' (you)'}</div>
                                     <div className="meta">{u.email}</div>
+                                    {suspended && u.suspendedAt && (
+                                        <div className="meta">
+                                            Suspended on {new Date(u.suspendedAt).toLocaleDateString()}
+                                            {u.suspensionReason && ` — ${u.suspensionReason}`}
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="user-row-actions">
                                     <span className="badge" style={{ background: 'var(--color-primary-light)', color: 'var(--color-primary-dark)' }}>
