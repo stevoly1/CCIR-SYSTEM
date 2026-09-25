@@ -7,4 +7,5 @@ module.exports = {
     AdminControl: require('./AdminControl'),
     AuthThrottle: require('./AuthThrottle'),
     OAuthState: require('./OAuthState'),
+    AccountToken: require('./AccountToken'),
 };
