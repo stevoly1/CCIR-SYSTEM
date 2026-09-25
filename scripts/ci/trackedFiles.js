@@ -48,4 +48,4 @@ const main = ({ cwd = process.cwd(), stdout = process.stdout, stderr = process.s
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { privateReason, findPrivatePaths, main };
+module.exports = { privateReason, findPrivatePaths, gitPaths, main };

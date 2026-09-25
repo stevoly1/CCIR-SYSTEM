@@ -173,6 +173,8 @@ Every pull request to `main`, and every push to `main`, runs four jobs on GitHub
 
 A run passes only if every test ran: a skipped, todo, focused (`.only`) or flaky test fails it (`npm run check:test-results -- <results.json>` reads the Vitest or Playwright JSON results). Vitest's results do not record retries, so CI runs it with `--retry=0` and a unit test (`tests/unit/ci-no-retries.test.js`) refuses any retry setting in tests or their configuration. CI uses no secrets and no external service.
 
+To catch a private file before it leaves your machine, install the same guard as a local pre-push hook: `cp scripts/ci/pre-push .git/hooks/pre-push`. It checks the commits a push would send, with the rules of `npm run check:tracked-files`, and refuses the push if it cannot run (`git push --no-verify` skips it deliberately). CI remains the enforcement point.
+
 ## License
 
 MIT — see [`LICENSE`](./LICENSE). You're free to deploy, modify, and reuse this backend for your own government or organization.
