@@ -152,12 +152,26 @@ Backups contain personal data and password hashes: `backups/` and `*.archive.gz`
 npm run test:unit            # backend unit tests
 npm run test:integration     # backend integration tests on an in-memory MongoDB replica set;
                              # every response is checked against the OpenAPI contract
-npm run test:coverage        # both together, with coverage thresholds
+npm run test:coverage        # both together, with coverage thresholds and the contract check
 npm --prefix client run test:unit    # reference client component tests
-npm --prefix client run test:e2e     # browser journeys on the production build, in Chrome, then WebKit
+npm --prefix client run test:e2e     # browser journeys on the production build, in Chrome, then WebKit;
+                                     # extra arguments (a spec file, --grep) reach both browsers
 ```
 
 Tests use in-memory databases and fake providers; they never contact a real database, AI, email, storage or geocoding service. The first run downloads the MongoDB server binary for the in-memory database. The journeys use your installed Google Chrome and Playwright's WebKit (Safari's engine), which is downloaded once with `npm --prefix client exec playwright install webkit` (about 85 MB).
+
+### Continuous integration
+
+Every pull request to `main`, and every push to `main`, runs four jobs on GitHub Actions (`.github/workflows/ci.yml`). `main` accepts a pull request only when all four pass. Each job runs commands you can run locally:
+
+| Job | Checks | Locally |
+|---|---|---|
+| `backend` | Unit and integration tests, API contract validation and coverage, coverage floors; the backup rehearsal (MongoDB Database Tools installed) | `npm run test:coverage` |
+| `client` | Client unit tests, lint, production build | `npm --prefix client run test:unit`, `lint`, `build` |
+| `journeys` | The browser journeys in Chrome and WebKit on the production build | `npm --prefix client run test:e2e` |
+| `safety` | No private or environment files tracked or in history; no credentials in history (gitleaks, output redacted); no high or critical advisory in production dependencies | `npm run check:tracked-files`, `npm run check:secrets` (needs [gitleaks](https://github.com/gitleaks/gitleaks)), `npm run check:audit` |
+
+A run passes only if every test ran: a skipped, todo, focused (`.only`) or flaky test fails it (`npm run check:test-results -- <results.json>` reads the Vitest or Playwright JSON results). CI uses no secrets and no external service.
 
 ## License
 
