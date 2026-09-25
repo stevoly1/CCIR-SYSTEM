@@ -116,10 +116,24 @@ describe('npm run db:indexes', () => {
     vi.spyOn(model.collection, 'createIndex')
       .mockImplementationOnce(async () => { throw new Error('E11000 duplicate key error'); })
       .mockImplementation(original);
-    await expect(upgradeToUnique(model)).rejects.toThrow(/complaintdeletions: .*the previous index was restored.*E11000/);
+    await expect(upgradeToUnique(model)).rejects.toThrow(/complaintdeletions: .*E11000.*the previous index was restored/);
     const restored = (await deletions.indexes()).find((index) => index.name === 'complaintId_1');
     expect(restored).toMatchObject({ key: { complaintId: 1 } });
     expect(restored.unique).toBeUndefined();
+  });
+
+  it('reports both failures when the old index cannot be put back either', async () => {
+    const deletions = connection.db.collection('complaintdeletions');
+    await deletions.insertOne({ complaintId: new mongoose.Types.ObjectId() });
+    await deletions.createIndex({ complaintId: 1 }, { name: 'complaintId_1' });
+    const schema = ComplaintDeletion.schema.clone();
+    schema.set('autoIndex', false);
+    schema.set('autoCreate', false);
+    const model = connection.model('ComplaintDeletion', schema);
+    vi.spyOn(model.collection, 'createIndex')
+      .mockImplementationOnce(async () => { throw new Error('E11000 duplicate key error'); })
+      .mockImplementationOnce(async () => { throw new Error('connection reset'); });
+    await expect(upgradeToUnique(model)).rejects.toThrow(/could not be made unique.*E11000.*previous index could not be restored.*connection reset.*recreate it/s);
   });
 
   it('keeps indexes made outside the app unless --drop-extra is given', async () => {

@@ -108,6 +108,10 @@ const retireAccount = async ({ targetUserId, actorUserId, reason }) => {
       target.retiredAt = now;
       target.retiredBy = actor._id;
       target.retirementReason = normalizedReason;
+      // The suspension note is free text about the person, so it goes with their other details.
+      target.suspendedAt = undefined;
+      target.suspendedBy = undefined;
+      target.suspensionReason = undefined;
       target.password = undefined;
       target.googleId = undefined;
       target.phone = undefined;
@@ -169,6 +173,9 @@ const mutateAdministrator = async ({ targetUserId, actorUserId, changes, reason 
       // Sessions end only when authority really changes: an edit that repeats the current role
       // (the admin form always sends it) must not sign the user out.
       const roleChanged = Object.hasOwn(changes, 'role') && changes.role !== target.role;
+      if (changes.isActive === false && target.isActive === false && reason) {
+        throw new ConflictError('This account is already suspended; reactivate it first to record a new reason');
+      }
       if (changes.isActive === false && target.isActive !== false) {
         target.suspendedAt = new Date();
         target.suspendedBy = actor._id;

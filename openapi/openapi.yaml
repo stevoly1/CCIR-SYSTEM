@@ -1483,7 +1483,8 @@ paths:
         Changes details, role or active state. Role and active-state changes revoke the user's
         sessions and are refused when they would leave no active administrator. Suspending
         (`isActive: false`) records when, by whom and, with `reason`, why; reactivating clears it.
-        A `reason` on any other change is refused with 400.
+        A `reason` on any other change is refused with 400, and a new reason for an account that is
+        already suspended with 409 (reactivate it first). Retiring an account removes its suspension record.
       operationId: updateUser
       requestBody:
         required: true

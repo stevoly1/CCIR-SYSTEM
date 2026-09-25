@@ -47,8 +47,13 @@ const upgradeToUnique = async (model) => {
       await model.collection.createIndex(fields, options);
     } catch (error) {
       const { v, key: oldKey, ...oldOptions } = old;
-      await model.collection.createIndex(oldKey, oldOptions);
-      throw new Error(`${model.collection.collectionName}: ${key} could not be made unique; the previous index was restored. ${error.message}`);
+      const failed = `${model.collection.collectionName}: ${key} could not be made unique (${error.message})`;
+      try {
+        await model.collection.createIndex(oldKey, oldOptions);
+      } catch (restoreError) {
+        throw new Error(`${failed}; the previous index could not be restored (${restoreError.message}): recreate it as ${JSON.stringify(oldKey)} named ${old.name}.`);
+      }
+      throw new Error(`${failed}; the previous index was restored.`);
     }
   }
 };

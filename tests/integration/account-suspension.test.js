@@ -2,6 +2,7 @@ const request = require('supertest');
 const { testServer } = require('../helpers/testServer');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createUserFixture } = require('../fixtures/user');
+const { User } = require('../../models');
 
 const login = (email, password) => unsafeRequest(request(testServer()), 'post', '/api/v1/auth/login').send({ email, password });
 
@@ -72,5 +73,27 @@ describe('recording a suspension', () => {
     const listed = await admin.get('/api/v1/users').query({ search: user.email });
     expect(listed.body.users[0]).toMatchObject({ role: 'citizen', isActive: true });
   });
-});
 
+  it('refuses a new reason for an account that is already suspended, keeping the recorded one', async () => {
+    const { agent: admin } = await createAuthenticatedAgent({ role: 'admin' });
+    const user = await createUserFixture();
+    await unsafeRequest(admin, 'patch', `/api/v1/users/${user.id}`).send({ isActive: false, reason: 'First reason' });
+    const again = await unsafeRequest(admin, 'patch', `/api/v1/users/${user.id}`).send({ isActive: false, reason: 'Second reason' });
+    expect(again.status).toBe(409);
+    const listed = await admin.get('/api/v1/users').query({ search: user.email });
+    expect(listed.body.users[0].suspensionReason).toBe('First reason');
+    // Repeating the suspension without a reason changes nothing and is not an error.
+    expect((await unsafeRequest(admin, 'patch', `/api/v1/users/${user.id}`).send({ isActive: false })).status).toBe(200);
+  });
+
+  // Retirement removes the person's details; the suspension note is free text about them, so it goes too.
+  it('removes the suspension record when a suspended account is retired', async () => {
+    const { agent: admin } = await createAuthenticatedAgent({ role: 'admin' });
+    const user = await createUserFixture();
+    await unsafeRequest(admin, 'patch', `/api/v1/users/${user.id}`).send({ isActive: false, reason: 'Repeated abusive reports' });
+    expect((await unsafeRequest(admin, 'delete', `/api/v1/users/${user.id}`).send({ reason: 'Left the area' })).status).toBe(200);
+    const stored = await User.findById(user.id).lean();
+    expect(stored).toMatchObject({ retirementReason: 'Left the area' });
+    for (const field of ['suspendedAt', 'suspendedBy', 'suspensionReason']) expect(stored).not.toHaveProperty(field);
+  });
+});
