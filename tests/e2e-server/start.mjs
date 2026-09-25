@@ -25,6 +25,13 @@ Object.assign(process.env, {
 // key the email service is a no-op. Read at module load, so cleared before anything requires it.
 delete process.env.RESEND_API_KEY;
 
+// Each run starts with an empty outbox, so a journey never reads a link from an earlier run.
+if (process.env.EMAIL_OUTBOX_DIR) {
+  const fs = require('node:fs');
+  fs.rmSync(process.env.EMAIL_OUTBOX_DIR, { recursive: true, force: true });
+  fs.mkdirSync(process.env.EMAIL_OUTBOX_DIR, { recursive: true });
+}
+
 const mongoose = require('mongoose');
 const { MongoMemoryReplSet } = require('mongodb-memory-server');
 
