@@ -38,7 +38,8 @@ const ReportsListPage = () => {
     const isStaff = user?.role === 'admin' || user?.role === 'agency';
     const isAdmin = user?.role === 'admin';
     const [priority, category, sort, assignee] = FILTER_PARAMS.map((name) => searchParams.get(name) || '');
-    const [assignable, setAssignable] = useState([]);
+    // null until the list arrives (or if it cannot be loaded).
+    const [assignable, setAssignable] = useState(null);
 
     useEffect(() => {
         dispatch(fetchCategories());
@@ -147,7 +148,11 @@ const ReportsListPage = () => {
                         <select aria-label="Filter by assignee" value={assignee} onChange={(e) => setFilter('assignee', e.target.value)}>
                             <option value="">Anyone</option>
                             <option value="none">Unassigned</option>
-                            {assignable.map((a) => <option key={a.userId} value={a.userId}>{a.displayName}</option>)}
+                            {(assignable ?? []).map((a) => <option key={a.userId} value={a.userId}>{a.displayName}</option>)}
+                            {/* The address can name someone not in the list: it still filters by them. */}
+                            {assignee && assignee !== 'none' && !assignable?.some((a) => a.userId === assignee) && (
+                                <option value={assignee}>{assignable ? 'Someone no longer assignable' : 'Selected staff member'}</option>
+                            )}
                         </select>
                     </div>
                 )}

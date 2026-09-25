@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import ReportsListPage from './ReportsListPage';
@@ -97,6 +97,18 @@ describe('ReportsListPage triage filters', () => {
         await waitFor(() => expect(fetchComplaints).toHaveBeenLastCalledWith(expect.objectContaining({ assignedTo: 'none' })));
         await user.selectOptions(assignee, 'a1');
         await waitFor(() => expect(fetchComplaints).toHaveBeenLastCalledWith(expect.objectContaining({ assignedTo: 'a1' })));
+    });
+
+    it('names an assignee from the address who is no longer assignable, instead of showing "Anyone"', async () => {
+        renderAs('admin', { url: '/dashboard/reports?assignee=gone-1' });
+        // Before the list arrives nothing is called "no longer assignable".
+        expect(screen.getByRole('combobox', { name: 'Filter by assignee' })).toHaveValue('gone-1');
+        expect(screen.queryByRole('option', { name: /no longer assignable/i })).not.toBeInTheDocument();
+        await screen.findByRole('option', { name: 'Ade Agency' });
+        const picker = screen.getByRole('combobox', { name: 'Filter by assignee' });
+        expect(picker).toHaveValue('gone-1');
+        expect(within(picker).getByRole('option', { selected: true })).toHaveTextContent(/no longer assignable/i);
+        expect(fetchComplaints).toHaveBeenLastCalledWith(expect.objectContaining({ assignedTo: 'gone-1' }));
     });
 
     it('gives citizens and agency staff no assignee picker', () => {

@@ -14,8 +14,8 @@ const EditHistory = ({ entries }) => {
         <>
             <div className="section-header" style={{ marginTop: 28 }}><h2>Reporter's edits</h2></div>
             <ul className="edit-history" aria-label="Reporter's edits">
-                {entries.map((entry) => (
-                    <li key={entry.editedAt} className="meta">
+                {entries.map((entry, index) => (
+                    <li key={`${entry.editedAt}-${index}`} className="meta">
                         {`${describeFields(entry.fields)} changed by ${entry.editedBy?.displayName ?? 'the reporter'}`}
                         {` · ${new Date(entry.editedAt).toLocaleString()}`}
                         {entry.reanalysed && ' · re-analysed by the AI'}
