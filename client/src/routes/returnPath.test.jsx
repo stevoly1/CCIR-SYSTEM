@@ -40,7 +40,11 @@ describe('returning to the page that asked for sign-in', () => {
         expect(screen.getByLabelText('where')).toHaveTextContent('/dashboard|');
     });
 
-    it.each([undefined, 'https://evil.example', '//evil.example', '/login', 42])('never returns anywhere outside the dashboard (%s)', (from) => {
+    it.each([undefined, 'https://evil.example', '//evil.example', '/login', 42, '/dashboardX', '/dashboard.evil'])('never returns anywhere outside the dashboard (%s)', (from) => {
         expect(returnPath({ from })).toBe('/dashboard');
+    });
+
+    it.each(['/dashboard', '/dashboard/reports/abc', '/dashboard?tab=1', '/dashboard#top'])('returns to a dashboard page (%s)', (from) => {
+        expect(returnPath({ from })).toBe(from);
     });
 });

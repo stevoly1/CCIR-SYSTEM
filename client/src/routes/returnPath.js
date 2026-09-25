@@ -2,5 +2,5 @@
 // router state by ProtectedRoute), or the dashboard itself. Nothing outside the dashboard.
 export const returnPath = (state) => {
     const from = state?.from;
-    return typeof from === 'string' && from.startsWith('/dashboard') ? from : '/dashboard';
+    return typeof from === 'string' && /^\/dashboard(?:$|[/?#])/.test(from) ? from : '/dashboard';
 };
