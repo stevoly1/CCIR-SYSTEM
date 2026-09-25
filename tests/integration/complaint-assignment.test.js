@@ -164,10 +164,14 @@ describe('PATCH /api/v1/complaints/:id/assign', () => {
     expect(stored.assignmentHistory[0].next.displayName).toBe(agency.name);
   });
 
+  // Both carry the version they were made from, as the client sends it, so exactly one wins whether
+  // the two overlap or (on a loaded machine) run one after the other; without it the second would
+  // read the first one's result and reassign, which is itself allowed.
   it('allows only one winner for concurrent assignments from the same version', async () => {
+    const expectedVersion = complaint.__v;
     const responses = await Promise.all([
-      assign(adminAgent, complaint.id, { assignedTo: agency.id, reason: 'First contender' }),
-      assign(adminAgent, complaint.id, { assignedTo: secondAgency.id, reason: 'Second contender' }),
+      assign(adminAgent, complaint.id, { assignedTo: agency.id, reason: 'First contender', expectedVersion }),
+      assign(adminAgent, complaint.id, { assignedTo: secondAgency.id, reason: 'Second contender', expectedVersion }),
     ]);
 
     expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);

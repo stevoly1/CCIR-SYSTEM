@@ -59,14 +59,20 @@ describe('expectedVersion', () => {
     expect(detail.code).not.toBe('UNKNOWN_FIELD');
   });
 
+  // Both requests carry the version they were made from, as the client sends it, so exactly one wins
+  // whether the two overlap or (on a loaded machine) run one after the other. Without it the second
+  // request would read the first one's result, and IN_REVIEW -> REJECTED is itself a valid change.
   it('reports a concurrent status change as STALE_COMPLAINT', async () => {
     const { agent } = await createAuthenticatedAgent({ role: 'admin' });
     const complaint = await createComplaintFixture();
+    const expectedVersion = complaint.__v;
     const [a, b] = await Promise.all([
-      unsafeRequest(agent, 'patch', `/api/v1/complaints/${complaint.id}/status`).send({ status: 'IN_REVIEW' }),
-      unsafeRequest(agent, 'patch', `/api/v1/complaints/${complaint.id}/status`).send({ status: 'REJECTED', publicNote: 'Duplicate report' }),
+      unsafeRequest(agent, 'patch', `/api/v1/complaints/${complaint.id}/status`).send({ status: 'IN_REVIEW', expectedVersion }),
+      unsafeRequest(agent, 'patch', `/api/v1/complaints/${complaint.id}/status`).send({ status: 'REJECTED', publicNote: 'Duplicate report', expectedVersion }),
     ]);
-    const loser = [a, b].find((response) => response.status === 409);
+    expect([a.status, b.status].sort()).toEqual([200, 409]);
+    const [winner, loser] = a.status === 200 ? [a, b] : [b, a];
     expect(loser.body.error.code).toBe('STALE_COMPLAINT');
+    expect((await Complaint.findById(complaint.id)).status).toBe(winner.body.complaint.status);
   });
 });
