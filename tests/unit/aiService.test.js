@@ -114,12 +114,16 @@ describe('AI classification contract', () => {
     ['network failures', () => Promise.reject(new Error('private network detail')), 'NETWORK_ERROR'],
     ['provider failures', () => Promise.resolve({ ok: false, status: 503 }), 'PROVIDER_ERROR'],
   ])('maps %s to a stable non-sensitive code', async (_name, implementation, errorCode) => {
-    vi.stubGlobal('fetch', vi.fn(implementation));
+    const fetchMock = vi.fn(implementation);
+    vi.stubGlobal('fetch', fetchMock);
     const { classifyComplaint } = loadService();
 
     await expect(classifyComplaint({ description: 'pothole', categoryNames: ['Roads', 'Other'] }))
       .resolves.toMatchObject({ error: errorCode, category: 'Other', confidence: 0 });
+    // Both failures are retried once before falling back.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(logs.lines).toEqual([expect.objectContaining({ level: 40, errorCode, msg: 'AI classification failed; using the fallback' })]);
+    if (errorCode === 'PROVIDER_ERROR') expect(logs.lines[0].providerStatus).toBe(503);
     expect(logs.text()).not.toMatch(/private network detail|test-key/);
   });
 
@@ -254,12 +258,42 @@ describe('AI classification contract', () => {
     expect(logs.lines).toEqual([expect.objectContaining({ errorCode: 'PROVIDER_ERROR', providerStatus: status })]);
   });
 
-  it('logs why it fell back when no API key is configured', async () => {
+  // AI is optional, so a server run without a key says so once, not on every report.
+  it('logs once why it falls back when no API key is configured', async () => {
     delete process.env.GOOGLE_API_KEY;
     vi.stubGlobal('fetch', vi.fn());
     const { classifyComplaint } = loadService();
     await classifyComplaint({ description: 'pothole', categoryNames: ['Roads', 'Other'] });
+    await expect(classifyComplaint({ description: 'drain', categoryNames: ['Roads', 'Other'] })).resolves.toMatchObject({ error: 'PROVIDER_ERROR' });
     expect(logs.lines).toEqual([expect.objectContaining({ level: 40, errorCode: 'PROVIDER_ERROR', reason: 'GOOGLE_API_KEY_MISSING' })]);
+  });
+
+  it('releases the failed first response before retrying', async () => {
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 503, body: { cancel } })
+      .mockResolvedValue(providerResponse(validOutput()));
+    vi.stubGlobal('fetch', fetchMock);
+    const { classifyComplaint } = loadService();
+    await classifyComplaint({ description: 'pothole', categoryNames: ['Roads', 'Other'] });
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(cancel.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[1]);
+  });
+
+  it('reports a timeout when the retry runs out of time', async () => {
+    vi.useFakeTimers();
+    process.env.AI_TIMEOUT_MS = '1000';
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 503 })
+      .mockImplementationOnce((_url, { signal }) => new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { classifyComplaint } = loadService();
+    const result = classifyComplaint({ description: 'pothole', categoryNames: ['Roads', 'Other'] });
+    await vi.advanceTimersByTimeAsync(1000);
+    await expect(result).resolves.toMatchObject({ error: 'TIMEOUT', category: 'Other' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('sends the key in a header, never in the URL', async () => {

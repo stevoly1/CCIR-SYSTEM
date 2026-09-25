@@ -99,13 +99,19 @@ class AiFailure extends Error {
 
 const pause = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
+// AI is optional: a server without a key says so once, not on every report.
+let missingKeyLogged = false;
+
 // Classifies a complaint using Gemini (text + optional image). Every failure is
 // reduced to a deterministic non-sensitive fallback so provider outages do not
 // block complaint submission.
 const classifyComplaint = async ({ description, imageTempFilePath, imageMimeType, categoryNames }) => {
     const apiKey = process.env.GOOGLE_API_KEY;
     if (!apiKey) {
-        getLogger().warn({ errorCode: 'PROVIDER_ERROR', reason: 'GOOGLE_API_KEY_MISSING' }, 'AI classification failed; using the fallback');
+        if (!missingKeyLogged) {
+            missingKeyLogged = true;
+            getLogger().warn({ errorCode: 'PROVIDER_ERROR', reason: 'GOOGLE_API_KEY_MISSING' }, 'AI classification failed; using the fallback');
+        }
         return fallbackResult('PROVIDER_ERROR');
     }
 
@@ -139,7 +145,9 @@ const classifyComplaint = async ({ description, imageTempFilePath, imageMimeType
             },
         );
 
-        // At most two attempts, both inside the one AI_TIMEOUT_MS budget.
+        // At most two attempts, both inside the one AI_TIMEOUT_MS budget. A network error is retried
+        // too, although a request that reached Google before the connection broke may count twice
+        // against the quota; a lost classification costs more.
         let response;
         for (let attempt = 1; ; attempt += 1) {
             try {
@@ -150,7 +158,12 @@ const classifyComplaint = async ({ description, imageTempFilePath, imageMimeType
                 throw new AiFailure('NETWORK_ERROR');
             }
             if (response.ok) break;
-            if (attempt === 1 && RETRYABLE_STATUSES.has(response.status)) { await pause(RETRY_DELAY_MS); continue; }
+            if (attempt === 1 && RETRYABLE_STATUSES.has(response.status)) {
+                // Release the failed response's connection now rather than when it is collected.
+                await response.body?.cancel().catch(() => {});
+                await pause(RETRY_DELAY_MS);
+                continue;
+            }
             throw new AiFailure('PROVIDER_ERROR', { providerStatus: response.status });
         }
 
