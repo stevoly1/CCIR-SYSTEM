@@ -1,6 +1,6 @@
 import { configureStore } from '@reduxjs/toolkit';
 import axiosClient from '../api/axiosClient';
-import authReducer, { fetchProfile } from './authSlice';
+import authReducer, { accountDeleted, fetchProfile } from './authSlice';
 
 vi.mock('../api/axiosClient', () => ({
     default: { get: vi.fn() },
@@ -24,5 +24,13 @@ describe('session check', () => {
         axiosClient.get.mockResolvedValue({ data: { user: { _id: 'u1' } } });
         await store.dispatch(fetchProfile());
         expect(axiosClient.get).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe('account deletion', () => {
+    it('clears the user when the account is deleted', () => {
+        const state = authReducer({ user: { email: 'a@example.test' }, authChecked: true, profileCheckPending: false, status: 'idle', error: null }, accountDeleted());
+        expect(state.user).toBeNull();
+        expect(state.authChecked).toBe(true);
     });
 });

@@ -729,3 +729,18 @@
         margin-left: 0;
     }
 }
+
+/* Profile: each account section is its own card, like the details form above it. */
+.profile-section {
+    max-width: 480px;
+    background: #fff;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: 24px;
+    margin-top: 16px;
+}
+
+.profile-section h3 {
+    margin: 0 0 14px;
+    font-size: 1rem;
+}

@@ -25,7 +25,7 @@ test('J6 citizen signs up, edits the profile, logs out, is locked out, and logs 
 
   await page.goto('/dashboard/profile');
   await expect(page.getByLabel('Full name')).toHaveValue('Jola Journey');
-  await expect(page.getByLabel('Email')).toHaveValue(email);
+  await expect(page.getByLabel('Email', { exact: true })).toHaveValue(email);
   await page.getByLabel('Full name').fill('Jola Journey-Edited');
   await page.getByLabel('Phone').fill('+2348000000000');
   await page.getByRole('button', { name: 'Save changes' }).click();
