@@ -1296,6 +1296,15 @@ paths:
       description: Redirects the browser to Google with a single-use state value.
       operationId: googleSignIn
       security: []
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          description: >
+            A dashboard path to return to after signing in (for example `/dashboard/reports/{id}`). Anything
+            that is not a plain `/dashboard` path on this site is ignored.
+          schema:
+            type: string
       responses:
         '302':
           description: Redirect to Google's consent page.

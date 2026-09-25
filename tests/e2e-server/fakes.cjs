@@ -1,5 +1,6 @@
 // Deterministic stand-ins for external providers, installed only by the e2e server.
 const aiService = require('../../services/aiService');
+const googleOAuthService = require('../../services/googleOAuthService');
 const locationService = require('../../services/locationService');
 const uploadService = require('../../services/uploadService');
 
@@ -32,6 +33,16 @@ const install = () => {
     return { url: `https://res.cloudinary.com/e2e/image/upload/${uploadCount}.jpg`, publicId: `e2e-${uploadCount}` };
   };
   uploadService.deleteComplaintImages = async () => [];
+  // Google sign-in without Google: the "consent screen" sends the browser straight back to the
+  // callback, and the exchange returns one fixed test identity.
+  googleOAuthService.isConfigured = () => true;
+  googleOAuthService.buildAuthUrl = (state) => `http://127.0.0.1:8181/api/v1/auth/google/callback?code=e2e-code&state=${state}`;
+  googleOAuthService.exchangeCodeForProfile = async () => ({
+    googleId: 'e2e-google-citizen',
+    email: 'google.citizen@e2e.test',
+    emailVerified: true,
+    name: 'Gina Google',
+  });
 };
 
 module.exports = { install };
