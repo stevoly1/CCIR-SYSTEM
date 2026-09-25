@@ -1,14 +1,14 @@
 // Guard: the public repository must never hold private records (docs/, tools/), Word files,
 // environment files or database backups. CI checks every tracked path and every path any commit in
-// history touched, so something added and later removed is still caught. The local pre-push hook
-// applies the same rule to pushes. Every rule ignores case: macOS file systems do (.ENV is .env).
+// history touched, merge commits included, so something added and later removed is still caught.
+// Every rule ignores case: macOS file systems do (.ENV is .env).
 const { execFileSync } = require('node:child_process');
 
 // A bare "docs" or "tools" is a gitlink: a nested repository added with git add or git submodule add.
 const RULES = [
   {
     reason: 'environment file',
-    test: (p) => (/(^|\/)\.env(rc)?(\.|$)/i.test(p) || /[^/]\.env$/i.test(p)) && !/(^|\/)\.env\.example$/i.test(p),
+    test: (p) => (/(^|\/)\.env(rc)?([._~-]|$)/i.test(p) || /[^/]\.env$/i.test(p)) && !/(^|\/)\.env\.example$/i.test(p),
   },
   { reason: 'private records', test: (p) => /^(docs|tools)(\/|$)/i.test(p) },
   { reason: 'Word document', test: (p) => /\.docx$/i.test(p) },
@@ -36,7 +36,7 @@ const main = ({ cwd = process.cwd(), stdout = process.stdout, stderr = process.s
     stderr.write('check:tracked-files needs the full history; this clone is shallow (use fetch-depth: 0).\n');
     return 1;
   }
-  const found = findPrivatePaths([...gitPaths(['ls-files'], cwd), ...gitPaths(['log', '--name-only', '--format=', 'HEAD'], cwd)]);
+  const found = findPrivatePaths([...gitPaths(['ls-files'], cwd), ...gitPaths(['log', '-m', '--name-only', '--format=', 'HEAD'], cwd)]);
   if (found.length === 0) {
     stdout.write('check:tracked-files: no private paths tracked or in history.\n');
     return 0;

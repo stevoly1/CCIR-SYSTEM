@@ -39,6 +39,9 @@ describe('private-file guard', () => {
     // Other common homes for environment values.
     ['.envrc', 'environment file'],
     ['config/production.env', 'environment file'],
+    ['.env-local', 'environment file'],
+    ['client/.env_prod', 'environment file'],
+    ['.env~', 'environment file'],
   ])('refuses %s', (path, reason) => {
     expect(privateReason(path)).toBe(reason);
   });
@@ -61,7 +64,13 @@ describe('private-file guard', () => {
 describe('private-file guard command', () => {
   const { spawnSync } = require('node:child_process');
   const script = path.resolve(__dirname, '../../scripts/ci/trackedFiles.js');
-  const git = (cwd, ...args) => spawnSync('git', args, { cwd, encoding: 'utf8' });
+  // Independent of this machine's git settings: a global signing key or hooks path must not make
+  // a commit fail silently.
+  const git = (cwd, ...args) => {
+    const result = spawnSync('git', ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args], { cwd, encoding: 'utf8' });
+    if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
+    return result;
+  };
   const repo = () => {
     const dir = tempDir('ccir-guard-');
     git(dir, 'init', '-q');
@@ -130,12 +139,37 @@ describe('private-file guard command', () => {
     expect(result.stderr).toContain('docs (private records)');
   });
 
+  // git log lists no files for a merge commit unless asked (-m): a private file added while
+  // resolving one merge and removed by another would otherwise leave no trace the guard can see.
+  it('catches a private path added and removed only by merge commits', () => {
+    const dir = repo();
+    commit(dir, 'README.md', 'readme');
+    const base = git(dir, 'rev-parse', '--abbrev-ref', 'HEAD').stdout.trim();
+    git(dir, 'checkout', '-qb', 'side');
+    commit(dir, 'side.txt', 'side');
+    git(dir, 'checkout', '-q', base);
+    commit(dir, 'main.txt', 'main');
+    git(dir, 'merge', '-q', '--no-ff', '--no-commit', 'side');
+    commit(dir, 'docs/merged.md', 'merge side, adding a private file');
+    git(dir, 'checkout', '-qb', 'side2');
+    commit(dir, 'side2.txt', 'side2');
+    git(dir, 'checkout', '-q', base);
+    commit(dir, 'main2.txt', 'main2');
+    git(dir, 'merge', '-q', '--no-ff', '--no-commit', 'side2');
+    git(dir, 'rm', '-q', 'docs/merged.md');
+    git(dir, 'commit', '-qm', 'merge side2, removing it');
+    expect(git(dir, 'ls-files').stdout).not.toContain('docs/');
+    const result = run(dir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('docs/merged.md (private records)');
+  });
+
   it('refuses a shallow clone, which would hide history', () => {
     const source = repo();
     commit(source, 'a.txt', 'one');
     commit(source, 'b.txt', 'two');
     const shallow = tempDir('ccir-guard-shallow-');
-    spawnSync('git', ['clone', '-q', '--depth', '1', `file://${source}`, shallow]);
+    git(source, 'clone', '-q', '--depth', '1', `file://${source}`, shallow);
     const result = run(shallow);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('full history');
