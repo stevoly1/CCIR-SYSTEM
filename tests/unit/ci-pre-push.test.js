@@ -20,7 +20,7 @@ afterAll(() => {
 const git = (cwd, ...args) => {
   const result = spawnSync('git', [
     '-c', 'user.email=guard@example.test', '-c', 'user.name=Guard Test',
-    '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args,
+    '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', '-c', 'maintenance.auto=false', ...args,
   ], { cwd, encoding: 'utf8' });
   if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
   return result.stdout.trim();
@@ -37,6 +37,7 @@ const commit = (dir, file, message = `add ${file}`) => {
 const setup = (seedFiles = ['README.md']) => {
   const remote = tempDir('ccir-push-remote-');
   git(remote, 'init', '-q', '--bare', '-b', 'main');
+  git(remote, 'config', 'receive.autogc', 'false');
   const seed = tempDir('ccir-push-seed-');
   git(seed, 'init', '-q', '-b', 'main');
   for (const file of seedFiles) commit(seed, file);
@@ -55,6 +56,24 @@ const push = (dir, lines) => {
   const status = main({ input: lines.join('\n') + '\n', cwd: dir, stderr });
   return { status, stderr: stderr.text };
 };
+
+// A push starts a detached `git maintenance run --auto` on the receiving side, which can still be
+// writing into the remote when afterAll removes it. git drops `-c` settings before it starts the
+// local receive-pack, so the remote's own configuration has to turn it off (receive.autogc).
+describe('test repositories', () => {
+  it('push to their remotes without starting background git maintenance', () => {
+    const trace = path.join(tempDir('ccir-push-trace-'), 'trace.json');
+    vi.stubEnv('GIT_TRACE2_EVENT', trace);
+    try {
+      setup();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    const events = fs.readFileSync(trace, 'utf8');
+    expect(events).toContain('"receive-pack"');
+    expect(events).not.toMatch(/"argv":\["git","maintenance"|"name":"maintenance"/);
+  });
+});
 
 describe('pre-push guard: reading what git sends', () => {
   it('reads one line per ref being pushed', () => {

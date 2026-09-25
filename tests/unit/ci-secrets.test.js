@@ -20,7 +20,7 @@ afterAll(() => {
 // Independent of this machine's git settings: a global signing key or hooks path must not make a
 // commit fail silently.
 const git = (cwd, ...args) => {
-  const result = spawnSync('git', ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args], { cwd, encoding: 'utf8' });
+  const result = spawnSync('git', ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', '-c', 'maintenance.auto=false', ...args], { cwd, encoding: 'utf8' });
   if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
   return result;
 };
