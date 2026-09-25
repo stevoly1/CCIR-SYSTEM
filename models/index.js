@@ -8,4 +8,5 @@ module.exports = {
     AuthThrottle: require('./AuthThrottle'),
     OAuthState: require('./OAuthState'),
     AccountToken: require('./AccountToken'),
+    OutboxEntry: require('./OutboxEntry'),
 };
