@@ -1,7 +1,20 @@
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { privateReason, findPrivatePaths, main } = require('../../scripts/ci/trackedFiles');
 
-// DEC-002: the public repository never holds private records, environment files, Word files or
-// database backups. CI checks every tracked path and every path in history.
+// The public repository never holds private records, environment files, Word files or database
+// backups. CI checks every tracked path and every path in history.
+const tempDirs = [];
+const tempDir = (prefix) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+};
+afterAll(() => {
+  for (const dir of tempDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
 describe('private-file guard', () => {
   it.each([
     ['.env', 'environment file'],
@@ -13,11 +26,24 @@ describe('private-file guard', () => {
     ['A.DOCX', 'Word document'],
     ['backups/2026-09-25/manifest.json', 'database backup'],
     ['snapshot.archive.gz', 'database backup'],
+    // A gitlink (a nested repository added with git add or git submodule add) is listed bare.
+    ['docs', 'private records'],
+    ['tools', 'private records'],
+    // macOS file systems ignore case: .ENV is the same file as .env.
+    ['.ENV', 'environment file'],
+    ['client/.Env.Local', 'environment file'],
+    ['DOCS/x.md', 'private records'],
+    ['Tools/x.py', 'private records'],
+    ['Backups/x.json', 'database backup'],
+    ['x.ARCHIVE.GZ', 'database backup'],
+    // Other common homes for environment values.
+    ['.envrc', 'environment file'],
+    ['config/production.env', 'environment file'],
   ])('refuses %s', (path, reason) => {
     expect(privateReason(path)).toBe(reason);
   });
 
-  it.each(['.env.example', 'client/.env.example', 'README.md', 'scripts/db/backup.js', 'client/src/docs-link.jsx', 'tests/fixtures/documents.js', 'envelope.js'])(
+  it.each(['.env.example', 'client/.env.example', '.ENV.EXAMPLE', 'README.md', 'scripts/db/backup.js', 'client/src/docs-link.jsx', 'tests/fixtures/documents.js', 'envelope.js', 'docsite/a.md', 'toolsets.js', 'src/environment.js', 'dotenv.js'])(
     'accepts %s',
     (path) => {
       expect(privateReason(path)).toBeNull();
@@ -34,13 +60,10 @@ describe('private-file guard', () => {
 
 describe('private-file guard command', () => {
   const { spawnSync } = require('node:child_process');
-  const fs = require('node:fs');
-  const os = require('node:os');
-  const path = require('node:path');
   const script = path.resolve(__dirname, '../../scripts/ci/trackedFiles.js');
   const git = (cwd, ...args) => spawnSync('git', args, { cwd, encoding: 'utf8' });
   const repo = () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccir-guard-'));
+    const dir = tempDir('ccir-guard-');
     git(dir, 'init', '-q');
     git(dir, 'config', 'user.email', 'guard@example.test');
     git(dir, 'config', 'user.name', 'Guard Test');
@@ -86,11 +109,32 @@ describe('private-file guard command', () => {
     expect(result.stderr).toContain('docs/résumé.md (private records)');
   });
 
+  // core.quotePath=false does not help here: git still quotes names holding a quote, a backslash,
+  // a tab or a newline ("docs/a\\"b.md"), which would slip past ^docs/.
+  it.each(['docs/a"b.md', 'docs/a\\b.md', 'docs/a\tb.md', 'docs/a\nb.md'])('catches the private path %j, which git would quote', (name) => {
+    const dir = repo();
+    commit(dir, name, 'add');
+    const result = run(dir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(`${name} (private records)`);
+  });
+
+  it('catches a nested repository added under docs/ as a gitlink', () => {
+    const dir = repo();
+    commit(dir, 'README.md', 'readme');
+    const head = git(dir, 'rev-parse', 'HEAD').stdout.trim();
+    git(dir, 'update-index', '--add', '--cacheinfo', `160000,${head},docs`);
+    git(dir, 'commit', '-qm', 'gitlink');
+    const result = run(dir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('docs (private records)');
+  });
+
   it('refuses a shallow clone, which would hide history', () => {
     const source = repo();
     commit(source, 'a.txt', 'one');
     commit(source, 'b.txt', 'two');
-    const shallow = fs.mkdtempSync(path.join(os.tmpdir(), 'ccir-guard-shallow-'));
+    const shallow = tempDir('ccir-guard-shallow-');
     spawnSync('git', ['clone', '-q', '--depth', '1', `file://${source}`, shallow]);
     const result = run(shallow);
     expect(result.status).toBe(1);
