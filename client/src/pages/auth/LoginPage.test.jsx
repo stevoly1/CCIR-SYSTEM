@@ -77,6 +77,11 @@ describe('LoginPage', () => {
     expect(screen.getByRole('link', { name: /Sign up/i })).toHaveAttribute('href', '/signup');
   });
 
+  it('sends Google sign-in back to the page that asked for it', () => {
+    renderPage({ pathname: '/login', state: { from: '/dashboard/reports/abc' } });
+    expect(screen.getByRole('link', { name: /Continue with Google/ })).toHaveAttribute('href', expect.stringMatching(/\/auth\/google\?returnTo=%2Fdashboard%2Freports%2Fabc$/));
+  });
+
   it('links to password recovery', () => {
     renderPage();
     expect(screen.getByRole('link', { name: 'Forgot password?' })).toHaveAttribute('href', '/forgot-password');

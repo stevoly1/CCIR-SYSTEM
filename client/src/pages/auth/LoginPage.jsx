@@ -40,7 +40,7 @@ const LoginPage = () => {
             <h2>Welcome back</h2>
             <p className="auth-subtitle">Log in to track and manage your civic reports.</p>
 
-            <GoogleButton label="Continue with Google" />
+            <GoogleButton label="Continue with Google" returnTo={returnPath(location.state)} />
             <div className="auth-divider">or</div>
 
             {error && <div className="form-error-banner">{error}</div>}

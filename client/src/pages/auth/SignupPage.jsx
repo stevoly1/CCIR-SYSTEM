@@ -31,7 +31,7 @@ const SignupPage = () => {
             <h2>Create your account</h2>
             <p className="auth-subtitle">Join CCIR System to start reporting issues in your community.</p>
 
-            <GoogleButton label="Continue with Google" />
+            <GoogleButton label="Continue with Google" returnTo={returnPath(location.state)} />
             <div className="auth-divider">or</div>
 
             {error && <div className="form-error-banner">{error}</div>}

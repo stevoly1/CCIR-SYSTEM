@@ -14,13 +14,17 @@ const sources = () => walk(CLIENT_SRC).map((file) => ({ file: path.relative(CLIE
 const clientCalls = () => sources().flatMap(({ file, source }) => {
   const calls = [...source.matchAll(/axiosClient\.(get|post|put|patch|delete)\(\s*([`'"])(.+?)\2/g)]
     .map(([, method, , route]) => ({ file, operation: `${method.toUpperCase()} ${normalise(route)}` }));
-  if (/\/auth\/google[`'"]/.test(source)) calls.push({ file, operation: 'GET /auth/google' });
+  if (/\/auth\/google(?:[`'"?]|\$\{)/.test(source)) calls.push({ file, operation: 'GET /auth/google' });
   return calls;
 });
 
 describe('reference client and contract', () => {
   it('finds the client API calls', () => {
     expect(clientCalls().length).toBeGreaterThanOrEqual(24);
+  });
+
+  it('finds the Google sign-in link, with or without a return path', () => {
+    expect(clientCalls()).toContainEqual({ file: path.join('components', 'GoogleButton.jsx'), operation: 'GET /auth/google' });
   });
 
   it('calls only documented operations', () => {
