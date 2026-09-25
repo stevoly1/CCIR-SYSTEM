@@ -6,8 +6,10 @@ const { verifyAccessToken } = require('../handlers/authHandler');
 const isHealthRequest = (req) => req.path === '/api/v1/health' || req.path.startsWith('/api/v1/health/');
 
 // Requests per 15 minutes outside tests. A signed-in account is counted on its own, because many
-// people can share one address (mobile carrier NAT, an office); a request without a valid session
-// is counted by its address. Everything from one address is also capped, whoever is signed in.
+// people can share one address (mobile carrier NAT, an office); a request without a validly signed,
+// unexpired access token is counted by its address. The session behind the token is not checked here
+// (that would cost a database read before the limit), so a signed-out token still counts against its
+// own account. Everything from one address is also capped, whoever is signed in.
 const API_RATE_LIMITS = Object.freeze({ perCaller: 300, perAddress: 3000 });
 const TEST_LIMIT = 10000;
 
