@@ -50,9 +50,9 @@ const refusals = (cwd, { localRef, localSha, remoteRef, remoteSha }) => {
 };
 
 // Returns the exit code. Options exist so the tests can run it in-process.
-const main = ({ input = fs.readFileSync(0, 'utf8'), cwd = process.cwd(), stderr = process.stderr } = {}) => {
+const main = ({ input, cwd = process.cwd(), stderr = process.stderr } = {}) => {
   try {
-    const messages = parsePushLines(input)
+    const messages = parsePushLines(input ?? fs.readFileSync(0, 'utf8'))
       .filter(({ localSha }) => !ZERO.test(localSha)) // a deletion sends no commits
       .flatMap((ref) => refusals(cwd, ref));
     for (const message of messages) stderr.write(message);

@@ -52,7 +52,7 @@ const capture = () => {
 };
 const push = (dir, lines) => {
   const stderr = capture();
-  const status = main({ args: ['origin', 'https://example.test/repo.git'], input: lines.join('\n') + '\n', cwd: dir, stderr });
+  const status = main({ input: lines.join('\n') + '\n', cwd: dir, stderr });
   return { status, stderr: stderr.text };
 };
 
@@ -160,20 +160,11 @@ describe('pre-push guard', () => {
     expect(result.stderr).toContain('docs/secret.md (private records)');
   });
 
-  it('checks the same way when pushing to a URL rather than a named remote', () => {
-    const { dir } = setup();
-    const sha = commit(dir, 'docs/url.md');
-    const stderr = capture();
-    const status = main({ args: ['https://example.test/repo.git', 'https://example.test/repo.git'], input: `refs/heads/x ${sha} refs/heads/x ${ZERO}\n`, cwd: dir, stderr });
-    expect(status).toBe(1);
-    expect(stderr.text).toContain('docs/url.md (private records)');
-  });
-
   // The user's git settings must not hide a path.
   it.each([
     ['log.showRoot=false', (dir) => git(dir, 'config', 'log.showRoot', 'false')],
     ['diff.renames=true', (dir) => git(dir, 'config', 'diff.renames', 'true')],
-  ])('sees every path whatever the setting %s', (_label, configure) => {
+  ])('sees a root commit whatever the setting %s', (_label, configure) => {
     const { dir } = setup();
     configure(dir);
     git(dir, 'checkout', '-q', '--orphan', 'orphan');
@@ -182,6 +173,23 @@ describe('pre-push guard', () => {
     const rootResult = push(dir, [`refs/heads/orphan ${root} refs/heads/orphan ${ZERO}`]);
     expect(rootResult.status).toBe(1);
     expect(rootResult.stderr).toContain('docs/root.md (private records)');
+  });
+
+  // With log.showSignature, git log prints the signature check on stdout, glued onto the first
+  // name of each signed commit with no NUL in between.
+  it('sees the paths of a signed commit whatever the setting log.showSignature=true', () => {
+    const { dir, pushedSha } = setup();
+    const key = path.join(tempDir('ccir-push-key-'), 'key');
+    const keygen = spawnSync('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', 'guard', '-f', key], { encoding: 'utf8' });
+    if (keygen.status !== 0) throw new Error(`ssh-keygen failed: ${keygen.stderr}`);
+    git(dir, 'config', 'log.showSignature', 'true');
+    fs.mkdirSync(path.join(dir, 'docs'));
+    fs.writeFileSync(path.join(dir, 'docs/signed.md'), 'x');
+    git(dir, 'add', 'docs/signed.md');
+    git(dir, '-c', 'gpg.format=ssh', '-c', `user.signingkey=${key}`, 'commit', '-S', '-qm', 'signed');
+    const result = push(dir, [`refs/heads/main ${git(dir, 'rev-parse', 'HEAD')} refs/heads/main ${pushedSha}`]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('  docs/signed.md (private records)');
   });
 
   it('sees a private path moved out of docs/ (the removal half of a rename)', () => {

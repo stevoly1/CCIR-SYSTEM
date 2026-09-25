@@ -31,11 +31,12 @@ const gitPaths = (args, cwd) => execFileSync('git', [...args, '-z'], { cwd, enco
 // Paths every commit in the given revisions touched, with the settings pinned so a user's or the
 // repository's configuration cannot hide one: root commits shown (log.showRoot), no rename pairing
 // (a move out of docs/ still lists its removal), submodules never ignored (a gitlink at docs, even
-// with ignore = all in a committed .gitmodules), replace refs not followed, and merge commits
-// diffed against their first parent.
+// with ignore = all in a committed .gitmodules), replace refs not followed, no signature checks
+// (log.showSignature prints them on stdout, glued onto a signed commit's first name), and merge
+// commits diffed against their first parent.
 const HISTORY = [
   '-c', 'log.showRoot=true', '-c', 'diff.ignoreSubmodules=none', '--no-replace-objects',
-  'log', '--no-renames', '--ignore-submodules=none', '--diff-merges=first-parent', '--name-only', '--format=',
+  'log', '--no-renames', '--no-show-signature', '--ignore-submodules=none', '--diff-merges=first-parent', '--name-only', '--format=',
 ];
 const historyPaths = (cwd, ...revisions) => gitPaths([...HISTORY, ...revisions], cwd);
 
