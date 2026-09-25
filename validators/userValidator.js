@@ -49,6 +49,10 @@ const adminUpdateUserSchema = z.strictObject({
     role: roleSchema.optional(),
     isActive: z.boolean().optional(),
     reason: z.string().trim().min(1).max(500).optional(),
+}).refine((body) => body.reason === undefined || body.isActive === false, {
+    // Only a suspension keeps a reason; accepting one on any other change would silently drop it.
+    message: 'A reason can only be given when suspending an account',
+    path: ['reason'],
 });
 
 const userListQuerySchema = z.strictObject({

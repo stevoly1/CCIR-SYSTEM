@@ -57,6 +57,19 @@ const userSchema = new mongoose.Schema(
             trim: true,
             maxlength: 500,
         },
+        // Set when an administrator suspends the account (isActive false); cleared on reactivation.
+        suspendedAt: {
+            type: Date,
+        },
+        suspendedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+        },
+        suspensionReason: {
+            type: String,
+            trim: true,
+            maxlength: 500,
+        },
         authProvider: {
             type: String,
             enum: AUTH_PROVIDERS,

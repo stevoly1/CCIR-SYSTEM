@@ -32,3 +32,45 @@ describe('signing in to a suspended account', () => {
     expect((await login(user.email, 'fixture-password')).status).toBe(200);
   });
 });
+
+// The suspend dialog asks for an optional reason; it is kept with the account until reactivation,
+// so another administrator can see why. A reason on any other change would be thrown away, so it is refused.
+describe('recording a suspension', () => {
+  it('records who suspended the account, when, and why, and clears it on reactivation', async () => {
+    const { agent: admin, user: adminUser } = await createAuthenticatedAgent({ role: 'admin' });
+    const user = await createUserFixture();
+    const suspended = await unsafeRequest(admin, 'patch', `/api/v1/users/${user.id}`).send({ isActive: false, reason: 'Repeated abusive reports' });
+    expect(suspended.status).toBe(200);
+    expect(suspended.body.user).toMatchObject({ isActive: false, suspensionReason: 'Repeated abusive reports', suspendedBy: String(adminUser._id ?? adminUser.id) });
+    expect(Date.parse(suspended.body.user.suspendedAt)).not.toBeNaN();
+
+    const listed = await admin.get('/api/v1/users').query({ search: user.email });
+    expect(listed.body.users[0]).toMatchObject({ suspensionReason: 'Repeated abusive reports' });
+
+    const reactivated = await unsafeRequest(admin, 'patch', `/api/v1/users/${user.id}`).send({ isActive: true });
+    expect(reactivated.status).toBe(200);
+    for (const field of ['suspendedAt', 'suspendedBy', 'suspensionReason']) expect(reactivated.body.user).not.toHaveProperty(field);
+  });
+
+  it('records the suspension without a reason when none is given', async () => {
+    const { agent: admin } = await createAuthenticatedAgent({ role: 'admin' });
+    const user = await createUserFixture();
+    const suspended = await unsafeRequest(admin, 'patch', `/api/v1/users/${user.id}`).send({ isActive: false });
+    expect(suspended.status).toBe(200);
+    expect(suspended.body.user.suspendedAt).toBeDefined();
+    expect(suspended.body.user).not.toHaveProperty('suspensionReason');
+  });
+
+  it('refuses a reason on a change that is not a suspension, changing nothing', async () => {
+    const { agent: admin } = await createAuthenticatedAgent({ role: 'admin' });
+    const user = await createUserFixture({ role: 'citizen' });
+    for (const body of [{ role: 'agency', reason: 'Joined the roads team' }, { name: 'New Name', reason: 'Typo' }, { isActive: true, reason: 'Appeal upheld' }]) {
+      const response = await unsafeRequest(admin, 'patch', `/api/v1/users/${user.id}`).send(body);
+      expect(response.status, JSON.stringify(body)).toBe(400);
+      expect(response.body.error.code).toBe('VALIDATION_ERROR');
+    }
+    const listed = await admin.get('/api/v1/users').query({ search: user.email });
+    expect(listed.body.users[0]).toMatchObject({ role: 'citizen', isActive: true });
+  });
+});
+

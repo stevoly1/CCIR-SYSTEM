@@ -122,7 +122,7 @@ const retireAccount = async ({ targetUserId, actorUserId, reason }) => {
   return retiredUser;
 };
 
-const mutateAdministrator = async ({ targetUserId, actorUserId, changes }) => {
+const mutateAdministrator = async ({ targetUserId, actorUserId, changes, reason }) => {
   await ensureAccountLifecycleGuard();
   const session = await mongoose.startSession();
   let updatedUser;
@@ -169,6 +169,15 @@ const mutateAdministrator = async ({ targetUserId, actorUserId, changes }) => {
       // Sessions end only when authority really changes: an edit that repeats the current role
       // (the admin form always sends it) must not sign the user out.
       const roleChanged = Object.hasOwn(changes, 'role') && changes.role !== target.role;
+      if (changes.isActive === false && target.isActive !== false) {
+        target.suspendedAt = new Date();
+        target.suspendedBy = actor._id;
+        target.suspensionReason = reason;
+      } else if (changes.isActive === true) {
+        target.suspendedAt = undefined;
+        target.suspendedBy = undefined;
+        target.suspensionReason = undefined;
+      }
       Object.assign(target, changes);
       await target.save({ session });
       if (changes.isActive === false || roleChanged) {

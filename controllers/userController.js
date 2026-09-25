@@ -68,6 +68,7 @@ const updateUser = async (req, res) => {
             targetUserId: req.params.id,
             actorUserId: req.user.userId,
             changes,
+            reason,
         });
         return res.status(StatusCodes.OK).json({ user });
     }
