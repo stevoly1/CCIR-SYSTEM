@@ -13,10 +13,11 @@ const { getLogger } = require('../utils/logger');
 const HOUR_MS = 60 * 60 * 1000;
 const addressTaken = () => new ConflictError('An account with this email already exists');
 
-// Nothing changes until the new address confirms, so a mistyped address cannot lock anyone out, and
-// the old address is always told (by the controller, even if the caller hangs up). Confirmation does
-// not stop someone who controls the new inbox, such as an administrator using their own address:
-// the notice to the old address is what reveals that.
+// Nothing changes until the new address confirms, so a mistyped address cannot lock anyone out.
+// Confirmation does not stop someone who controls the new inbox, such as an administrator using their
+// own address: the notice to the old address is what reveals that. So the notice is required, like
+// the confirmation: if either cannot be sent, the request fails and no link is kept. The log line
+// records who asked, by id only.
 const requestEmailChange = async ({ targetUserId, actorUserId, newEmail, currentPassword, self }) => {
   const [target, actor] = await Promise.all([
     User.findById(targetUserId).select('+password'),
@@ -40,11 +41,15 @@ const requestEmailChange = async ({ targetUserId, actorUserId, newEmail, current
   if (await User.exists({ email: newEmail })) throw addressTaken();
 
   const token = await issueToken({ userId: target._id, purpose: 'email_change', newEmail, requestedBy: actor._id });
-  const sent = await emailService.sendEmailChangeConfirmation({ to: newEmail, name: target.name, token });
+  const told = await emailService.sendEmailChangeNotice({
+    to: target.email, name: target.name, newEmail, requestedByAdministrator: !self,
+  });
+  const sent = told && await emailService.sendEmailChangeConfirmation({ to: newEmail, name: target.name, token });
   if (!sent) {
     await cancelTokens({ userId: target._id, purposes: ['email_change'] });
     throw emailNotSent();
   }
+  getLogger().info({ event: 'email_change_requested', userId: String(target._id), requestedBy: String(actor._id) }, 'Email change requested');
   return target;
 };
 

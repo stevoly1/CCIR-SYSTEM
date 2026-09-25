@@ -41,29 +41,24 @@ const changePassword = async (req, res) => {
 
 const CONFIRMATION_SENT = 'We have sent a confirmation link to the new address';
 
-// The old address hears about it after the answer; that notice is best effort.
-const noticeToOldAddress = (res, user, newEmail) => afterResponse(res, () => emailService.sendEmailChangeNotice({ to: user.email, name: user.name, newEmail }));
-
 const requestOwnEmailChange = async (req, res) => {
-    const user = await emailChangeService.requestEmailChange({
+    await emailChangeService.requestEmailChange({
         targetUserId: req.user.userId,
         actorUserId: req.user.userId,
         newEmail: req.body.newEmail,
         currentPassword: req.body.currentPassword,
         self: true,
     });
-    noticeToOldAddress(res, user, req.body.newEmail);
     res.status(StatusCodes.ACCEPTED).json({ msg: CONFIRMATION_SENT });
 };
 
 const requestUserEmailChange = async (req, res) => {
-    const user = await emailChangeService.requestEmailChange({
+    await emailChangeService.requestEmailChange({
         targetUserId: req.params.id,
         actorUserId: req.user.userId,
         newEmail: req.body.newEmail,
         self: false,
     });
-    noticeToOldAddress(res, user, req.body.newEmail);
     res.status(StatusCodes.ACCEPTED).json({ msg: CONFIRMATION_SENT });
 };
 

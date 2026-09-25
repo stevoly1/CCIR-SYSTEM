@@ -1687,7 +1687,8 @@ paths:
         confirmation link, valid for 24 hours, goes to the new address and the old address is told; nothing
         changes until the link is used (`POST /auth/email/confirm`). 400 `SAME_EMAIL`, 409 when the address
         is in use or the account signs in with Google (`GOOGLE_ACCOUNT`), 503 `EMAIL_NOT_SENT` when the
-        confirmation could not be sent (no link is kept; try again). 5 requests per hour per account.
+        confirmation or the notice to the old address could not be sent (no link is kept; try again). 5
+        requests per hour per account.
       operationId: requestOwnEmailChange
       requestBody:
         required: true
@@ -1898,10 +1899,11 @@ paths:
       tags: [users]
       summary: Ask to change a user's email address (administrators)
       description: >
-        Sends a single-use confirmation link, valid for 24 hours, to the new address and tells the old one;
-        nothing changes until the user confirms. Administrators change their own address from their profile
-        (400 `USE_PROFILE`). 409 for a retired account, an address in use, or a Google account
-        (`GOOGLE_ACCOUNT`); 503 `EMAIL_NOT_SENT` when the confirmation could not be sent.
+        Sends a single-use confirmation link, valid for 24 hours, to the new address and tells the old one
+        that an administrator asked; nothing changes until the user confirms. Administrators change their
+        own address from their profile (400 `USE_PROFILE`). 409 for a retired account, an address in use,
+        or a Google account (`GOOGLE_ACCOUNT`); 503 `EMAIL_NOT_SENT` when the confirmation or the notice to
+        the old address could not be sent (no link is kept).
       operationId: requestUserEmailChange
       parameters:
         - $ref: '#/components/parameters/Id'

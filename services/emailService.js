@@ -217,7 +217,7 @@ const sendEmailChangeConfirmation = ({ to, name, token }) => {
     });
 };
 
-const sendEmailChangeNotice = ({ to, name, newEmail }) => deliver({
+const sendEmailChangeNotice = ({ to, name, newEmail, requestedByAdministrator = false }) => deliver({
     kind: 'email_change_notice',
     to,
     subject: 'A change to your CCIR email address was requested',
@@ -225,7 +225,9 @@ const sendEmailChangeNotice = ({ to, name, newEmail }) => deliver({
         heading: 'Email change requested',
         lines: [
             `Hi ${escapeHtml(name)},`,
-            `A change of this account's email address to ${escapeHtml(maskEmail(newEmail))} was requested. It happens only if the new address is confirmed.`,
+            requestedByAdministrator
+                ? `An administrator asked to change this account's email address to ${escapeHtml(maskEmail(newEmail))}. It happens only if the new address is confirmed.`
+                : `A change of this account's email address to ${escapeHtml(maskEmail(newEmail))} was requested. It happens only if the new address is confirmed.`,
             'If this was not you, contact an administrator.',
         ],
     }),

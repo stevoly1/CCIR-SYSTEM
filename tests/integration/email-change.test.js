@@ -7,6 +7,7 @@ const { AccountToken, RefreshToken, User } = require('../../models');
 const emailService = require('../../services/emailService');
 const { issueToken, consumeToken } = require('../../services/accountTokenService');
 const { retireAccount } = require('../../services/accountRetirementService');
+const { captureLogs } = require('../helpers/captureLogs');
 
 const api = () => request(testServer());
 const ownChange = (agent, body) => unsafeRequest(agent, 'post', '/api/v1/users/profile/email').send(body);
@@ -69,6 +70,21 @@ describe('email change', () => {
     expect(await AccountToken.countDocuments({ user: user._id })).toBe(0);
   });
 
+  it('answers 503 and keeps no link when the old address cannot be told', async () => {
+    emailService.sendEmailChangeNotice.mockResolvedValue(false);
+    const { agent, user, password } = await createAuthenticatedAgent();
+    const response = await ownChange(agent, { newEmail: 'new@example.test', currentPassword: password });
+    expect(response.status).toBe(503);
+    expect(response.body.error.code).toBe('EMAIL_NOT_SENT');
+    expect(await AccountToken.countDocuments({ user: user._id })).toBe(0);
+  });
+
+  it('tells the old address before answering, as the person themselves', async () => {
+    const { agent, password } = await createAuthenticatedAgent({ email: 'old@example.test' });
+    await ownChange(agent, { newEmail: 'new@example.test', currentPassword: password });
+    expect(emailService.sendEmailChangeNotice).toHaveBeenCalledWith(expect.objectContaining({ to: 'old@example.test', requestedByAdministrator: false }));
+  });
+
   it('limits an account to 5 requests an hour', async () => {
     const { agent, password } = await createAuthenticatedAgent();
     for (let i = 0; i < 5; i += 1) expect((await ownChange(agent, { newEmail: `n${i}@example.test`, currentPassword: password })).status).toBe(202);
@@ -116,6 +132,32 @@ describe('administrator email change', () => {
     await vi.waitFor(() => expect(emailService.sendEmailChangeNotice).toHaveBeenCalledWith(expect.objectContaining({ to: 'typo@exmaple.test' })));
     expect((await confirm(sentToken())).status).toBe(200);
     expect((await User.findById(target.id)).email).toBe('right@example.test');
+  });
+
+  it('tells the old address that an administrator asked, and logs which administrator and which account', async () => {
+    const logs = captureLogs();
+    try {
+      const { agent: admin, user: administrator } = await createAuthenticatedAgent({ role: 'admin' });
+      const target = await createUserFixture({ email: 'typo@exmaple.test' });
+      expect((await adminChange(admin, target.id, { newEmail: 'right@example.test' })).status).toBe(202);
+      expect(emailService.sendEmailChangeNotice).toHaveBeenCalledWith(expect.objectContaining({ to: 'typo@exmaple.test', requestedByAdministrator: true }));
+      const line = logs.lines.find((entry) => entry.event === 'email_change_requested');
+      expect(line).toMatchObject({ userId: target.id, requestedBy: String(administrator._id) });
+      expect(logs.text()).not.toContain('right@example.test');
+      expect(logs.text()).not.toContain('typo@exmaple.test');
+    } finally {
+      logs.restore();
+    }
+  });
+
+  it('answers 503 and keeps no link when the old address cannot be told', async () => {
+    emailService.sendEmailChangeNotice.mockResolvedValue(false);
+    const { agent: admin } = await createAuthenticatedAgent({ role: 'admin' });
+    const target = await createUserFixture();
+    const response = await adminChange(admin, target.id, { newEmail: 'right@example.test' });
+    expect(response.status).toBe(503);
+    expect(response.body.error.code).toBe('EMAIL_NOT_SENT');
+    expect(await AccountToken.countDocuments({ user: target._id })).toBe(0);
   });
 
   it.each([['a citizen', 'citizen'], ['an agency user', 'agency']])('refuses %s', async (_label, role) => {

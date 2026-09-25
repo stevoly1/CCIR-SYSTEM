@@ -91,10 +91,10 @@ The full contract, with every request and response schema, error code and exampl
 People manage their own accounts from the Profile page:
 - **Forgot password:** a single-use link, valid for 30 minutes, emailed to the account. The answer is the same whether or not the address has an account.
 - **Change password:** needs the current password and signs out the other devices.
-- **Change email address:** needs the current password; the change applies only when the link sent to the new address is opened (valid 24 hours), and the old address is told.
+- **Change email address:** needs the current password; the change applies only when the link sent to the new address is opened (valid 24 hours). The old address is always told; if that email cannot be sent, the request is refused.
 - **Delete account:** needs the password (Google accounts type their email address). The name is removed from stored reports and their handling history; the reports stay. Administrators cannot delete their own account; another administrator retires it.
 
-Administrators correct a user's email address from the Users page. It goes through the same confirmation: `POST /users/{id}/email`. Since contract 1.1.0, `PATCH /users/{id}` no longer accepts `email`.
+Administrators correct a user's email address from the Users page. It goes through the same confirmation, the old address is told that an administrator asked, and the log records which administrator: `POST /users/{id}/email`. Since contract 1.1.0, `PATCH /users/{id}` no longer accepts `email`.
 
 Passwords set from now on need 8 to 128 characters and may not be the account's email address. Existing shorter passwords still work.
 

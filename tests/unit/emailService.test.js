@@ -156,6 +156,14 @@ describe('account emails', () => {
     expect(sent[0].html).not.toContain('jane.doe@example.com');
   });
 
+  it('tells the old address when an administrator asked for the change', async () => {
+    const email = loadService();
+    await email.sendEmailChangeNotice({ to: 'old@example.test', name: 'Ada', newEmail: 'jane.doe@example.com', requestedByAdministrator: true });
+    expect(sent[0].html).toContain('An administrator asked to change');
+    await email.sendEmailChangeNotice({ to: 'old@example.test', name: 'Ada', newEmail: 'jane.doe@example.com' });
+    expect(sent[1].html).not.toContain('An administrator');
+  });
+
   it('masks an address', () => {
     const email = loadService();
     expect(email.maskEmail('jane.doe@example.com')).toBe('j•••@example.com');
