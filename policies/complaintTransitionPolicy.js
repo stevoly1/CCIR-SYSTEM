@@ -8,7 +8,7 @@ const ALLOWED = Object.freeze({
   RESOLVED: new Set(['IN_PROGRESS']),
   REJECTED: new Set(['PENDING']),
   // Only the reporter's withdraw action enters WITHDRAWN; no staff transition leaves it.
-  WITHDRAWN: new Set(),
+  WITHDRAWN: new Set(['PENDING']),
 });
 
 const PUBLIC_NOTE_REQUIRED = new Set([
