@@ -44,6 +44,32 @@ describe('delete my account', () => {
     expect((await User.findById(user._id)).retiredAt).toBeTruthy();
   });
 
+  it('erases the name from a report the person was once assigned to, and leaves everyone else\'s name', async () => {
+    const { agent, user } = await createAuthenticatedAgent({ name: 'Former Handler', role: 'agency' });
+    const successor = await createUserFixture({ name: 'Current Handler', role: 'agency' });
+    const citizen = await createUserFixture({ name: 'Chioma Citizen' });
+    const administrator = await createUserFixture({ name: 'Ada Administrator', role: 'admin' });
+    const complaint = await createComplaintFixture({
+      reporter: citizen._id,
+      reporterSnapshot: { userId: citizen._id, displayName: 'Chioma Citizen', role: 'citizen' },
+      assignedTo: successor._id,
+      assignmentHistory: [{
+        type: 'REASSIGNED',
+        previous: { userId: user._id, displayName: 'Former Handler', role: 'agency' },
+        next: { userId: successor._id, displayName: 'Current Handler', role: 'agency' },
+        changedBy: { userId: administrator._id, displayName: 'Ada Administrator', role: 'admin' },
+        createdAt: new Date(),
+      }],
+    });
+    expect((await remove(agent, { password: 'fixture-password' })).status).toBe(200);
+
+    const stored = JSON.stringify(await Complaint.findById(complaint._id).lean());
+    expect(stored).not.toContain('Former Handler');
+    expect(stored).toContain('Current Handler');
+    expect(stored).toContain('Chioma Citizen');
+    expect(stored).toContain('Ada Administrator');
+  });
+
   it('keeps the snapshots when an administrator retires the account', async () => {
     const { user: admin } = await createAuthenticatedAgent({ role: 'admin' });
     const citizen = await createUserFixture({ name: 'Kept For Audit' });

@@ -43,6 +43,8 @@ const preserveSnapshotsAndAssignments = async ({ target, actor, reason, session,
       { assignedTo: target._id },
       { 'editHistory.editedBy.userId': target._id },
       { 'assignmentHistory.changedBy.userId': target._id },
+      { 'assignmentHistory.previous.userId': target._id },
+      { 'assignmentHistory.next.userId': target._id },
     ],
   }).session(session);
 
