@@ -171,16 +171,29 @@ describe('PATCH /api/v1/complaints/:id/status', () => {
     expect((await Complaint.findById(complaint.id)).resolvedAt).toBeUndefined();
   });
 
+  // Both requests carry the version they were made from, as the client sends it, so exactly one wins
+  // whether the two overlap or (on a loaded machine) run one after the other. Without it the second
+  // request would read the first one's result, and IN_REVIEW -> REJECTED is itself a valid change.
   it('accepts one of two concurrent transitions from the same version', async () => {
     const { agent, complaint, path } = await setup('PENDING');
+    const expectedVersion = complaint.__v;
     const [a, b] = await Promise.all([
-      unsafeRequest(agent, 'patch', path).send({ status: 'IN_REVIEW' }),
-      unsafeRequest(agent, 'patch', path).send({ status: 'REJECTED', publicNote: 'Duplicate report' }),
+      unsafeRequest(agent, 'patch', path).send({ status: 'IN_REVIEW', expectedVersion }),
+      unsafeRequest(agent, 'patch', path).send({ status: 'REJECTED', publicNote: 'Duplicate report', expectedVersion }),
     ]);
 
     expect([a.status, b.status].sort()).toEqual([200, 409]);
     const stored = await Complaint.findById(complaint.id);
     expect(stored.statusHistory).toHaveLength(2);
     expect(stored.__v).toBe(1);
+  });
+
+  it('refuses the second of two changes made from the same version when they arrive one after the other', async () => {
+    const { agent, complaint, path } = await setup('PENDING');
+    const expectedVersion = complaint.__v;
+    const first = await unsafeRequest(agent, 'patch', path).send({ status: 'IN_REVIEW', expectedVersion });
+    const second = await unsafeRequest(agent, 'patch', path).send({ status: 'REJECTED', publicNote: 'Duplicate report', expectedVersion });
+    expect([first.status, second.status]).toEqual([200, 409]);
+    expect((await Complaint.findById(complaint.id)).status).toBe('IN_REVIEW');
   });
 });
