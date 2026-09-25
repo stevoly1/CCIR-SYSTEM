@@ -50,7 +50,7 @@ describe('transactional account retirement', () => {
     expect(storedOpen.assignedTo).toBeNull();
     expect(storedOpen.assignmentHistory.at(-1)).toMatchObject({
       type: 'RETIREMENT_UNASSIGNMENT',
-      previous: { userId: agency._id, displayName: 'Retired account', role: 'agency' },
+      previous: { userId: agency._id, displayName: 'Agency To Retire', role: 'agency' }, // staff names stay
       next: null,
     });
     const storedResolved = await Complaint.findById(resolved.id);

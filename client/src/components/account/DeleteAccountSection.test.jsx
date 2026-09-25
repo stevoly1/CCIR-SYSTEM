@@ -53,6 +53,15 @@ describe('DeleteAccountSection', () => {
     expect(leaveTo).not.toHaveBeenCalled();
   });
 
+  it('tells a citizen their name leaves their reports, and staff that theirs stays in the handling history', () => {
+    const { unmount } = renderFor({ email: 'ada@example.test', role: 'citizen', authProvider: 'local' });
+    expect(screen.getByText(/Reports you filed stay with the agencies, without your name/)).toBeInTheDocument();
+    unmount();
+    renderFor({ email: 'sam@example.test', role: 'agency', authProvider: 'local' });
+    expect(screen.getByText(/Your name stays in the history of the reports you handled/)).toBeInTheDocument();
+    expect(screen.queryByText(/without your name/)).toBeNull();
+  });
+
   it('tells administrators another administrator must retire them', () => {
     renderFor({ email: 'chi@example.test', role: 'admin', authProvider: 'local' });
     expect(screen.queryByRole('button', { name: 'Delete account' })).toBeNull();

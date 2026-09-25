@@ -72,8 +72,9 @@ const preserveSnapshotsAndAssignments = async ({ target, actor, reason, session,
         createdAt: now,
       });
     }
-    // People who delete their own account take their name with them; administrator retirements
-    // keep it, for the audit trail.
+    // A citizen who deletes their own account takes their name with them. Staff names stay, whoever
+    // retires the account: who handled a report is the agency's record (owner decision). Screens show
+    // any retired person as "Retired account" either way.
     if (scrub) {
       scrubName(complaint.reporterSnapshot, target._id);
       for (const entry of complaint.statusHistory) scrubName(entry.changedBySnapshot, target._id);
@@ -121,7 +122,7 @@ const retireAccount = async ({ targetUserId, actorUserId, reason }) => {
       }
 
       const now = new Date();
-      await preserveSnapshotsAndAssignments({ target, actor, reason: normalizedReason, session, now, scrub: self });
+      await preserveSnapshotsAndAssignments({ target, actor, reason: normalizedReason, session, now, scrub: self && target.role === 'citizen' });
       await RefreshToken.deleteMany({ user: target._id }, { session });
       await cancelTokens({ userId: target._id, session });
 

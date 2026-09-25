@@ -36,7 +36,11 @@ const DeleteAccountSection = ({ user }) => {
     return (
         <section className="profile-section" aria-labelledby="delete-heading">
             <h3 id="delete-heading">Delete account</h3>
-            <p>Your name and contact details are removed and you are signed out everywhere. Reports you filed stay with the agencies, without your name.</p>
+            <p>
+                {user.role === 'citizen'
+                    ? 'Your name and contact details are removed and you are signed out everywhere. Reports you filed stay with the agencies, without your name.'
+                    : 'Your contact details are removed and you are signed out everywhere. Your name stays in the history of the reports you handled, because that is the agency\'s record.'}
+            </p>
             <button className="btn btn-danger" type="button" onClick={() => setOpen(true)}>Delete account</button>
             {open && (
                 <Modal title="Delete your account" onClose={() => setOpen(false)}>

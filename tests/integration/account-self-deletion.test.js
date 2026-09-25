@@ -26,11 +26,15 @@ describe('delete my account', () => {
 
   it('erases the name from every snapshot of the person, keeps the reports and cancels links', async () => {
     const { agent, user } = await createAuthenticatedAgent({ name: 'Ngozi Reporter' });
+    const staff = await createUserFixture({ name: 'Sam Staff', role: 'agency' });
     const snapshot = { userId: user._id, displayName: 'Ngozi Reporter', role: 'citizen' };
     const complaint = await createComplaintFixture({
       reporter: user._id,
       reporterSnapshot: snapshot,
-      statusHistory: [{ type: 'WITHDRAWN', status: 'WITHDRAWN', changedBy: user._id, changedBySnapshot: snapshot, createdAt: new Date() }],
+      statusHistory: [
+        { type: 'STATUS_CHANGED', status: 'IN_REVIEW', changedBy: staff._id, changedBySnapshot: { userId: staff._id, displayName: 'Sam Staff', role: 'agency' }, createdAt: new Date() },
+        { type: 'WITHDRAWN', status: 'WITHDRAWN', changedBy: user._id, changedBySnapshot: snapshot, createdAt: new Date() },
+      ],
       editHistory: [{ editedAt: new Date(), editedBy: snapshot, fields: ['description'], reanalysed: false }],
       assignmentHistory: [{ type: 'WITHDRAWAL_UNASSIGNMENT', previous: null, next: null, changedBy: snapshot, createdAt: new Date() }],
     });
@@ -40,11 +44,12 @@ describe('delete my account', () => {
     const stored = JSON.stringify(await Complaint.findById(complaint._id).lean());
     expect(stored).not.toContain('Ngozi Reporter');
     expect(stored).toContain('Retired account');
+    expect(stored).toContain('Sam Staff'); // never another person's name
     expect(await AccountToken.countDocuments({ user: user._id })).toBe(0);
     expect((await User.findById(user._id)).retiredAt).toBeTruthy();
   });
 
-  it('erases the name from a report the person was once assigned to, and leaves everyone else\'s name', async () => {
+  it('keeps a staff member\'s name in the handling history when they delete their own account', async () => {
     const { agent, user } = await createAuthenticatedAgent({ name: 'Former Handler', role: 'agency' });
     const successor = await createUserFixture({ name: 'Current Handler', role: 'agency' });
     const citizen = await createUserFixture({ name: 'Chioma Citizen' });
@@ -64,7 +69,8 @@ describe('delete my account', () => {
     expect((await remove(agent, { password: 'fixture-password' })).status).toBe(200);
 
     const stored = JSON.stringify(await Complaint.findById(complaint._id).lean());
-    expect(stored).not.toContain('Former Handler');
+    expect(stored).toContain('Former Handler'); // who handled a report is the agency's record
+    expect(await User.findById(user._id)).toMatchObject({ name: 'Retired account' });
     expect(stored).toContain('Current Handler');
     expect(stored).toContain('Chioma Citizen');
     expect(stored).toContain('Ada Administrator');

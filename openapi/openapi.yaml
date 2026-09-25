@@ -1569,8 +1569,8 @@ paths:
       summary: Delete (retire) the signed-in user's own account
       description: >
         Removes credentials and contact details and ends every session. Complaints and history are
-        kept, attributed to "Retired account", and the person's name is also replaced by "Retired account"
-        in every snapshot stored on reports. The person confirms: a password account sends its password
+        kept, attributed to "Retired account". For a citizen, the name is also replaced by "Retired account"
+        in every snapshot stored on reports; staff names stay in the handling history. The person confirms: a password account sends its password
         (400 `PASSWORD_REQUIRED` without it; a wrong one is 401 `WRONG_PASSWORD`, counted against the
         sign-in lockout), and a Google account sends its own email address as `confirmEmail` (400
         `CONFIRMATION_MISMATCH`). Administrators cannot retire themselves.
