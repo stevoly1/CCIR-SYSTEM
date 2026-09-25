@@ -180,6 +180,23 @@ describe('PATCH /api/v1/complaints/:id/assign', () => {
     expect(stored.__v).toBe(1);
   });
 
+  // The transaction re-reads the complaint and refuses if its version moved since the first read,
+  // even when no expectedVersion was sent: the early check alone would miss a change that lands in
+  // between. Forces that interleaving by serving the first read a copy taken before the change.
+  it('refuses an assignment whose first read went stale before the transaction', async () => {
+    const stale = await Complaint.findById(complaint.id).select('assignedTo status __v');
+    await Complaint.updateOne({ _id: complaint.id }, { $inc: { __v: 1 } });
+    const findById = vi.spyOn(Complaint, 'findById').mockImplementationOnce(() => ({ select: async () => stale }));
+    const response = await assign(adminAgent, complaint.id, { assignedTo: agency.id });
+    expect(findById).toHaveBeenCalled();
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('STALE_COMPLAINT');
+    const stored = await Complaint.findById(complaint.id);
+    expect(stored.assignedTo).toBeUndefined();
+    expect(stored.assignmentHistory).toHaveLength(0);
+    expect(stored.__v).toBe(stale.__v + 1);
+  });
+
   it('cannot commit an assignment from a retirement transaction stale read', async () => {
     let markScanRead;
     let releaseScan;
