@@ -1,5 +1,5 @@
 # Continuous integration. Every step is an npm script that also runs locally.
-# No secrets: every test uses in-memory MongoDB and no external service.
+# No secrets: every test uses in-memory MongoDB, a throwaway local Redis and no external service.
 name: CI
 
 on:
@@ -38,6 +38,13 @@ jobs:
             client/package-lock.json
       - run: npm install -g npm@${{ env.NPM_VERSION }}
       - run: npm ci
+      # Tests start their own throwaway redis-server on a free port; the system service is not used.
+      - name: Install redis-server
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends redis-server
+          sudo systemctl stop redis-server
+          redis-server --version
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.MONGOMS_DOWNLOAD_DIR }}
@@ -112,6 +119,13 @@ jobs:
       - run: npm ci
       - run: npm ci
         working-directory: client
+      # Tests start their own throwaway redis-server on a free port; the system service is not used.
+      - name: Install redis-server
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends redis-server
+          sudo systemctl stop redis-server
+          redis-server --version
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.MONGOMS_DOWNLOAD_DIR }}
