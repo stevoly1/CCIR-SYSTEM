@@ -130,6 +130,9 @@ test('J-4b-4 an administrator corrects an address and the user confirms it signe
   await expect(page.locator('.user-row', { hasText: corrected })).toBeVisible();
 });
 
+// What staff see. The page shows any retired person as "Retired account" whatever is stored, so
+// this cannot tell whether the stored snapshots were scrubbed: the integration test
+// account-self-deletion proves that.
 test('J-4b-5 a citizen deletes their account; staff see the report without the name', async ({ page }) => {
   const { password } = await newAccount(page.request, 'Leaving Person');
   const reportPath = await fileReport(page, 'Broken streetlight near the leaving point');
