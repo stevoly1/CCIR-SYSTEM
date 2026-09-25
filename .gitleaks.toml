@@ -1,0 +1,17 @@
+# .gitleaks.toml — secret scan configuration (Phase 4a).
+# The default gitleaks rules apply. An allowlist entry is added only for a value confirmed to
+# exist solely for tests (never a real credential anywhere), with a comment saying where and why.
+# This file is the only way to silence a finding: the scan ignores inline gitleaks:allow comments
+# and refuses a .gitleaksignore file (scripts/ci/checkSecrets.js).
+[extend]
+useDefault = true
+
+# The log-redaction test plants deliberately distinctive fake values and fails if any reaches a
+# log line; this one is a made-up database password used nowhere else. Allowed only for that
+# rule, in that file, with that exact value.
+[[allowlists]]
+description = "Fake database password planted by the log-redaction test"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^tests/integration/log-redaction\.test\.js$''']
+regexes = ['''^Db-Pass-SECRET-321$''']

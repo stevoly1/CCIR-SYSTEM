@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { tmpdir } from 'node:os';
+import process from 'node:process';
 import { defineConfig, devices } from '@playwright/test';
 
 // Journeys run against the real API (tests/e2e-server/start.mjs) with deterministic
@@ -9,7 +10,7 @@ import { defineConfig, devices } from '@playwright/test';
 // temporary folder so the working `dist/` is never touched.
 //
 // Journeys share one seeded server and build on each other's data, so each browser needs a run
-// of its own with a fresh server: `npm run test:e2e` runs `--project=chrome`, then `--project=webkit`
+// of its own with a fresh server: `npm run test:e2e` (scripts/e2e.mjs) runs Chrome, then WebKit
 // (Safari's engine, which caught the blank docs page that Chrome did not).
 const BUILD_DIR = path.join(tmpdir(), 'ccir-e2e-client');
 
@@ -19,7 +20,13 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
-  reporter: 'line',
+  // A test.only left in a commit would run one journey and pass: CI refuses it.
+  forbidOnly: Boolean(process.env.CI),
+  // CI asks for machine-readable results (scripts/e2eRuns.mjs sets the file per browser) so that a
+  // skipped or flaky journey fails the run (scripts/ci/checkTestResults.js).
+  reporter: process.env.PLAYWRIGHT_RESULTS_FILE
+    ? [['line'], ['json', { outputFile: process.env.PLAYWRIGHT_RESULTS_FILE }]]
+    : 'line',
   use: {
     baseURL: 'http://127.0.0.1:4173',
     trace: 'retain-on-failure',

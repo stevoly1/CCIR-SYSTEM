@@ -24,4 +24,18 @@ export default defineConfig([
       globals: globals.vitest,
     },
   },
+  // Node scripts (the journey runner) and their tests.
+  {
+    files: ['scripts/**/*.mjs'],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
+  {
+    files: ['scripts/**/*.test.mjs'],
+    languageOptions: {
+      globals: globals.vitest,
+    },
+  },
 ])

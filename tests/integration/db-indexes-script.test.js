@@ -18,10 +18,16 @@ const runScript = (uri, ...args) => new Promise((resolve) => {
 
 // run() connects the shared mongoose instance itself, as it does from the command line, so the
 // test process's own connection (and the index settings run() changes) are restored around it.
+// Once the shared connection opens, mongoose creates each model's collection and indexes in the
+// background. Work still pending when the connection is repointed runs against the script's
+// database instead (seen on CI, in the first test after connecting: "users" and one other
+// collection in a database a dry run must leave empty), so it must finish first.
 const runInProcess = async (uri, options = {}) => {
   let output = '';
   const out = { write: (chunk) => { output += chunk; } };
   const settings = { autoIndex: mongoose.get('autoIndex'), autoCreate: mongoose.get('autoCreate') };
+  // Every model on the shared connection, including any made with connection.model().
+  await Promise.all(Object.values(mongoose.connection.models).map((model) => model.init().catch(() => {})));
   await mongoose.connection.close();
   try {
     const result = await run({ uri, out, ...options });
@@ -51,7 +57,7 @@ describe('npm run db:indexes', () => {
     expect(result.json.applied).toBe(false);
     expect(result.json.missingUnique).toEqual(expect.arrayContaining(['complaints:{"referenceCode":1}', 'users:{"email":1}']));
     expect(result.json.report.Complaint.toCreate).toEqual(expect.arrayContaining([{ createdAt: -1 }, { category: 1 }]));
-    expect(await connection.db.listCollections().toArray()).toHaveLength(0);
+    expect((await connection.db.listCollections().toArray()).map((c) => c.name)).toEqual([]);
   });
 
   it('creates every declared index with --apply and then reports nothing missing', async () => {
@@ -152,7 +158,7 @@ describe('npm run db:indexes', () => {
       expect(result.status, args.join(' ')).toBe(1);
       expect(result.stdout + result.stderr).not.toContain(uri);
     }
-    expect(await connection.db.listCollections().toArray()).toHaveLength(0);
+    expect((await connection.db.listCollections().toArray()).map((c) => c.name)).toEqual([]);
   });
 
   it('fails cleanly on an unreachable database without printing its credentials', async () => {

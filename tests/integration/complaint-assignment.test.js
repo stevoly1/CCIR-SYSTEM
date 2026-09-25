@@ -164,16 +164,37 @@ describe('PATCH /api/v1/complaints/:id/assign', () => {
     expect(stored.assignmentHistory[0].next.displayName).toBe(agency.name);
   });
 
+  // Both carry the version they were made from, as the client sends it, so exactly one wins whether
+  // the two overlap or (on a loaded machine) run one after the other; without it the second would
+  // read the first one's result and reassign, which is itself allowed.
   it('allows only one winner for concurrent assignments from the same version', async () => {
+    const expectedVersion = complaint.__v;
     const responses = await Promise.all([
-      assign(adminAgent, complaint.id, { assignedTo: agency.id, reason: 'First contender' }),
-      assign(adminAgent, complaint.id, { assignedTo: secondAgency.id, reason: 'Second contender' }),
+      assign(adminAgent, complaint.id, { assignedTo: agency.id, reason: 'First contender', expectedVersion }),
+      assign(adminAgent, complaint.id, { assignedTo: secondAgency.id, reason: 'Second contender', expectedVersion }),
     ]);
 
     expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
     const stored = await Complaint.findById(complaint.id);
     expect(stored.assignmentHistory).toHaveLength(1);
     expect(stored.__v).toBe(1);
+  });
+
+  // The transaction re-reads the complaint and refuses if its version moved since the first read,
+  // even when no expectedVersion was sent: the early check alone would miss a change that lands in
+  // between. Forces that interleaving by serving the first read a copy taken before the change.
+  it('refuses an assignment whose first read went stale before the transaction', async () => {
+    const stale = await Complaint.findById(complaint.id).select('assignedTo status __v');
+    await Complaint.updateOne({ _id: complaint.id }, { $inc: { __v: 1 } });
+    const findById = vi.spyOn(Complaint, 'findById').mockImplementationOnce(() => ({ select: async () => stale }));
+    const response = await assign(adminAgent, complaint.id, { assignedTo: agency.id });
+    expect(findById).toHaveBeenCalled();
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('STALE_COMPLAINT');
+    const stored = await Complaint.findById(complaint.id);
+    expect(stored.assignedTo).toBeUndefined();
+    expect(stored.assignmentHistory).toHaveLength(0);
+    expect(stored.__v).toBe(stale.__v + 1);
   });
 
   it('cannot commit an assignment from a retirement transaction stale read', async () => {
