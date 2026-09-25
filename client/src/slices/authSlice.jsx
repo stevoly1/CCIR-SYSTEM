@@ -60,7 +60,6 @@ const authSlice = createSlice({
         clearAuthError: (state) => {
             state.error = null;
         },
-        accountDeleted: (state) => { state.user = null; state.authChecked = true; },
     },
     extraReducers: (builder) => {
         builder
@@ -86,5 +85,5 @@ const authSlice = createSlice({
     },
 });
 
-export const { clearAuthError, accountDeleted } = authSlice.actions;
+export const { clearAuthError } = authSlice.actions;
 export default authSlice.reducer;

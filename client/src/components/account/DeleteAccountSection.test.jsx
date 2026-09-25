@@ -1,30 +1,21 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router';
 import toast from 'react-hot-toast';
 import axiosClient from '../../api/axiosClient';
 import DeleteAccountSection from './DeleteAccountSection';
+import { leaveTo } from '../../routes/leavePage';
 
-const dispatch = vi.fn();
-vi.mock('react-redux', () => ({ useDispatch: () => dispatch }));
-vi.mock('../../slices/authSlice', () => ({ accountDeleted: () => ({ type: 'auth/accountDeleted' }) }));
+vi.mock('../../routes/leavePage', () => ({ leaveTo: vi.fn() }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('../../api/axiosClient', () => ({
   default: { delete: vi.fn() },
   extractErrorMessage: (error) => error?.response?.data?.error?.message || 'Something went wrong',
 }));
 
-const renderFor = (account) => render(
-  <MemoryRouter initialEntries={['/dashboard/profile']}>
-    <Routes>
-      <Route path="/dashboard/profile" element={<DeleteAccountSection user={account} />} />
-      <Route path="/account-deleted" element={<p>deleted page</p>} />
-    </Routes>
-  </MemoryRouter>,
-);
+const renderFor = (account) => render(<DeleteAccountSection user={account} />);
 
 describe('DeleteAccountSection', () => {
-  beforeEach(() => { axiosClient.delete.mockReset(); dispatch.mockReset(); });
+  beforeEach(() => { axiosClient.delete.mockReset(); leaveTo.mockReset(); });
 
   it('asks a password account for its password and an optional reason', async () => {
     axiosClient.delete.mockResolvedValue({ data: {} });
@@ -35,8 +26,8 @@ describe('DeleteAccountSection', () => {
     await user.type(screen.getByLabelText('Reason (optional)'), 'Moving away');
     await user.click(screen.getByRole('button', { name: 'Delete my account' }));
     expect(axiosClient.delete).toHaveBeenCalledWith('/users/profile', { data: { password: 'Old-pass-1', reason: 'Moving away' } });
-    expect(dispatch).toHaveBeenCalledWith({ type: 'auth/accountDeleted' });
-    expect(await screen.findByText('deleted page')).toBeInTheDocument();
+    // A full page load: the app restarts signed out, holding nothing from the deleted account.
+    expect(leaveTo).toHaveBeenCalledWith('/account-deleted');
   });
 
   it('asks a Google account to type its email, and sends no empty reason', async () => {
@@ -59,7 +50,7 @@ describe('DeleteAccountSection', () => {
     await user.click(screen.getByRole('button', { name: 'Delete my account' }));
     expect(toast.error).toHaveBeenCalledWith('The current password is incorrect');
     expect(screen.getByRole('dialog')).toBeInTheDocument();
-    expect(dispatch).not.toHaveBeenCalled();
+    expect(leaveTo).not.toHaveBeenCalled();
   });
 
   it('tells administrators another administrator must retire them', () => {

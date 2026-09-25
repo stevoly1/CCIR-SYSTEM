@@ -1,14 +1,10 @@
 import { useState } from 'react';
-import { useDispatch } from 'react-redux';
-import { useNavigate } from 'react-router';
 import toast from 'react-hot-toast';
 import Modal from '../Modal';
 import axiosClient, { extractErrorMessage } from '../../api/axiosClient';
-import { accountDeleted } from '../../slices/authSlice';
+import { leaveTo } from '../../routes/leavePage';
 
 const DeleteAccountSection = ({ user }) => {
-    const dispatch = useDispatch();
-    const navigate = useNavigate();
     const [open, setOpen] = useState(false);
     const [form, setForm] = useState({ secret: '', reason: '' });
     const [deleting, setDeleting] = useState(false);
@@ -30,8 +26,7 @@ const DeleteAccountSection = ({ user }) => {
         setDeleting(true);
         try {
             await axiosClient.delete('/users/profile', { data: body });
-            dispatch(accountDeleted());
-            navigate('/account-deleted', { replace: true });
+            leaveTo('/account-deleted');
         } catch (err) {
             toast.error(extractErrorMessage(err));
             setDeleting(false);
