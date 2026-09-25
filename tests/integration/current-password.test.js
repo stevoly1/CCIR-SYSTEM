@@ -21,6 +21,15 @@ describe('current password check', () => {
     const login = await unsafeRequest(request(testServer()), 'post', '/api/v1/auth/login').send({ email: user.email, password });
     expect(login.status).toBe(429);
   });
+
+  it('checks at most five guesses made at the same moment, so a burst cannot find the password', async () => {
+    const { user } = await createAuthenticatedAgent();
+    const loaded = await User.findById(user._id).select('+password');
+    const compare = vi.spyOn(loaded, 'comparePassword');
+    const results = await Promise.allSettled(Array.from({ length: 20 }, () => verifyCurrentPassword(loaded, 'wrong')));
+    expect(results.every((result) => result.status === 'rejected')).toBe(true);
+    expect(compare.mock.calls.length).toBeLessThanOrEqual(5);
+  });
 });
 
 describe('sessions', () => {
