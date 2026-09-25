@@ -35,7 +35,12 @@ const capture = () => {
   out.write = (t) => { out.text += t; };
   return out;
 };
-const reportPathOf = (args) => args[args.indexOf('--report-path') + 1];
+const reportPathOf = (args) => {
+  const at = args.indexOf('--report-path');
+  // Without the flag a fake gitleaks would write into this checkout.
+  if (at === -1) throw new Error('gitleaks was not given --report-path');
+  return args[at + 1];
+};
 
 describe('secret scan wrapper', () => {
   // CI logs of this public repository are public: a finding must never print the value, and only
