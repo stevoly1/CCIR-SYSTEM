@@ -26,12 +26,15 @@ const loadCurrentUser = async (userId) => {
     return user;
 };
 
-const currentUserContext = (user) => ({
+// sessionId is the stored refresh-token record the request belongs to, so a route can end every
+// other session and keep this one.
+const currentUserContext = (user, sessionId) => ({
     userId: user._id.toString(),
     email: user.email,
     role: user.role,
     isActive: user.isActive,
     retiredAt: user.retiredAt || null,
+    sessionId,
 });
 
 const rawCookieValue = (req, name) => {
@@ -73,7 +76,7 @@ const authentication = async (req, res, next) => {
                 liveSession(payload.sid, payload.userId),
             ]);
             if (user && session) {
-                req.user = currentUserContext(user);
+                req.user = currentUserContext(user, payload.sid);
                 return next();
             }
         }
@@ -127,7 +130,7 @@ const authentication = async (req, res, next) => {
 
     if (refreshFingerprint) await authThrottle.clear('refresh-token', refreshFingerprint);
     attachCookiesToResponse({ res, user, refreshToken, sessionId: storedToken._id.toString() });
-    req.user = currentUserContext(user);
+    req.user = currentUserContext(user, storedToken._id.toString());
     return next();
 };
 
