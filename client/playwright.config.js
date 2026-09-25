@@ -22,7 +22,7 @@ export default defineConfig({
   retries: 0,
   // A test.only left in a commit would run one journey and pass: CI refuses it.
   forbidOnly: Boolean(process.env.CI),
-  // CI asks for machine-readable results (scripts/e2e.mjs sets the file per browser) so that a
+  // CI asks for machine-readable results (scripts/e2eRuns.mjs sets the file per browser) so that a
   // skipped or flaky journey fails the run (scripts/ci/checkTestResults.js).
   reporter: process.env.PLAYWRIGHT_RESULTS_FILE
     ? [['line'], ['json', { outputFile: process.env.PLAYWRIGHT_RESULTS_FILE }]]
