@@ -222,21 +222,10 @@ const mutateUserDetails = async ({ targetUserId, actorUserId, changes, selfMutat
         requireActiveAdministrator(actor);
       }
 
-      if (changes.email && normalizeEmail(changes.email) !== target.email) {
-        const existing = await User.exists({
-          _id: { $ne: target._id },
-          email: normalizeEmail(changes.email),
-        }).session(session);
-        if (existing) throw new ConflictError('An account with this email already exists');
-      }
-
       Object.assign(target, changes);
       await target.save({ session });
       updatedUser = target;
     });
-  } catch (error) {
-    if (error?.code === 11000) throw new ConflictError('An account with this email already exists');
-    throw error;
   } finally {
     await session.endSession();
   }
@@ -286,5 +275,6 @@ module.exports = {
   bootstrapFirstAdministrator,
   mutateAdministrator,
   mutateUserDetails,
+  requireActiveAdministrator,
   retireAccount,
 };

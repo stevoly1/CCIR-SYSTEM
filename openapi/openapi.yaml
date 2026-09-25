@@ -1242,6 +1242,53 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/ServerError'
+  /auth/email/confirm:
+    post:
+      tags: [auth]
+      summary: Confirm an email address change
+      description: >
+        The token comes from the link's address fragment (`#token=…`). Works signed in or out. The account's
+        address changes, sessions are kept, and pending links for the account are cancelled. 400
+        `INVALID_OR_EXPIRED_TOKEN`; 409 if the address was taken meanwhile or the account can no longer change.
+      operationId: confirmEmailChange
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+            example:
+              token: 3q2-7wEXAMPLEexampleEXAMPLEexampleEXAMPLE0
+      responses:
+        '200':
+          description: Email address changed.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                msg: Email address changed
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
   /auth/google:
     get:
       tags: [auth]
@@ -1590,6 +1637,63 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/ServerError'
+  /users/profile/email:
+    post:
+      tags: [users]
+      summary: Ask to change the signed-in user's email address
+      description: >
+        Needs the current password (401 `WRONG_PASSWORD`, counted against the sign-in lockout). A single-use
+        confirmation link, valid for 24 hours, goes to the new address and the old address is told; nothing
+        changes until the link is used (`POST /auth/email/confirm`). 400 `SAME_EMAIL`, 409 when the address
+        is in use or the account signs in with Google (`GOOGLE_ACCOUNT`), 503 `EMAIL_NOT_SENT` when the
+        confirmation could not be sent (no link is kept; try again). 5 requests per hour per account.
+      operationId: requestOwnEmailChange
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [newEmail, currentPassword]
+              properties:
+                newEmail:
+                  type: string
+                  format: email
+                  maxLength: 254
+                currentPassword:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+            example:
+              newEmail: ada.new@example.test
+              currentPassword: Example-pass-1
+      responses:
+        '202':
+          description: Confirmation sent to the new address.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                msg: We have sent a confirmation link to the new address
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /users/logout:
     post:
       tags: [users]
@@ -1639,6 +1743,8 @@ paths:
         (`isActive: false`) records when, by whom and, with `reason`, why; reactivating clears it.
         A `reason` on any other change is refused with 400, and a new reason for an account that is
         already suspended with 409 (reactivate it first). Retiring an account removes its suspension record.
+        An email address is changed with `POST /users/{id}/email`, which needs confirmation at the new
+        address; `email` here is refused with 400 `VALIDATION_ERROR` (removed in 1.1.0).
       operationId: updateUser
       requestBody:
         required: true
@@ -1652,9 +1758,6 @@ paths:
                   type: string
                   minLength: 2
                   maxLength: 60
-                email:
-                  type: string
-                  format: email
                 phone:
                   type: string
                   maxLength: 30
@@ -1749,6 +1852,61 @@ paths:
         '500':
           $ref: '#/components/responses/ServerError'
 
+  /users/{id}/email:
+    post:
+      tags: [users]
+      summary: Ask to change a user's email address (administrators)
+      description: >
+        Sends a single-use confirmation link, valid for 24 hours, to the new address and tells the old one;
+        nothing changes until the user confirms. Administrators change their own address from their profile
+        (400 `USE_PROFILE`). 409 for a retired account, an address in use, or a Google account
+        (`GOOGLE_ACCOUNT`); 503 `EMAIL_NOT_SENT` when the confirmation could not be sent.
+      operationId: requestUserEmailChange
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [newEmail]
+              properties:
+                newEmail:
+                  type: string
+                  format: email
+                  maxLength: 254
+            example:
+              newEmail: correct.address@example.test
+      responses:
+        '202':
+          description: Confirmation sent to the new address.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                msg: We have sent a confirmation link to the new address
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /categories:
     get:
       tags: [categories]

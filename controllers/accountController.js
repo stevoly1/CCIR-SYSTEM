@@ -2,6 +2,7 @@ const { StatusCodes } = require('http-status-codes');
 const emailService = require('../services/emailService');
 const passwordResetService = require('../services/passwordResetService');
 const passwordChangeService = require('../services/passwordChangeService');
+const emailChangeService = require('../services/emailChangeService');
 const { accountThrottle, AUTH_WINDOW_MS } = require('../services/accountThrottle');
 const { afterResponse } = require('../utils/afterResponse');
 const { clearAttachedCookies } = require('../handlers/authHandler');
@@ -38,4 +39,38 @@ const changePassword = async (req, res) => {
     res.status(StatusCodes.OK).json({ msg: 'Password changed' });
 };
 
-module.exports = { forgotPassword, resetPassword, changePassword };
+const CONFIRMATION_SENT = 'We have sent a confirmation link to the new address';
+
+// The old address hears about it after the answer; that notice is best effort.
+const noticeToOldAddress = (res, user, newEmail) => afterResponse(res, () => emailService.sendEmailChangeNotice({ to: user.email, name: user.name, newEmail }));
+
+const requestOwnEmailChange = async (req, res) => {
+    const user = await emailChangeService.requestEmailChange({
+        targetUserId: req.user.userId,
+        actorUserId: req.user.userId,
+        newEmail: req.body.newEmail,
+        currentPassword: req.body.currentPassword,
+        self: true,
+    });
+    noticeToOldAddress(res, user, req.body.newEmail);
+    res.status(StatusCodes.ACCEPTED).json({ msg: CONFIRMATION_SENT });
+};
+
+const requestUserEmailChange = async (req, res) => {
+    const user = await emailChangeService.requestEmailChange({
+        targetUserId: req.params.id,
+        actorUserId: req.user.userId,
+        newEmail: req.body.newEmail,
+        self: false,
+    });
+    noticeToOldAddress(res, user, req.body.newEmail);
+    res.status(StatusCodes.ACCEPTED).json({ msg: CONFIRMATION_SENT });
+};
+
+const confirmEmailChange = async (req, res) => {
+    await accountThrottle().consume('token-ip', req.ip, { limit: 20, windowMs: AUTH_WINDOW_MS });
+    await emailChangeService.confirmEmailChange(req.body);
+    res.status(StatusCodes.OK).json({ msg: 'Email address changed' });
+};
+
+module.exports = { forgotPassword, resetPassword, changePassword, requestOwnEmailChange, requestUserEmailChange, confirmEmailChange };

@@ -45,7 +45,6 @@ const updateProfileSchema = z.strictObject({
 
 const adminUpdateUserSchema = z.strictObject({
     name: nameSchema.optional(),
-    email: z.string().trim().toLowerCase().email({ message: 'Invalid email address' }).optional(),
     phone: phoneSchema,
     role: roleSchema.optional(),
     isActive: z.boolean().optional(),
