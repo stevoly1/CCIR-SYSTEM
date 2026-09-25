@@ -20,7 +20,7 @@ afterAll(() => {
 const git = (cwd, ...args) => {
   const result = spawnSync('git', [
     '-c', 'user.email=guard@example.test', '-c', 'user.name=Guard Test',
-    '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args,
+    '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', '-c', 'maintenance.auto=false', ...args,
   ], { cwd, encoding: 'utf8' });
   if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
   return result.stdout.trim();
@@ -284,7 +284,7 @@ describe('pre-push hook wrapper', () => {
     const hooks = tempDir('ccir-push-hooks-');
     fs.copyFileSync(wrapper, path.join(hooks, 'pre-push'));
     fs.chmodSync(path.join(hooks, 'pre-push'), 0o755);
-    const realPush = (...args) => spawnSync('git', ['-c', `core.hooksPath=${hooks}`, 'push', ...args], { cwd: dir, encoding: 'utf8' });
+    const realPush = (...args) => spawnSync('git', ['-c', `core.hooksPath=${hooks}`, '-c', 'maintenance.auto=false', 'push', ...args], { cwd: dir, encoding: 'utf8' });
     expect(realPush('-q', 'origin', 'main').status).toBe(0);
     commit(dir, 'docs/leak.md');
     const refused = realPush('-q', 'origin', 'main');
