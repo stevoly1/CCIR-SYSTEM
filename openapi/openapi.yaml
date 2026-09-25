@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: CCIR API
-  version: 1.0.0
+  version: 1.1.0
   summary: Civic Complaint and Infrastructure Reporting backend.
   description: >
     Citizens file complaints about public infrastructure; agency staff and administrators triage,
@@ -31,6 +31,13 @@ info:
     client address without a valid session; all requests from one client address are also capped
     at 3000 per 15 minutes. Health probes are exempt. Sign-in and session refresh have tighter limits.
     Over-limit requests get 429 `RATE_LIMITED` with `Retry-After`.
+
+
+    **Changes in 1.1.0.** Adds password recovery and change, confirmed email changes (by the user or an
+    administrator), a confirmed account deletion, and a return path for Google sign-in (`returnTo`).
+    **Breaking:** `PATCH /users/{id}` no longer accepts `email` (use `POST /users/{id}/email`), and
+    `DELETE /users/profile` requires `password` (or `confirmEmail` for Google accounts). New passwords
+    need 8 to 128 characters.
   license:
     name: MIT
     identifier: MIT

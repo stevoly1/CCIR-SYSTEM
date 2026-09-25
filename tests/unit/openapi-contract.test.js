@@ -19,7 +19,7 @@ describe('OpenAPI contract', () => {
   it('is a valid OpenAPI 3.1 document', async () => {
     const api = await SwaggerParser.validate(CONTRACT_PATH);
     expect(api.openapi).toMatch(/^3\.1\./);
-    expect(api.info.version).toBe('1.0.0');
+    expect(api.info.version).toBe('1.1.0');
     expect(api.info.license).toMatchObject({ name: 'MIT', identifier: 'MIT' });
     expect(api.servers).toEqual([{ url: '/api/v1' }]);
   });
