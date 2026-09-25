@@ -54,6 +54,9 @@ const LoginPage = () => {
                     <label htmlFor="password">Password</label>
                     <input id="password" name="password" type="password" placeholder="••••••••" value={form.password} onChange={handleChange} required />
                 </div>
+                <div className="auth-forgot">
+                    <Link to="/forgot-password" style={{ color: 'var(--color-primary)', fontWeight: 600 }}>Forgot password?</Link>
+                </div>
 
                 <button className="btn btn-primary btn-block" type="submit" disabled={status === 'loading'}>
                     {status === 'loading' ? <span className="spinner" /> : 'Log in'}

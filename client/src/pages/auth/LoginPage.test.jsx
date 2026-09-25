@@ -77,6 +77,11 @@ describe('LoginPage', () => {
     expect(screen.getByRole('link', { name: /Sign up/i })).toHaveAttribute('href', '/signup');
   });
 
+  it('links to password recovery', () => {
+    renderPage();
+    expect(screen.getByRole('link', { name: 'Forgot password?' })).toHaveAttribute('href', '/forgot-password');
+  });
+
   it('reports a failed Google sign-in once and clears it from the address', () => {
     toast.error.mockClear();
     // StrictMode runs the effect twice in development; one toast id makes the repeat a no-op.

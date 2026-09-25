@@ -182,6 +182,12 @@
     gap: 12px;
 }
 
+.auth-forgot {
+    text-align: right;
+    margin: -6px 0 14px;
+    font-size: 0.85rem;
+}
+
 .auth-switch {
     text-align: center;
     margin-top: 22px;
