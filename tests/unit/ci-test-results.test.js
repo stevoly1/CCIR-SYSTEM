@@ -2,7 +2,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { summarize, problems } = require('../../scripts/ci/checkTestResults');
+const { summarize, problems, main } = require('../../scripts/ci/checkTestResults');
 
 const vitest = (overrides = {}) => ({
   numTotalTests: 10, numPassedTests: 10, numFailedTests: 0, numPendingTests: 0, numTodoTests: 0, success: true, ...overrides,
@@ -39,10 +39,23 @@ describe('test-results check', () => {
     const script = path.resolve(__dirname, '../../scripts/ci/checkTestResults.js');
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccir-results-'));
     const write = (name, value) => { const file = path.join(dir, name); fs.writeFileSync(file, JSON.stringify(value)); return file; };
-    const run = (...files) => spawnSync(process.execPath, [script, ...files], { encoding: 'utf8' });
+    const run = (...files) => {
+      let stdout = '';
+      let stderr = '';
+      const status = main(files, { stdout: { write: (t) => { stdout += t; } }, stderr: { write: (t) => { stderr += t; } } });
+      return { status, stdout, stderr };
+    };
 
-    it('exits 0 when every file is clean', () => {
-      expect(run(write('a.json', vitest()), write('b.json', playwright())).status).toBe(0);
+    it('exits 0 when every file is clean, from the command line too', () => {
+      const files = [write('a.json', vitest()), write('b.json', playwright())];
+      expect(run(...files).status).toBe(0);
+      expect(spawnSync(process.execPath, [script, ...files], { encoding: 'utf8' }).status).toBe(0);
+    });
+
+    it('rejects a file that is not JSON', () => {
+      const file = path.join(dir, 'e.json');
+      fs.writeFileSync(file, 'not json');
+      expect(run(file).stderr).toContain('not a Vitest or Playwright results file');
     });
 
     it('exits 1 naming the file and the problem', () => {

@@ -1,4 +1,4 @@
-const { privateReason, findPrivatePaths } = require('../../scripts/ci/trackedFiles');
+const { privateReason, findPrivatePaths, main } = require('../../scripts/ci/trackedFiles');
 
 // DEC-002: the public repository never holds private records, environment files, Word files or
 // database backups. CI checks every tracked path and every path in history.
@@ -52,12 +52,19 @@ describe('private-file guard command', () => {
     git(dir, 'add', file);
     git(dir, 'commit', '-qm', message);
   };
-  const run = (dir) => spawnSync(process.execPath, [script], { cwd: dir, encoding: 'utf8' });
+  // In-process, so coverage measures it; one test below runs the real command.
+  const run = (dir) => {
+    let stdout = '';
+    let stderr = '';
+    const status = main({ cwd: dir, stdout: { write: (t) => { stdout += t; } }, stderr: { write: (t) => { stderr += t; } } });
+    return { status, stdout, stderr };
+  };
 
-  it('passes a clean repository', () => {
+  it('passes a clean repository, from the command line too', () => {
     const dir = repo();
     commit(dir, 'README.md', 'readme');
-    expect(run(dir).status).toBe(0);
+    expect(run(dir)).toMatchObject({ status: 0, stdout: expect.stringContaining('no private paths') });
+    expect(spawnSync(process.execPath, [script], { cwd: dir, encoding: 'utf8' }).status).toBe(0);
   });
 
   it('fails on a private path that a later commit removed', () => {

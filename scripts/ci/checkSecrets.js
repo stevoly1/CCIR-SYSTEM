@@ -6,14 +6,20 @@ const { spawnSync, execFileSync } = require('node:child_process');
 
 const GITLEAKS_ARGS = ['git', '--config', '.gitleaks.toml', '--redact', '--no-banner', '--verbose', '.'];
 
-const main = () => {
-  if (execFileSync('git', ['rev-parse', '--is-shallow-repository'], { encoding: 'utf8' }).trim() === 'true') {
-    process.stderr.write('check:secrets needs the full history; this clone is shallow (use fetch-depth: 0).\n');
+// Returns the exit code. Options exist so the tests can run it in-process.
+const main = ({
+  cwd = process.cwd(),
+  binary = process.env.GITLEAKS_BIN || 'gitleaks',
+  spawn = spawnSync,
+  stderr = process.stderr,
+} = {}) => {
+  if (execFileSync('git', ['rev-parse', '--is-shallow-repository'], { cwd, encoding: 'utf8' }).trim() === 'true') {
+    stderr.write('check:secrets needs the full history; this clone is shallow (use fetch-depth: 0).\n');
     return 1;
   }
-  const result = spawnSync(process.env.GITLEAKS_BIN || 'gitleaks', GITLEAKS_ARGS, { stdio: 'inherit' });
+  const result = spawn(binary, GITLEAKS_ARGS, { cwd, stdio: 'inherit' });
   if (result.error?.code === 'ENOENT') {
-    process.stderr.write('check:secrets: gitleaks is not installed. CI installs it; locally see the README (Continuous integration).\n');
+    stderr.write('check:secrets: gitleaks is not installed. CI installs it; locally see the README (Continuous integration).\n');
     return 1;
   }
   return result.status ?? 1;
@@ -21,4 +27,4 @@ const main = () => {
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { GITLEAKS_ARGS };
+module.exports = { GITLEAKS_ARGS, main };

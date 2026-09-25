@@ -44,19 +44,20 @@ const checkFile = (file) => {
   return summary ? problems(summary) : ['not a Vitest or Playwright results file'];
 };
 
-const main = (files) => {
+// Returns the exit code. The streams are options so the tests can run it in-process.
+const main = (files, { stdout = process.stdout, stderr = process.stderr } = {}) => {
   if (files.length === 0) {
-    process.stderr.write('usage: check:test-results -- <results.json> [...]\n');
+    stderr.write('usage: check:test-results -- <results.json> [...]\n');
     return 1;
   }
   let failed = false;
   for (const file of files) {
     const found = checkFile(file);
     if (found.length === 0) {
-      process.stdout.write(`${file}: every test ran and passed\n`);
+      stdout.write(`${file}: every test ran and passed\n`);
     } else {
       failed = true;
-      process.stderr.write(`${file}: ${found.join(', ')}\n`);
+      stderr.write(`${file}: ${found.join(', ')}\n`);
     }
   }
   return failed ? 1 : 0;
@@ -64,4 +65,4 @@ const main = (files) => {
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
 
-module.exports = { summarize, problems };
+module.exports = { summarize, problems, main };
