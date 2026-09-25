@@ -130,6 +130,12 @@ h1, h2, h3, h4, p {
     width: 100%;
 }
 
+.field-hint {
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+}
+
 .field {
     display: flex;
     flex-direction: column;

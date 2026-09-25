@@ -3,6 +3,7 @@ import { useSelector } from 'react-redux';
 import { Search, Pencil, Trash2, Ban, RotateCcw } from 'lucide-react';
 import Topbar from '../../components/Topbar';
 import Modal from '../../components/Modal';
+import AdminEmailChange from '../../components/account/AdminEmailChange';
 import ReasonDialog from '../../components/ReasonDialog';
 import Pager from '../../components/Pager';
 import axiosClient, { extractErrorMessage } from '../../api/axiosClient';
@@ -238,6 +239,7 @@ const UsersPage = () => {
                         <div className="field">
                             <label htmlFor="edit-email">Email</label>
                             <input id="edit-email" value={editingUser.email} disabled />
+                            <AdminEmailChange user={editingUser} isSelf={editingUser._id === currentUser?._id} />
                         </div>
                         <div className="field">
                             <label htmlFor="edit-name">Full name</label>
