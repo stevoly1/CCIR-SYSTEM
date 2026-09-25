@@ -9,11 +9,13 @@ const GoogleIcon = () => (
     </svg>
 );
 
-const GoogleButton = ({ label = 'Continue with Google' }) => {
+const GoogleButton = ({ label = 'Continue with Google', returnTo }) => {
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1';
+    // The API accepts only dashboard paths and drops anything else; the plain dashboard is the default.
+    const query = returnTo && returnTo !== '/dashboard' ? `?returnTo=${encodeURIComponent(returnTo)}` : '';
 
     return (
-        <a href={`${apiUrl}/auth/google`} className="auth-google-btn">
+        <a href={`${apiUrl}/auth/google${query}`} className="auth-google-btn">
             <GoogleIcon />
             {label}
         </a>

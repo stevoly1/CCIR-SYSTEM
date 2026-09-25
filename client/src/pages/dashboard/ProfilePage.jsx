@@ -3,6 +3,9 @@ import { useDispatch, useSelector } from 'react-redux';
 import toast from 'react-hot-toast';
 import Topbar from '../../components/Topbar';
 import { updateProfile } from '../../slices/authSlice';
+import ChangePasswordForm from '../../components/account/ChangePasswordForm';
+import ChangeEmailForm from '../../components/account/ChangeEmailForm';
+import DeleteAccountSection from '../../components/account/DeleteAccountSection';
 
 const ProfilePage = () => {
     const dispatch = useDispatch();
@@ -47,6 +50,13 @@ const ProfilePage = () => {
                     {saving ? <span className="spinner" /> : 'Save changes'}
                 </button>
             </form>
+
+            {user?.authProvider !== 'google' && <ChangePasswordForm />}
+            {user?.authProvider !== 'google' && <ChangeEmailForm />}
+            {user?.authProvider === 'google' && (
+                <p className="profile-section">You sign in with Google, which manages your password and email address.</p>
+            )}
+            {user && <DeleteAccountSection user={user} />}
         </div>
     );
 };

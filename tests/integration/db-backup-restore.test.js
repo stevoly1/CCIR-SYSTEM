@@ -26,7 +26,7 @@ describe.skipIf(!hasTools)('backup and restore rehearsal (needs MongoDB Database
     const result = JSON.parse(stdout);
     expect(result).toMatchObject({ passed: true, differences: [] });
     expect(Object.keys(result.collections).sort()).toEqual([
-      'admincontrols', 'auththrottles', 'categories', 'complaintdeletions', 'complaints', 'oauthstates', 'refreshtokens', 'users',
+      'accounttokens', 'admincontrols', 'auththrottles', 'categories', 'complaintdeletions', 'complaints', 'oauthstates', 'refreshtokens', 'users',
     ]);
     for (const count of Object.values(result.collections)) expect(count).toBeGreaterThan(0);
   }, 300000);

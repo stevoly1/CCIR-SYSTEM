@@ -11,7 +11,7 @@ vi.mock('react-redux', () => ({ useSelector: (select) => select(state) }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('../../components/Topbar', () => ({ default: ({ subtitle }) => <p>{subtitle}</p> }));
 vi.mock('../../api/axiosClient', () => ({
-  default: { get: vi.fn(), patch: vi.fn(), delete: vi.fn() },
+  default: { get: vi.fn(), patch: vi.fn(), delete: vi.fn(), post: vi.fn() },
   extractErrorMessage: (error) => error?.response?.data?.error?.message || 'Something went wrong',
 }));
 
@@ -55,6 +55,18 @@ describe('UsersPage', () => {
     expect(axiosClient.patch).toHaveBeenCalledWith('/users/u-cit', { name: 'Ada Renamed', phone: '+234800', role: 'agency' });
     expect(await screen.findByText('Ada Renamed')).toBeInTheDocument();
     expect(toast.success).toHaveBeenCalledWith('User updated');
+  });
+
+  it('offers an email change for another user in the edit dialog, but not for one\'s own account', async () => {
+    const user = userEvent.setup();
+    render(<UsersPage />);
+    await screen.findByText('Ada Citizen');
+    await user.click(within(rowOf('Ada Citizen')).getByRole('button', { name: 'Edit user' }));
+    expect(screen.getByRole('button', { name: 'Change email' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    await user.click(within(rowOf('Chi Admin (you)')).getByRole('button', { name: 'Edit user' }));
+    expect(screen.queryByRole('button', { name: 'Change email' })).toBeNull();
+    expect(screen.getByText('Change your own address from your profile')).toBeInTheDocument();
   });
 
   it('locks the role of the signed-in administrator\'s own account', async () => {

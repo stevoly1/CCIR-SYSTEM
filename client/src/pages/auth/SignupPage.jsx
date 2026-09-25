@@ -31,7 +31,7 @@ const SignupPage = () => {
             <h2>Create your account</h2>
             <p className="auth-subtitle">Join CCIR System to start reporting issues in your community.</p>
 
-            <GoogleButton label="Continue with Google" />
+            <GoogleButton label="Continue with Google" returnTo={returnPath(location.state)} />
             <div className="auth-divider">or</div>
 
             {error && <div className="form-error-banner">{error}</div>}
@@ -47,7 +47,7 @@ const SignupPage = () => {
                 </div>
                 <div className="field">
                     <label htmlFor="password">Password</label>
-                    <input id="password" name="password" type="password" placeholder="At least 6 characters" value={form.password} onChange={handleChange} minLength={6} required />
+                    <input id="password" name="password" type="password" placeholder="At least 8 characters" value={form.password} onChange={handleChange} minLength={8} required />
                 </div>
 
                 <button className="btn btn-primary btn-block" type="submit" disabled={status === 'loading'}>

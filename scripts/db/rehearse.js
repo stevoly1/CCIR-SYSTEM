@@ -18,7 +18,7 @@ const withDatabase = (uri, name) => { const url = new URL(uri); url.pathname = `
 const seedEveryCollection = async (uri) => {
   await mongoose.connect(uri);
   require('../../models');
-  const { User, Category, Complaint, ComplaintDeletion, RefreshToken, AuthThrottle, OAuthState, AdminControl } = mongoose.models;
+  const { User, Category, Complaint, ComplaintDeletion, RefreshToken, AuthThrottle, OAuthState, AdminControl, AccountToken } = mongoose.models;
   await Promise.all(Object.values(mongoose.models).map((model) => model.createIndexes()));
   const admin = await User.create({ name: 'Rehearsal Admin', email: 'rehearsal.admin@example.test', password: 'Rehearsal-pass-1', role: 'admin' });
   const citizen = await User.create({ name: 'Rehearsal Citizen', email: 'rehearsal.citizen@example.test', password: 'Rehearsal-pass-1' });
@@ -33,6 +33,7 @@ const seedEveryCollection = async (uri) => {
   await AuthThrottle.create({ _id: 'rehearsal:key', count: 1, resetAt: new Date(Date.now() + 86400000) });
   await OAuthState.create({ digest: 'a'.repeat(64), expiresAt: new Date(Date.now() + 86400000) });
   await AdminControl.create({ _id: 'accountLifecycle', revision: 1 });
+  await AccountToken.create({ purpose: 'password_reset', user: citizen._id, tokenHash: 'b'.repeat(64), requestedBy: citizen._id, expiresAt: new Date(Date.now() + 86400000) });
   await mongoose.disconnect();
 };
 

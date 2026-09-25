@@ -2,6 +2,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import process from 'node:process';
 import { defineConfig, devices } from '@playwright/test';
+import { OUTBOX_DIR } from './tests/e2e/support/outbox.js';
 
 // Journeys run against the real API (tests/e2e-server/start.mjs) with deterministic
 // provider fakes; the smoke test stubs its own network and needs no backend state.
@@ -44,7 +45,7 @@ export default defineConfig({
   webServer: [
     {
       command: 'node ../tests/e2e-server/start.mjs',
-      env: { NODE_ENV: 'test' },
+      env: { NODE_ENV: 'test', EMAIL_OUTBOX_DIR: OUTBOX_DIR },
       url: 'http://127.0.0.1:8181/api/v1/health',
       reuseExistingServer: false,
       timeout: 180000,

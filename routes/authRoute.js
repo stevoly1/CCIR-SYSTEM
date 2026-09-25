@@ -8,11 +8,16 @@ const {
 const validate = require("../middleware/validate");
 const { signupSchema, loginSchema } = require("../validators/userValidator");
 const { emptyQuerySchema } = require('../validators/commonValidator');
+const { forgotPassword, resetPassword, confirmEmailChange } = require("../controllers/accountController");
+const { forgotPasswordSchema, resetPasswordSchema, confirmEmailSchema, googleRedirectQuerySchema } = require("../validators/accountValidator");
 const AuthRouter = express.Router();
 
 AuthRouter.route("/signup").post(validate({ body: signupSchema, query: emptyQuerySchema }), signup);
 AuthRouter.route("/login").post(validate({ body: loginSchema, query: emptyQuerySchema }), login);
-AuthRouter.route("/google").get(validate({ query: emptyQuerySchema }), googleAuthRedirect);
+AuthRouter.route("/google").get(validate({ query: googleRedirectQuerySchema }), googleAuthRedirect);
 AuthRouter.route("/google/callback").get(googleAuthCallback);
+AuthRouter.route("/password/forgot").post(validate({ body: forgotPasswordSchema, query: emptyQuerySchema }), forgotPassword);
+AuthRouter.route("/email/confirm").post(validate({ body: confirmEmailSchema, query: emptyQuerySchema }), confirmEmailChange);
+AuthRouter.route("/password/reset").post(validate({ body: resetPasswordSchema, query: emptyQuerySchema }), resetPassword);
 
 module.exports = AuthRouter;

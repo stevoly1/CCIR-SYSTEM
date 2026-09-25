@@ -7,10 +7,12 @@ const {
     attachCookiesToResponse,
 } = require('../handlers/authHandler');
 const googleOAuthService = require('../services/googleOAuthService');
+const { safeReturnPath } = require('../policies/returnPathPolicy');
 const { establishGoogleIdentitySession } = require('../services/googleIdentityService');
 const { safeStateEqual } = require('../policies/googleIdentityPolicy');
 const { getLogger } = require('../utils/logger');
 const { getBrowserSecurityConfig } = require('../config/browserSecurity');
+const { assertPasswordAllowed } = require('../validators/passwordPolicy');
 const { createThrottleService, secondsUntil } = require('../services/authThrottleService');
 
 const OAUTH_STATE_MAX_AGE_MS = 5 * 60 * 1000;
@@ -40,6 +42,7 @@ const googleFailureRedirect = (res, frontendUrl, code) => {
 
 const signup = async (req, res) => {
     const { email, password, name, phone } = req.body;
+    assertPasswordAllowed(password, { email });
 
     const existing = await User.findOne({ email });
     if (existing) {
@@ -100,6 +103,7 @@ const googleAuthRedirect = async (req, res) => {
     await OAuthState.create({
         digest: digestOAuthState(state),
         expiresAt: new Date(issuedAt + OAUTH_STATE_MAX_AGE_MS),
+        returnTo: safeReturnPath(req.query.returnTo) ?? undefined,
     });
     const { cookieOptions } = getBrowserSecurityConfig(process.env);
     res.cookie('oauthState', `${issuedAt}.${state}`, {
@@ -138,7 +142,7 @@ const googleAuthCallback = async (req, res) => {
     try {
         const { user, refreshToken } = await establishGoogleIdentitySession(profile);
         attachCookiesToResponse({ res, user, refreshToken });
-        return res.redirect(`${frontendUrl}/dashboard`);
+        return res.redirect(`${frontendUrl}${safeReturnPath(consumedState.returnTo) ?? '/dashboard'}`);
     } catch (error) {
         const stableCode = [
             'IDENTITY_CONFLICT',

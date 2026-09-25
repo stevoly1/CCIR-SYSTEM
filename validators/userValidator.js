@@ -4,6 +4,7 @@ const {
     pageSchema,
     searchSchema,
 } = require('./commonValidator');
+const { newPasswordSchema } = require('./passwordPolicy');
 
 const roleSchema = z.enum(['citizen', 'admin', 'agency']);
 
@@ -25,7 +26,7 @@ const nameSchema = z.string().trim()
 
 const signupSchema = z.strictObject({
     email: z.string().trim().toLowerCase().email({ message: 'Invalid email address' }),
-    password: z.string().min(6, { message: 'Password must be at least 6 characters long' }).max(128),
+    password: newPasswordSchema,
     name: nameSchema,
     phone: phoneSchema,
 });
@@ -44,7 +45,6 @@ const updateProfileSchema = z.strictObject({
 
 const adminUpdateUserSchema = z.strictObject({
     name: nameSchema.optional(),
-    email: z.string().trim().toLowerCase().email({ message: 'Invalid email address' }).optional(),
     phone: phoneSchema,
     role: roleSchema.optional(),
     isActive: z.boolean().optional(),

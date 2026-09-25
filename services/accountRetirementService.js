@@ -6,8 +6,14 @@ const {
   touchAccountLifecycleGuard,
 } = require('./accountLifecycleGuard');
 const { BadRequestError, ConflictError, ForbiddenError, NotFoundError } = require('../errors');
+const { cancelTokens } = require('./accountTokenService');
 
 const TERMINAL_STATUSES = new Set(['RESOLVED', 'REJECTED', 'WITHDRAWN']);
+const RETIRED_NAME = 'Retired account';
+
+const scrubName = (snapshot, userId) => {
+  if (snapshot && String(snapshot.userId) === String(userId)) snapshot.displayName = RETIRED_NAME;
+};
 
 const normalizeReason = (reason) => {
   if (reason === undefined) return undefined;
@@ -27,7 +33,7 @@ const requireActiveAdministrator = (actor) => {
   }
 };
 
-const preserveSnapshotsAndAssignments = async ({ target, actor, reason, session, now }) => {
+const preserveSnapshotsAndAssignments = async ({ target, actor, reason, session, now, scrub }) => {
   const targetSnapshot = buildUserSnapshot(target);
   const actorSnapshot = buildUserSnapshot(actor);
   const complaints = await Complaint.find({
@@ -35,6 +41,10 @@ const preserveSnapshotsAndAssignments = async ({ target, actor, reason, session,
       { reporter: target._id },
       { 'statusHistory.changedBy': target._id },
       { assignedTo: target._id },
+      { 'editHistory.editedBy.userId': target._id },
+      { 'assignmentHistory.changedBy.userId': target._id },
+      { 'assignmentHistory.previous.userId': target._id },
+      { 'assignmentHistory.next.userId': target._id },
     ],
   }).session(session);
 
@@ -61,6 +71,19 @@ const preserveSnapshotsAndAssignments = async ({ target, actor, reason, session,
         reason: reason || 'Account retired',
         createdAt: now,
       });
+    }
+    // A citizen who deletes their own account takes their name with them. Staff names stay, whoever
+    // retires the account: who handled a report is the agency's record (owner decision). Screens show
+    // any retired person as "Retired account" either way.
+    if (scrub) {
+      scrubName(complaint.reporterSnapshot, target._id);
+      for (const entry of complaint.statusHistory) scrubName(entry.changedBySnapshot, target._id);
+      for (const entry of complaint.assignmentHistory) {
+        scrubName(entry.changedBy, target._id);
+        scrubName(entry.previous, target._id);
+        scrubName(entry.next, target._id);
+      }
+      for (const entry of complaint.editHistory) scrubName(entry.editedBy, target._id);
     }
     await complaint.save({ session });
   }
@@ -99,8 +122,9 @@ const retireAccount = async ({ targetUserId, actorUserId, reason }) => {
       }
 
       const now = new Date();
-      await preserveSnapshotsAndAssignments({ target, actor, reason: normalizedReason, session, now });
+      await preserveSnapshotsAndAssignments({ target, actor, reason: normalizedReason, session, now, scrub: self && target.role === 'citizen' });
       await RefreshToken.deleteMany({ user: target._id }, { session });
+      await cancelTokens({ userId: target._id, session });
 
       target.name = 'Retired account';
       target.email = `retired+${target._id}@invalid.local`;
@@ -222,21 +246,10 @@ const mutateUserDetails = async ({ targetUserId, actorUserId, changes, selfMutat
         requireActiveAdministrator(actor);
       }
 
-      if (changes.email && normalizeEmail(changes.email) !== target.email) {
-        const existing = await User.exists({
-          _id: { $ne: target._id },
-          email: normalizeEmail(changes.email),
-        }).session(session);
-        if (existing) throw new ConflictError('An account with this email already exists');
-      }
-
       Object.assign(target, changes);
       await target.save({ session });
       updatedUser = target;
     });
-  } catch (error) {
-    if (error?.code === 11000) throw new ConflictError('An account with this email already exists');
-    throw error;
   } finally {
     await session.endSession();
   }
@@ -286,5 +299,6 @@ module.exports = {
   bootstrapFirstAdministrator,
   mutateAdministrator,
   mutateUserDetails,
+  requireActiveAdministrator,
   retireAccount,
 };

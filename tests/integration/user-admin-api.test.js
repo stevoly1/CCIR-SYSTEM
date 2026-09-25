@@ -74,11 +74,10 @@ describe('administrator user list and account management', () => {
     expect(response.body.error.code).toBe('NOT_FOUND');
   });
 
-  it('refuses to give a user an email address another account already uses', async () => {
-    await createUserFixture({ email: 'taken@example.test' });
+  it('refuses an email change through the edit endpoint (it needs confirmation instead)', async () => {
     const target = await createUserFixture({ email: 'mine@example.test' });
-    const response = await unsafeRequest(admin, 'patch', `/api/v1/users/${target.id}`).send({ email: 'Taken@Example.test' });
-    expect(response.status).toBe(409);
+    const response = await unsafeRequest(admin, 'patch', `/api/v1/users/${target.id}`).send({ email: 'other@example.test' });
+    expect(response.status).toBe(400);
     expect((await User.findById(target.id)).email).toBe('mine@example.test');
   });
 

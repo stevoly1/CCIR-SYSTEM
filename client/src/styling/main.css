@@ -117,8 +117,23 @@ h1, h2, h3, h4, p {
     border-color: var(--color-primary);
 }
 
+.btn-danger {
+    background: var(--color-status-rejected);
+    color: #fff;
+}
+
+.btn-danger:hover:not(:disabled) {
+    background: #B82D42;
+}
+
 .btn-block {
     width: 100%;
+}
+
+.field-hint {
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
 }
 
 .field {

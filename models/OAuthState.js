@@ -12,6 +12,7 @@ const oauthStateSchema = new mongoose.Schema({
     required: true,
     expires: 0,
   },
+  returnTo: { type: String, maxlength: 512 },
 }, { timestamps: true });
 
 module.exports = mongoose.model('OAuthState', oauthStateSchema);

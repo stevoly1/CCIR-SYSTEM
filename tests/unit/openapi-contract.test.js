@@ -7,7 +7,8 @@ const { testServer } = require('../helpers/testServer');
 
 const EXPECTED_OPERATIONS = [
   'POST /auth/signup', 'POST /auth/login', 'GET /auth/google', 'GET /auth/google/callback',
-  'GET /users', 'GET /users/assignable', 'GET /users/profile', 'PATCH /users/profile', 'DELETE /users/profile', 'POST /users/logout', 'PATCH /users/{id}', 'DELETE /users/{id}',
+  'POST /auth/password/forgot', 'POST /auth/password/reset', 'POST /auth/email/confirm',
+  'GET /users', 'GET /users/assignable', 'GET /users/profile', 'PATCH /users/profile', 'DELETE /users/profile', 'POST /users/profile/password', 'POST /users/profile/email', 'POST /users/{id}/email', 'POST /users/logout', 'PATCH /users/{id}', 'DELETE /users/{id}',
   'GET /categories', 'POST /categories', 'GET /categories/{id}', 'PATCH /categories/{id}', 'DELETE /categories/{id}',
   'GET /complaints', 'POST /complaints', 'GET /complaints/{id}', 'PATCH /complaints/{id}', 'DELETE /complaints/{id}',
   'PATCH /complaints/{id}/status', 'PATCH /complaints/{id}/assign', 'POST /complaints/{id}/withdraw',
@@ -18,7 +19,7 @@ describe('OpenAPI contract', () => {
   it('is a valid OpenAPI 3.1 document', async () => {
     const api = await SwaggerParser.validate(CONTRACT_PATH);
     expect(api.openapi).toMatch(/^3\.1\./);
-    expect(api.info.version).toBe('1.0.0');
+    expect(api.info.version).toBe('1.1.0');
     expect(api.info.license).toMatchObject({ name: 'MIT', identifier: 'MIT' });
     expect(api.servers).toEqual([{ url: '/api/v1' }]);
   });

@@ -40,7 +40,7 @@ const LoginPage = () => {
             <h2>Welcome back</h2>
             <p className="auth-subtitle">Log in to track and manage your civic reports.</p>
 
-            <GoogleButton label="Continue with Google" />
+            <GoogleButton label="Continue with Google" returnTo={returnPath(location.state)} />
             <div className="auth-divider">or</div>
 
             {error && <div className="form-error-banner">{error}</div>}
@@ -53,6 +53,9 @@ const LoginPage = () => {
                 <div className="field">
                     <label htmlFor="password">Password</label>
                     <input id="password" name="password" type="password" placeholder="••••••••" value={form.password} onChange={handleChange} required />
+                </div>
+                <div className="auth-forgot">
+                    <Link to="/forgot-password" style={{ color: 'var(--color-primary)', fontWeight: 600 }}>Forgot password?</Link>
                 </div>
 
                 <button className="btn btn-primary btn-block" type="submit" disabled={status === 'loading'}>

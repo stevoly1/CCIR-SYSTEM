@@ -8,13 +8,35 @@ const dispatch = vi.fn();
 vi.mock('react-redux', () => ({ useDispatch: () => dispatch, useSelector: (select) => select(state) }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('../../components/Topbar', () => ({ default: () => null }));
+vi.mock('../../components/account/ChangePasswordForm', () => ({ default: () => <p>password form</p> }));
+vi.mock('../../components/account/ChangeEmailForm', () => ({ default: () => <p>email form</p> }));
+vi.mock('../../components/account/DeleteAccountSection', () => ({ default: () => <p>delete section</p> }));
 vi.mock('../../slices/authSlice', () => {
   const updateProfile = Object.assign((args) => ({ type: 'updateProfile', args }), { fulfilled: { match: (a) => a.type === 'updateProfile/fulfilled' } });
   return { updateProfile };
 });
 
 describe('ProfilePage', () => {
-  beforeEach(() => { dispatch.mockReset(); });
+  beforeEach(() => {
+    dispatch.mockReset();
+    state.auth.user = { name: 'Ada Lovelace', email: 'ada@example.test', role: 'citizen', phone: '', authProvider: 'local' };
+  });
+
+  it('offers password and email changes to a password account, and deletion to everyone', () => {
+    render(<ProfilePage />);
+    expect(screen.getByText('password form')).toBeInTheDocument();
+    expect(screen.getByText('email form')).toBeInTheDocument();
+    expect(screen.getByText('delete section')).toBeInTheDocument();
+  });
+
+  it('hides password and email changes from a Google account', () => {
+    state.auth.user = { ...state.auth.user, authProvider: 'google' };
+    render(<ProfilePage />);
+    expect(screen.queryByText('password form')).toBeNull();
+    expect(screen.queryByText('email form')).toBeNull();
+    expect(screen.getByText('delete section')).toBeInTheDocument();
+    expect(screen.getByText('You sign in with Google, which manages your password and email address.')).toBeInTheDocument();
+  });
 
   it('shows the email and role read-only, with accessible labels', () => {
     render(<ProfilePage />);

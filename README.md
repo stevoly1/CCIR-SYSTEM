@@ -76,8 +76,8 @@ All routes are prefixed with `/api/v1`.
 
 | Area | Base path | Notes |
 |---|---|---|
-| Auth | `/auth` | signup, login, Google OAuth redirect/callback |
-| Users | `/users` | profile management; admin-only user listing/edit/retirement; admin-only `/users/assignable` |
+| Auth | `/auth` | signup, login, Google OAuth redirect/callback; forgot and reset password; email-change confirmation |
+| Users | `/users` | profile management, password change, email change and account deletion; admin-only user listing/edit/email change/retirement; admin-only `/users/assignable` |
 | Categories | `/categories` | admin-only create/edit/activate/deactivate; delete only inactive, unused categories; `Other` is protected |
 | Complaints | `/complaints` | reports need an address (coordinates optional); reporters edit or withdraw pending reports; staff update status and priority (agency only when assigned); admins assign and may permanently delete with a reason |
 | Location | `/location` | address autocomplete and geocoding with a bounded timeout (`LOCATION_TIMEOUT_MS`) |
@@ -85,6 +85,22 @@ All routes are prefixed with `/api/v1`.
 | Contract | `/openapi.json`, `/docs` | the OpenAPI 3.1 contract as JSON, and interactive documentation |
 
 The full contract, with every request and response schema, error code and example, is [`openapi/openapi.yaml`](./openapi/openapi.yaml). It is served at `GET /api/v1/openapi.json` and rendered at `GET /api/v1/docs` (turn the page off with `API_DOCS_UI=false`; the JSON stays available). The page's "Try it out" can read with your session; write operations from it are refused by the browser-origin rule unless the page is served from `BROWSER_ORIGIN`.
+
+### Accounts
+
+People manage their own accounts from the Profile page:
+- **Forgot password:** a single-use link, valid for 30 minutes, emailed to the account. The answer is the same whether or not the address has an account.
+- **Change password:** needs the current password and signs out the other devices.
+- **Change email address:** needs the current password; the change applies only when the link sent to the new address is opened (valid 24 hours). The old address is always told; if that email cannot be sent, the request is refused.
+- **Delete account:** needs the password (Google accounts type their email address). A citizen's name is removed from every stored snapshot of them on reports; the reports stay. Staff names stay in the handling history, because who handled a report is the agency's record. Administrators cannot delete their own account; another administrator retires it.
+
+Administrators correct a user's email address from the Users page. It goes through the same confirmation, the old address is told that an administrator asked, and the log records which administrator: `POST /users/{id}/email`. Since contract 1.1.0, `PATCH /users/{id}` no longer accepts `email`.
+
+Passwords set from now on need 8 to 128 characters and may not be the account's email address. Existing shorter passwords still work.
+
+A Google sign-in started from a dashboard page (for example a report link opened while signed out) returns to that page (`GET /auth/google?returnTo=`); anything that is not a `/dashboard` path on this site is ignored.
+
+These flows send email through Resend (`RESEND_API_KEY`, `EMAIL_FROM`). Without a key, reset requests are still answered, but no email goes out, and email changes answer 503 `EMAIL_NOT_SENT`. Resend's test sender delivers only to the Resend account owner's own address, so a real deployment needs a verified sending domain.
 
 ### Upgrading an existing database
 
@@ -159,6 +175,8 @@ npm --prefix client run test:e2e     # browser journeys on the production build,
 ```
 
 Tests use in-memory databases and fake providers; they never contact a real database, AI, email, storage or geocoding service. The first run downloads the MongoDB server binary for the in-memory database. The journeys use your installed Google Chrome and Playwright's WebKit (Safari's engine), which is downloaded once with `npm --prefix client exec playwright install webkit` (about 85 MB).
+
+Browser journeys read emails from a test-only outbox (`EMAIL_OUTBOX_DIR`); the API refuses to start with it unless `NODE_ENV=test`.
 
 ### Continuous integration
 

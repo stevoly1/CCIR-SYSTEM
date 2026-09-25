@@ -7,6 +7,7 @@ const {
     mutateUserDetails,
     retireAccount,
 } = require('../services/accountRetirementService');
+const { verifyCurrentPassword } = require('../services/currentPasswordService');
 
 const getProfile = async (req, res) => {
     const user = await User.findById(req.user.userId);
@@ -26,6 +27,19 @@ const updateProfile = async (req, res) => {
 };
 
 const deleteProfile = async (req, res) => {
+    const user = await User.findById(req.user.userId).select('+password');
+    if (!user) throw new CustomError.NotFoundError('User not found');
+    // A session alone is not enough to delete the account: the person confirms it.
+    if (user.authProvider === 'google') {
+        if (req.body?.confirmEmail !== user.email) {
+            throw new CustomError.BadRequestError('Type your email address to confirm', 'CONFIRMATION_MISMATCH');
+        }
+    } else {
+        if (!req.body?.password) {
+            throw new CustomError.BadRequestError('Enter your password to delete your account', 'PASSWORD_REQUIRED');
+        }
+        await verifyCurrentPassword(user, req.body.password);
+    }
     await retireAccount({
         targetUserId: req.user.userId,
         actorUserId: req.user.userId,

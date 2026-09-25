@@ -6,11 +6,15 @@ test('J6 citizen signs up, edits the profile, logs out, is locked out, and logs 
   const email = `j6-${Date.now()}@e2e.test`;
   const password = 'J6-password-1';
 
-  // The browser itself refuses a password under six characters (jsdom cannot show this).
+  // The browser itself refuses a password under eight characters (jsdom cannot show this).
   await page.goto('/signup');
   await page.getByLabel('Full name').fill('Jola Journey');
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password').fill('short');
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page).toHaveURL(/\/signup$/);
+  expect(await page.getByLabel('Password').evaluate((input) => input.validity.tooShort)).toBe(true);
+  await page.getByLabel('Password').fill('Seven-7');
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page).toHaveURL(/\/signup$/);
   expect(await page.getByLabel('Password').evaluate((input) => input.validity.tooShort)).toBe(true);
@@ -21,7 +25,7 @@ test('J6 citizen signs up, edits the profile, logs out, is locked out, and logs 
 
   await page.goto('/dashboard/profile');
   await expect(page.getByLabel('Full name')).toHaveValue('Jola Journey');
-  await expect(page.getByLabel('Email')).toHaveValue(email);
+  await expect(page.getByLabel('Email', { exact: true })).toHaveValue(email);
   await page.getByLabel('Full name').fill('Jola Journey-Edited');
   await page.getByLabel('Phone').fill('+2348000000000');
   await page.getByRole('button', { name: 'Save changes' }).click();

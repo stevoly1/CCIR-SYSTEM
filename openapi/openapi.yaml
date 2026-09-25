@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: CCIR API
-  version: 1.0.0
+  version: 1.1.0
   summary: Civic Complaint and Infrastructure Reporting backend.
   description: >
     Citizens file complaints about public infrastructure; agency staff and administrators triage,
@@ -31,6 +31,13 @@ info:
     client address without a valid session; all requests from one client address are also capped
     at 3000 per 15 minutes. Health probes are exempt. Sign-in and session refresh have tighter limits.
     Over-limit requests get 429 `RATE_LIMITED` with `Retry-After`.
+
+
+    **Changes in 1.1.0.** Adds password recovery and change, confirmed email changes (by the user or an
+    administrator), a confirmed account deletion, and a return path for Google sign-in (`returnTo`).
+    **Breaking:** `PATCH /users/{id}` no longer accepts `email` (use `POST /users/{id}/email`), and
+    `DELETE /users/profile` requires `password` (or `confirmEmail` for Google accounts). New passwords
+    need 8 to 128 characters.
   license:
     name: MIT
     identifier: MIT
@@ -993,8 +1000,9 @@ paths:
                   format: email
                 password:
                   type: string
-                  minLength: 6
+                  minLength: 8
                   maxLength: 128
+                  description: 8 to 128 characters, and not the email address (400 `PASSWORD_REJECTED`).
                 name:
                   type: string
                   minLength: 2
@@ -1143,6 +1151,151 @@ paths:
         '500':
           $ref: '#/components/responses/ServerError'
 
+  /auth/password/forgot:
+    post:
+      tags: [auth]
+      summary: Ask for a password reset link
+      description: >
+        Always answers 202 with the same message, whether or not an account uses the address, and sends
+        any email after answering, so neither the answer nor its timing reveals whether an account exists.
+        An active password account gets a single-use link that expires in 30 minutes; a Google account is
+        told to sign in with Google; suspended, retired and unknown addresses get nothing. Limited to 10
+        requests per 15 minutes per client address and 3 per hour per email address.
+      operationId: forgotPassword
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  maxLength: 254
+            example:
+              email: ada@example.test
+      responses:
+        '202':
+          description: Accepted.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                msg: If an account uses this address, we have sent it a link to reset the password.
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /auth/password/reset:
+    post:
+      tags: [auth]
+      summary: Set a new password with a reset link
+      description: >
+        The token comes from the link's address fragment (`#token=…`). The new password takes effect, every
+        session of the account ends, and the account is emailed a notice; the caller is not signed in. An
+        unknown, expired, used or replaced token gets 400 `INVALID_OR_EXPIRED_TOKEN`; a password equal to
+        the email address gets 400 `PASSWORD_REJECTED` and leaves the link usable.
+      operationId: resetPassword
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token, password]
+              properties:
+                token:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                password:
+                  type: string
+                  minLength: 8
+                  maxLength: 128
+            example:
+              token: 3q2-7wEXAMPLEexampleEXAMPLEexampleEXAMPLE0
+              password: Brand-new-pass
+      responses:
+        '200':
+          description: Password reset; sign in with the new password.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                msg: Password reset. Sign in with your new password.
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /auth/email/confirm:
+    post:
+      tags: [auth]
+      summary: Confirm an email address change
+      description: >
+        The token comes from the link's address fragment (`#token=…`). Works signed in or out. The account's
+        address changes, sessions are kept, and pending links for the account are cancelled. 400
+        `INVALID_OR_EXPIRED_TOKEN`; 409 if the address was taken meanwhile or the account can no longer change.
+      operationId: confirmEmailChange
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+            example:
+              token: 3q2-7wEXAMPLEexampleEXAMPLEexampleEXAMPLE0
+      responses:
+        '200':
+          description: Email address changed.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                msg: Email address changed
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
   /auth/google:
     get:
       tags: [auth]
@@ -1150,6 +1303,15 @@ paths:
       description: Redirects the browser to Google with a single-use state value.
       operationId: googleSignIn
       security: []
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          description: >
+            A dashboard path to return to after signing in (for example `/dashboard/reports/{id}`). Anything
+            that is not a plain `/dashboard` path on this site is ignored.
+          schema:
+            type: string
       responses:
         '302':
           description: Redirect to Google's consent page.
@@ -1407,10 +1569,35 @@ paths:
       summary: Delete (retire) the signed-in user's own account
       description: >
         Removes credentials and contact details and ends every session. Complaints and history are
-        kept, attributed to "Retired account". Administrators cannot retire themselves.
+        kept, attributed to "Retired account". For a citizen, the name is also replaced by "Retired account"
+        in every snapshot stored on reports; staff names stay in the handling history. The person confirms: a password account sends its password
+        (400 `PASSWORD_REQUIRED` without it; a wrong one is 401 `WRONG_PASSWORD`, counted against the
+        sign-in lockout), and a Google account sends its own email address as `confirmEmail` (400
+        `CONFIRMATION_MISMATCH`). Administrators cannot retire themselves.
       operationId: deleteProfile
       requestBody:
-        $ref: '#/components/requestBodies/Retirement'
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                password:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                  description: Required for a password account.
+                confirmEmail:
+                  type: string
+                  maxLength: 254
+                  description: Required for a Google account, which has no password; its own email address.
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+            example:
+              password: Example-pass-1
+              reason: Moving away
       responses:
         '200':
           description: The account was retired.
@@ -1436,6 +1623,119 @@ paths:
         '500':
           $ref: '#/components/responses/ServerError'
 
+  /users/profile/password:
+    post:
+      tags: [users]
+      summary: Change the signed-in user's password
+      description: >
+        Needs the current password. A wrong one gets 401 `WRONG_PASSWORD` and counts against the account's
+        sign-in lockout (5 per 15 minutes, then 429). The new password must be 8 to 128 characters, differ
+        from the current one (400 `SAME_PASSWORD`) and not be the email address (400 `PASSWORD_REJECTED`).
+        This session stays signed in; every other session ends, pending reset links are cancelled, and the
+        account is emailed a notice. Google accounts have no password (409 `GOOGLE_ACCOUNT`).
+      operationId: changePassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                newPassword:
+                  type: string
+                  minLength: 8
+                  maxLength: 128
+            example:
+              currentPassword: Example-pass-1
+              newPassword: Brand-new-pass
+      responses:
+        '200':
+          description: Password changed.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                msg: Password changed
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /users/profile/email:
+    post:
+      tags: [users]
+      summary: Ask to change the signed-in user's email address
+      description: >
+        Needs the current password (401 `WRONG_PASSWORD`, counted against the sign-in lockout). A single-use
+        confirmation link, valid for 24 hours, goes to the new address and the old address is told; nothing
+        changes until the link is used (`POST /auth/email/confirm`). 400 `SAME_EMAIL`, 409 when the address
+        is in use or the account signs in with Google (`GOOGLE_ACCOUNT`), 503 `EMAIL_NOT_SENT` when the
+        confirmation or the notice to the old address could not be sent (no link is kept; try again). 5
+        requests per hour per account.
+      operationId: requestOwnEmailChange
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [newEmail, currentPassword]
+              properties:
+                newEmail:
+                  type: string
+                  format: email
+                  maxLength: 254
+                currentPassword:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+            example:
+              newEmail: ada.new@example.test
+              currentPassword: Example-pass-1
+      responses:
+        '202':
+          description: Confirmation sent to the new address.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                msg: We have sent a confirmation link to the new address
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /users/logout:
     post:
       tags: [users]
@@ -1485,6 +1785,8 @@ paths:
         (`isActive: false`) records when, by whom and, with `reason`, why; reactivating clears it.
         A `reason` on any other change is refused with 400, and a new reason for an account that is
         already suspended with 409 (reactivate it first). Retiring an account removes its suspension record.
+        An email address is changed with `POST /users/{id}/email`, which needs confirmation at the new
+        address; `email` here is refused with 400 `VALIDATION_ERROR` (removed in 1.1.0).
       operationId: updateUser
       requestBody:
         required: true
@@ -1498,9 +1800,6 @@ paths:
                   type: string
                   minLength: 2
                   maxLength: 60
-                email:
-                  type: string
-                  format: email
                 phone:
                   type: string
                   maxLength: 30
@@ -1595,6 +1894,62 @@ paths:
         '500':
           $ref: '#/components/responses/ServerError'
 
+  /users/{id}/email:
+    post:
+      tags: [users]
+      summary: Ask to change a user's email address (administrators)
+      description: >
+        Sends a single-use confirmation link, valid for 24 hours, to the new address and tells the old one
+        that an administrator asked; nothing changes until the user confirms. Administrators change their
+        own address from their profile (400 `USE_PROFILE`). 409 for a retired account, an address in use,
+        or a Google account (`GOOGLE_ACCOUNT`); 503 `EMAIL_NOT_SENT` when the confirmation or the notice to
+        the old address could not be sent (no link is kept).
+      operationId: requestUserEmailChange
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [newEmail]
+              properties:
+                newEmail:
+                  type: string
+                  format: email
+                  maxLength: 254
+            example:
+              newEmail: correct.address@example.test
+      responses:
+        '202':
+          description: Confirmation sent to the new address.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                msg: We have sent a confirmation link to the new address
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /categories:
     get:
       tags: [categories]
