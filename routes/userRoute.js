@@ -9,6 +9,8 @@ const {
     deleteUser,
     logout
 } = require("../controllers/userController");
+const { changePassword } = require('../controllers/accountController');
+const { changePasswordSchema } = require('../validators/accountValidator');
 const UserRouter = express.Router();
 const { authentication } = require('../middleware/auth')
 const restrictTo = require('../middleware/restrictTo')
@@ -22,6 +24,7 @@ UserRouter.route("/assignable").get(authentication, restrictTo('admin'), validat
 UserRouter.route("/profile").get(authentication, validate({ query: emptyQuerySchema }), getProfile)
 .patch(authentication, validate({ body: updateProfileSchema, query: emptyQuerySchema }), updateProfile)
 .delete(authentication, validate({ body: retirementBodySchema, query: emptyQuerySchema }), deleteProfile);
+UserRouter.route("/profile/password").post(authentication, validate({ body: changePasswordSchema, query: emptyQuerySchema }), changePassword);
 UserRouter.route("/logout").post(authentication, validate({ body: emptyQuerySchema, query: emptyQuerySchema }), logout);
 UserRouter.route("/:id")
     .patch(authentication, restrictTo('admin'), validate({ params: idParamsSchema, body: adminUpdateUserSchema, query: emptyQuerySchema }), updateUser)

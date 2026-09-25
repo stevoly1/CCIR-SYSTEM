@@ -1,6 +1,7 @@
 const { StatusCodes } = require('http-status-codes');
 const emailService = require('../services/emailService');
 const passwordResetService = require('../services/passwordResetService');
+const passwordChangeService = require('../services/passwordChangeService');
 const { accountThrottle, AUTH_WINDOW_MS } = require('../services/accountThrottle');
 const { afterResponse } = require('../utils/afterResponse');
 const { clearAttachedCookies } = require('../handlers/authHandler');
@@ -26,4 +27,15 @@ const resetPassword = async (req, res) => {
     res.status(StatusCodes.OK).json({ msg: 'Password reset. Sign in with your new password.' });
 };
 
-module.exports = { forgotPassword, resetPassword };
+const changePassword = async (req, res) => {
+    const user = await passwordChangeService.changePassword({
+        userId: req.user.userId,
+        sessionId: req.user.sessionId,
+        currentPassword: req.body.currentPassword,
+        newPassword: req.body.newPassword,
+    });
+    afterResponse(res, () => emailService.sendPasswordChangedEmail({ to: user.email, name: user.name }));
+    res.status(StatusCodes.OK).json({ msg: 'Password changed' });
+};
+
+module.exports = { forgotPassword, resetPassword, changePassword };

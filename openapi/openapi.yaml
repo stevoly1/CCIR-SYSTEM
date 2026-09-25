@@ -1535,6 +1535,61 @@ paths:
         '500':
           $ref: '#/components/responses/ServerError'
 
+  /users/profile/password:
+    post:
+      tags: [users]
+      summary: Change the signed-in user's password
+      description: >
+        Needs the current password. A wrong one gets 401 `WRONG_PASSWORD` and counts against the account's
+        sign-in lockout (5 per 15 minutes, then 429). The new password must be 8 to 128 characters, differ
+        from the current one (400 `SAME_PASSWORD`) and not be the email address (400 `PASSWORD_REJECTED`).
+        This session stays signed in; every other session ends, pending reset links are cancelled, and the
+        account is emailed a notice. Google accounts have no password (409 `GOOGLE_ACCOUNT`).
+      operationId: changePassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                newPassword:
+                  type: string
+                  minLength: 8
+                  maxLength: 128
+            example:
+              currentPassword: Example-pass-1
+              newPassword: Brand-new-pass
+      responses:
+        '200':
+          description: Password changed.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                msg: Password changed
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
   /users/logout:
     post:
       tags: [users]
