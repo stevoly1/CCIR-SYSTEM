@@ -15,7 +15,7 @@ describe('transactional account retirement', () => {
       statusHistory: [{ status: 'PENDING', changedBy: user._id }],
     });
 
-    const response = await unsafeRequest(agent, 'delete', '/api/v1/users/profile');
+    const response = await unsafeRequest(agent, 'delete', '/api/v1/users/profile').send({ password: 'fixture-password' });
 
     expect(response.status).toBe(200);
     const retired = await User.findById(user.id).select('+password');
@@ -26,13 +26,15 @@ describe('transactional account retirement', () => {
     expect(retired.password).toBeUndefined();
     expect(retired.phone).toBeUndefined();
     expect(await RefreshToken.countDocuments({ user: user._id })).toBe(0);
+    // Deleting one's own account also takes the name out of the stored snapshots; the role stays.
     const preserved = await Complaint.findById(complaint.id);
-    expect(preserved.reporterSnapshot).toMatchObject({ userId: user._id, displayName: user.name, role: 'citizen' });
+    expect(preserved.reporterSnapshot).toMatchObject({ userId: user._id, displayName: 'Retired account', role: 'citizen' });
     expect(preserved.statusHistory[0].changedBySnapshot).toMatchObject({
       userId: user._id,
-      displayName: user.name,
+      displayName: 'Retired account',
       role: 'citizen',
     });
+    expect(JSON.stringify(preserved.toObject())).not.toContain(user.name);
   });
 
   it('retires an agency, preserves snapshots, and unassigns only nonterminal complaints', async () => {
@@ -41,14 +43,14 @@ describe('transactional account retirement', () => {
     const open = await createComplaintFixture({ reporter, assignedTo: agency._id, status: 'IN_PROGRESS' });
     const resolved = await createComplaintFixture({ reporter, assignedTo: agency._id, status: 'RESOLVED', resolvedAt: new Date() });
 
-    const response = await unsafeRequest(agent, 'delete', '/api/v1/users/profile');
+    const response = await unsafeRequest(agent, 'delete', '/api/v1/users/profile').send({ password: 'fixture-password' });
 
     expect(response.status).toBe(200);
     const storedOpen = await Complaint.findById(open.id);
     expect(storedOpen.assignedTo).toBeNull();
     expect(storedOpen.assignmentHistory.at(-1)).toMatchObject({
       type: 'RETIREMENT_UNASSIGNMENT',
-      previous: { userId: agency._id, displayName: 'Agency To Retire', role: 'agency' },
+      previous: { userId: agency._id, displayName: 'Retired account', role: 'agency' },
       next: null,
     });
     const storedResolved = await Complaint.findById(resolved.id);
@@ -58,7 +60,7 @@ describe('transactional account retirement', () => {
   it('rejects administrator self-retirement', async () => {
     const { agent, user } = await createAuthenticatedAgent({ role: 'admin' });
 
-    const response = await unsafeRequest(agent, 'delete', '/api/v1/users/profile');
+    const response = await unsafeRequest(agent, 'delete', '/api/v1/users/profile').send({ password: 'fixture-password' });
 
     expect(response.status).toBe(409);
     expect(await User.findById(user.id)).toMatchObject({ role: 'admin', isActive: true });
@@ -96,7 +98,7 @@ describe('transactional account retirement', () => {
     await retireAccount({ targetUserId: target.id, actorUserId: admin.id, reason: 'Requested' });
 
     const response = await unsafeRequest(adminAgent, 'patch', `/api/v1/users/${target.id}`)
-      .send({ name: 'Restored Name', email: 'restored@example.test' });
+      .send({ name: 'Restored Name' });
 
     expect(response.status).toBe(409);
     const stored = await User.findById(target.id);
@@ -114,7 +116,7 @@ describe('transactional account retirement', () => {
     const [update, retirement] = await Promise.all([
       unsafeRequest(agent, 'patch', '/api/v1/users/profile')
         .send({ name: 'Racing Name', phone: '+2348000000009' }),
-      unsafeRequest(agent, 'delete', '/api/v1/users/profile'),
+      unsafeRequest(agent, 'delete', '/api/v1/users/profile').send({ password: 'fixture-password' }),
     ]);
 
     expect(retirement.status).toBe(200);
@@ -215,7 +217,7 @@ describe('transactional account retirement', () => {
     const complaint = await createComplaintFixture({ assignedTo: agency._id, status: 'IN_PROGRESS' });
     const deleteTokens = vi.spyOn(RefreshToken, 'deleteMany').mockRejectedValueOnce(new Error('injected token failure'));
 
-    const response = await unsafeRequest(agent, 'delete', '/api/v1/users/profile');
+    const response = await unsafeRequest(agent, 'delete', '/api/v1/users/profile').send({ password: 'fixture-password' });
 
     expect(response.status).toBe(500);
     expect(await User.findById(agency.id)).toMatchObject({ isActive: true });

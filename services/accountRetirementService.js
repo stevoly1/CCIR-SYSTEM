@@ -6,8 +6,14 @@ const {
   touchAccountLifecycleGuard,
 } = require('./accountLifecycleGuard');
 const { BadRequestError, ConflictError, ForbiddenError, NotFoundError } = require('../errors');
+const { cancelTokens } = require('./accountTokenService');
 
 const TERMINAL_STATUSES = new Set(['RESOLVED', 'REJECTED', 'WITHDRAWN']);
+const RETIRED_NAME = 'Retired account';
+
+const scrubName = (snapshot, userId) => {
+  if (snapshot && String(snapshot.userId) === String(userId)) snapshot.displayName = RETIRED_NAME;
+};
 
 const normalizeReason = (reason) => {
   if (reason === undefined) return undefined;
@@ -27,7 +33,7 @@ const requireActiveAdministrator = (actor) => {
   }
 };
 
-const preserveSnapshotsAndAssignments = async ({ target, actor, reason, session, now }) => {
+const preserveSnapshotsAndAssignments = async ({ target, actor, reason, session, now, scrub }) => {
   const targetSnapshot = buildUserSnapshot(target);
   const actorSnapshot = buildUserSnapshot(actor);
   const complaints = await Complaint.find({
@@ -35,6 +41,8 @@ const preserveSnapshotsAndAssignments = async ({ target, actor, reason, session,
       { reporter: target._id },
       { 'statusHistory.changedBy': target._id },
       { assignedTo: target._id },
+      { 'editHistory.editedBy.userId': target._id },
+      { 'assignmentHistory.changedBy.userId': target._id },
     ],
   }).session(session);
 
@@ -61,6 +69,18 @@ const preserveSnapshotsAndAssignments = async ({ target, actor, reason, session,
         reason: reason || 'Account retired',
         createdAt: now,
       });
+    }
+    // People who delete their own account take their name with them; administrator retirements
+    // keep it, for the audit trail.
+    if (scrub) {
+      scrubName(complaint.reporterSnapshot, target._id);
+      for (const entry of complaint.statusHistory) scrubName(entry.changedBySnapshot, target._id);
+      for (const entry of complaint.assignmentHistory) {
+        scrubName(entry.changedBy, target._id);
+        scrubName(entry.previous, target._id);
+        scrubName(entry.next, target._id);
+      }
+      for (const entry of complaint.editHistory) scrubName(entry.editedBy, target._id);
     }
     await complaint.save({ session });
   }
@@ -99,8 +119,9 @@ const retireAccount = async ({ targetUserId, actorUserId, reason }) => {
       }
 
       const now = new Date();
-      await preserveSnapshotsAndAssignments({ target, actor, reason: normalizedReason, session, now });
+      await preserveSnapshotsAndAssignments({ target, actor, reason: normalizedReason, session, now, scrub: self });
       await RefreshToken.deleteMany({ user: target._id }, { session });
+      await cancelTokens({ userId: target._id, session });
 
       target.name = 'Retired account';
       target.email = `retired+${target._id}@invalid.local`;

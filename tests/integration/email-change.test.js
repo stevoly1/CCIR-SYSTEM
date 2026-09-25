@@ -96,7 +96,9 @@ describe('email change', () => {
     const other = await createUserFixture();
     const token = await issueToken({ userId: other._id, purpose: 'email_change', newEmail: 'free@example.test', requestedBy: other._id });
     await retireAccount({ targetUserId: other._id, actorUserId: other._id });
-    expect([400, 409]).toContain((await confirm(token)).status); // 400 once retirement cancels links (Task 8)
+    const response = await confirm(token);
+    expect(response.status).toBe(400); // retirement cancelled the link
+    expect(response.body.error.code).toBe('INVALID_OR_EXPIRED_TOKEN');
   });
 });
 
