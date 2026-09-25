@@ -21,7 +21,7 @@
         "pretest:unit": "node ../scripts/checkRuntime.js",
         "test:unit": "vitest run --config vitest.config.js",
         "pretest:e2e": "node ../scripts/checkRuntime.js",
-        "test:e2e": "playwright test --project=chrome && playwright test --project=webkit"
+        "test:e2e": "node scripts/e2e.mjs"
     },
     "dependencies": {
         "@reduxjs/toolkit": "^2.12.0",

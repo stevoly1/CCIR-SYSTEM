@@ -20,7 +20,7 @@
         "pretest:integration": "node scripts/checkRuntime.js",
         "test:integration": "OPENAPI_COVERAGE=enforce vitest run --config vitest.integration.config.mjs",
         "pretest:coverage": "node scripts/checkRuntime.js",
-        "test:coverage": "vitest run --config vitest.coverage.config.mjs --coverage",
+        "test:coverage": "OPENAPI_COVERAGE=enforce vitest run --config vitest.coverage.config.mjs --coverage",
         "db:indexes": "node scripts/db/indexes.js",
         "db:backup": "node scripts/db/backup.js",
         "db:restore": "node scripts/db/restore.js",
