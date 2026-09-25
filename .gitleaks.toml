@@ -1,0 +1,5 @@
+# .gitleaks.toml — secret scan configuration (Phase 4a, DEP-002).
+# The default gitleaks rules apply. An allowlist entry is added only for a value confirmed to
+# exist solely for tests (never a real credential anywhere), with a comment saying where and why.
+[extend]
+useDefault = true
