@@ -170,6 +170,22 @@ describe('private-file guard command', () => {
     expect(result.stderr).toContain('docs/merged.md (private records)');
   });
 
+  // With log.showRoot=false and rename detection on, a file the root commit added under docs/ and
+  // a later commit moved elsewhere would appear nowhere: the root commit is hidden and the move is
+  // shown as the new path only. The guard pins both settings.
+  it('sees a private path the root commit added and a later commit moved, whatever the settings', () => {
+    const dir = repo();
+    git(dir, 'config', 'log.showRoot', 'false');
+    git(dir, 'config', 'diff.renames', 'true');
+    commit(dir, 'docs/first.md', 'root');
+    fs.mkdirSync(path.join(dir, 'src'));
+    git(dir, 'mv', 'docs/first.md', 'src/first.md');
+    git(dir, 'commit', '-qm', 'move it');
+    const result = run(dir);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('docs/first.md (private records)');
+  });
+
   it('refuses a shallow clone, which would hide history', () => {
     const source = repo();
     commit(source, 'a.txt', 'one');

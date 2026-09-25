@@ -28,6 +28,18 @@ const gitPaths = (args, cwd) => execFileSync('git', [...args, '-z'], { cwd, enco
   .split('\0')
   .filter(Boolean);
 
+// Paths every commit in the given revisions touched, with the settings pinned so a user's or the
+// repository's configuration cannot hide one: root commits shown (log.showRoot), no rename pairing
+// (a move out of docs/ still lists its removal), submodules never ignored (a gitlink at docs, even
+// with ignore = all in a committed .gitmodules), replace refs not followed, no signature checks
+// (log.showSignature prints them on stdout, glued onto a signed commit's first name), and merge
+// commits diffed against their first parent.
+const HISTORY = [
+  '-c', 'log.showRoot=true', '-c', 'diff.ignoreSubmodules=none', '--no-replace-objects',
+  'log', '--no-renames', '--no-show-signature', '--ignore-submodules=none', '--diff-merges=first-parent', '--name-only', '--format=',
+];
+const historyPaths = (cwd, ...revisions) => gitPaths([...HISTORY, ...revisions], cwd);
+
 const isShallow = (cwd) => execFileSync('git', ['rev-parse', '--is-shallow-repository'], { cwd, encoding: 'utf8' }).trim() === 'true';
 
 // Returns the exit code. Options exist so the tests can run it in-process.
@@ -36,7 +48,7 @@ const main = ({ cwd = process.cwd(), stdout = process.stdout, stderr = process.s
     stderr.write('check:tracked-files needs the full history; this clone is shallow (use fetch-depth: 0).\n');
     return 1;
   }
-  const found = findPrivatePaths([...gitPaths(['ls-files'], cwd), ...gitPaths(['log', '--diff-merges=first-parent', '--name-only', '--format=', 'HEAD'], cwd)]);
+  const found = findPrivatePaths([...gitPaths(['ls-files'], cwd), ...historyPaths(cwd, 'HEAD')]);
   if (found.length === 0) {
     stdout.write('check:tracked-files: no private paths tracked or in history.\n');
     return 0;
@@ -48,4 +60,4 @@ const main = ({ cwd = process.cwd(), stdout = process.stdout, stderr = process.s
 
 if (require.main === module) process.exitCode = main();
 
-module.exports = { privateReason, findPrivatePaths, main };
+module.exports = { privateReason, findPrivatePaths, historyPaths, main };

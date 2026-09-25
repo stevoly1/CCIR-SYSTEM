@@ -1,0 +1,15 @@
+#!/bin/sh
+# Local pre-push hook. Install: cp scripts/ci/pre-push .git/hooks/pre-push
+# The guard itself is scripts/ci/prePush.js (tested; the same rules as CI's check:tracked-files).
+# When the guard cannot run, the push is refused; git push --no-verify skips it deliberately.
+root=$(git rev-parse --show-toplevel) || exit 1
+guard="$root/scripts/ci/prePush.js"
+if [ ! -f "$guard" ]; then
+    echo "pre-push: $guard is missing on this branch, so the private-file guard cannot run; push refused. To push anyway, deliberately: git push --no-verify" >&2
+    exit 1
+fi
+if ! command -v node >/dev/null 2>&1; then
+    echo "pre-push: node is not on PATH, so the private-file guard cannot run; push refused. To push anyway, deliberately: git push --no-verify" >&2
+    exit 1
+fi
+exec node "$guard" "$@"
