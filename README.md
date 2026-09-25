@@ -117,12 +117,14 @@ When unavailable, `checks.database.reason` is one of `DATABASE_DISCONNECTED`, `D
 
 ```bash
 npm run db:indexes                           # report only: what is missing or extra (changes nothing)
-npm run db:indexes -- --apply                # create missing indexes; never drops anything
+npm run db:indexes -- --apply                # create missing indexes; drops only an index being made unique
 npm run db:indexes -- --apply --drop-extra   # also drop indexes the models do not declare
 npm run db:indexes -- --check                # report, and exit 2 if any declared index is missing
 ```
 
-Run `--apply` on a new database before the first start, and after every release that changes indexes. It also seeds the default categories once their unique indexes exist: in production the API seeds nothing while those indexes are missing, so several instances starting at once cannot create duplicates. `--check` suits a deploy step: it exits `2` while any declared index is missing (`1` means the script itself failed). Upgrading from an earlier release: run the report first. It lists the unused coordinate index `location.latitude_1_location.longitude_1` as extra. Use `--apply --drop-extra` only if that is the only extra index listed, because it drops every index the models do not declare, including any made in a hosted console; otherwise drop that one index by name.
+Run `--apply` on a new database before the first start, and after every release that changes indexes. It also seeds the default categories once their unique indexes exist: in production the API seeds nothing while those indexes are missing, so several instances starting at once cannot create duplicates. `--check` suits a deploy step: it exits `2` while any declared index is missing (`1` means the script itself failed, including an unknown option).
+
+When a release makes an existing index unique (this one does: `complaintdeletions.complaintId`), `--apply` first checks the values are unique, then replaces the old index with the unique one; if the values repeat it stops, names the collection and count, and leaves the old index in place. Until `--apply` has run, readiness reports `INDEXES_MISSING` (503) for that index, so run it before the new release takes traffic. A development database whose API builds indexes on start (`autoIndex`) cannot build the unique index over the old one either: run `--apply` there too. Upgrading from an earlier release: run the report first. It lists the unused coordinate index `location.latitude_1_location.longitude_1` as extra. Use `--apply --drop-extra` only if that is the only extra index listed, because it drops every index the models do not declare, including any made in a hosted console; otherwise drop that one index by name.
 
 ### Backup and restore
 

@@ -2,7 +2,8 @@
 // Works with hosted (mongodb+srv://) and self-managed (mongodb://) databases through MONGO_URL.
 //
 //   npm run db:indexes                           report only (the default; changes nothing)
-//   npm run db:indexes -- --apply                create missing indexes; keep any others
+//   npm run db:indexes -- --apply                create missing indexes; keep any others (a non-unique
+//                                                index the models now declare unique is replaced by it)
 //   npm run db:indexes -- --apply --drop-extra   also drop indexes the models do not declare
 //   npm run db:indexes -- --check                report, and exit 2 if any declared index is missing
 //                                                (a deploy step can stop on it; 1 is an error)
@@ -10,8 +11,9 @@ const mongoose = require('mongoose');
 const { scrubSecrets } = require('../../utils/logger');
 
 // MongoDB will not build a declared unique index over an existing non-unique one on the same key.
-// After checking that the values are in fact unique, the old index is dropped so --apply can build
-// the unique one; duplicates stop the run with a count, leaving that index as it was.
+// After checking that the values are in fact unique, the old index is dropped and the unique one
+// built straight away; duplicates stop the run with a count, leaving that index as it was. If the
+// build still fails (a duplicate written in between), the old index is put back before stopping.
 const upgradeToUnique = async (model) => {
   let existing;
   try {
@@ -41,6 +43,13 @@ const upgradeToUnique = async (model) => {
       throw new Error(`${model.collection.collectionName}: ${key} cannot be made unique: ${repeated} duplicated value${repeated === 1 ? '' : 's'}. Resolve them, then run --apply again.`);
     }
     await model.collection.dropIndex(old.name);
+    try {
+      await model.collection.createIndex(fields, options);
+    } catch (error) {
+      const { v, key: oldKey, ...oldOptions } = old;
+      await model.collection.createIndex(oldKey, oldOptions);
+      throw new Error(`${model.collection.collectionName}: ${key} could not be made unique; the previous index was restored. ${error.message}`);
+    }
   }
 };
 
@@ -87,7 +96,8 @@ if (require.main === module) {
   const unknown = args.filter((arg) => !known.has(arg));
   if (unknown.length > 0) {
     process.stderr.write(`Unknown option: ${unknown.join(' ')}\n`);
-    process.exitCode = 2;
+    // 1, not 2: a mistyped flag in a deploy step must not read as "indexes missing".
+    process.exitCode = 1;
   } else {
     run({ apply: args.includes('--apply'), dropExtra: args.includes('--drop-extra') })
       .then(({ complete }) => {
@@ -101,4 +111,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { run };
+module.exports = { run, upgradeToUnique };

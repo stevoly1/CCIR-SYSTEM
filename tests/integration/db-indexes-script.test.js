@@ -2,7 +2,8 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const mongoose = require('mongoose');
 const { withDatabase } = require('../helpers/mongoUri');
-const { run } = require('../../scripts/db/indexes');
+const { run, upgradeToUnique } = require('../../scripts/db/indexes');
+const { ComplaintDeletion } = require('../../models');
 
 const script = path.resolve(__dirname, '../../scripts/db/indexes.js');
 // Asynchronous, so the in-memory database in this process keeps serving while the script runs.
@@ -100,6 +101,27 @@ describe('npm run db:indexes', () => {
     expect((await deletions.indexes()).find((index) => index.name === 'complaintId_1').unique).toBeUndefined();
   });
 
+  // Between the duplicate check and the rebuild another write can add a duplicate. The old index is
+  // put back, so the collection is never left without an index on that key.
+  it('puts the old index back when the unique rebuild fails after the drop', async () => {
+    const deletions = connection.db.collection('complaintdeletions');
+    await deletions.insertOne({ complaintId: new mongoose.Types.ObjectId() });
+    await deletions.createIndex({ complaintId: 1 }, { name: 'complaintId_1' });
+    // As in the script: no automatic index build, which would otherwise run first on this model.
+    const schema = ComplaintDeletion.schema.clone();
+    schema.set('autoIndex', false);
+    schema.set('autoCreate', false);
+    const model = connection.model('ComplaintDeletion', schema);
+    const original = model.collection.createIndex.bind(model.collection);
+    vi.spyOn(model.collection, 'createIndex')
+      .mockImplementationOnce(async () => { throw new Error('E11000 duplicate key error'); })
+      .mockImplementation(original);
+    await expect(upgradeToUnique(model)).rejects.toThrow(/complaintdeletions: .*the previous index was restored.*E11000/);
+    const restored = (await deletions.indexes()).find((index) => index.name === 'complaintId_1');
+    expect(restored).toMatchObject({ key: { complaintId: 1 } });
+    expect(restored.unique).toBeUndefined();
+  });
+
   it('keeps indexes made outside the app unless --drop-extra is given', async () => {
     await runInProcess(uri, { apply: true });
     await connection.db.collection('complaints').createIndex({ description: 1 }, { name: 'console_extra' });
@@ -113,7 +135,7 @@ describe('npm run db:indexes', () => {
   it('refuses --drop-extra without --apply, and unknown options, without printing the connection string', async () => {
     for (const args of [['--drop-extra'], ['--aply']]) {
       const result = await runScript(uri, ...args);
-      expect(result.status).not.toBe(0);
+      expect(result.status, args.join(' ')).toBe(1);
       expect(result.stdout + result.stderr).not.toContain(uri);
     }
     expect(await connection.db.listCollections().toArray()).toHaveLength(0);
