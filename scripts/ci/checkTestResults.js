@@ -1,5 +1,6 @@
 // Vitest and Playwright both exit 0 when tests are skipped. CI passes a run only when every test
-// ran and passed: no failures, skips, todos or flaky retries, and at least one test.
+// ran and passed: no failures, skips, todos or flaky retries, and at least one test. Vitest's JSON
+// does not record retries, so CI runs Vitest with --retry=0: a flaky test then fails outright.
 const fs = require('node:fs');
 
 const summarize = (report) => {
@@ -10,13 +11,13 @@ const summarize = (report) => {
       failed: report.numFailedTests ?? 0,
       skipped: report.numPendingTests ?? 0,
       todo: report.numTodoTests ?? 0,
-      flaky: 0,
+      flaky: 0, // not recorded; see --retry=0 above
       ok: report.success === true,
     };
   }
   if (report?.stats && typeof report.stats.expected === 'number') {
     const { expected, unexpected = 0, flaky = 0, skipped = 0 } = report.stats;
-    return { kind: 'playwright', total: expected + unexpected + flaky + skipped, failed: unexpected, skipped, todo: 0, flaky, ok: true };
+    return { kind: 'playwright', total: expected + unexpected + flaky + skipped, failed: unexpected, skipped, todo: 0, flaky, ok: !(report.errors?.length > 0) };
   }
   return null;
 };

@@ -1,4 +1,4 @@
-# Continuous integration (Phase 4a, DEP-002). Every step is an npm script that also runs locally.
+# Continuous integration. Every step is an npm script that also runs locally.
 # No secrets: every test uses in-memory MongoDB and no external service.
 name: CI
 
@@ -11,9 +11,10 @@ on:
 permissions:
   contents: read
 
+# A newer commit replaces a pull request's run. Each push to main gets a group of its own: GitHub
+# cancels a waiting run when another joins its group, even without cancel-in-progress.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
-  # A newer commit replaces a pull request's run; runs on main always finish.
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -48,8 +49,9 @@ jobs:
           echo "46d9dcba4ff2049c0ac6139f77783d14b1492d8910534ea6e95de50688afe72e  $RUNNER_TEMP/tools.tgz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/tools.tgz" -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/mongodb-database-tools-ubuntu2404-x86_64-100.19.0/bin" >> "$GITHUB_PATH"
+      # --retry=0: Vitest's results do not record retries, so a flaky test must fail outright.
       - name: Unit and integration tests with coverage and contract checks
-        run: npm run test:coverage -- --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/results/backend.json"
+        run: npm run test:coverage -- --retry=0 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/results/backend.json"
       - name: Every test ran
         run: npm run check:test-results -- "$RUNNER_TEMP/results/backend.json"
       - if: failure()
@@ -79,7 +81,7 @@ jobs:
       - run: npm ci
         working-directory: client
       - name: Client unit tests
-        run: npm --prefix client run test:unit -- --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/results/client.json"
+        run: npm --prefix client run test:unit -- --retry=0 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/results/client.json"
       - name: Every test ran
         run: npm run check:test-results -- "$RUNNER_TEMP/results/client.json"
       - run: npm --prefix client run lint
@@ -131,9 +133,15 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: journeys-results
-          path: |
-            ${{ runner.temp }}/results
-            /tmp/ccir-playwright-results
+          path: ${{ runner.temp }}/results
+          retention-days: 7
+          if-no-files-found: ignore
+      # Traces and screenshots of failing journeys (outputDir in playwright.config.js).
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: journeys-traces
+          path: /tmp/ccir-playwright-results
           retention-days: 7
           if-no-files-found: ignore
 
@@ -148,13 +156,9 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            client/package-lock.json
       - run: npm install -g npm@${{ env.NPM_VERSION }}
-      # npm audit needs only the lockfiles, so the client is not installed here.
-      - run: npm ci
+      # Nothing is installed: these scripts use only Node's built-in modules, and npm audit reads
+      # the dependency tree from the lockfiles.
       - name: Private-file guard
         run: npm run check:tracked-files
       - name: Install gitleaks 8.30.1

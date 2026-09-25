@@ -27,6 +27,8 @@ describe('test-results check', () => {
     [playwright({ flaky: 1 }), '1 flaky'],
     [playwright({ unexpected: 2 }), '2 failed'],
     [playwright({ expected: 0 }), 'no tests ran'],
+    // An error outside any test, such as a failing global setup, is reported only at the top level.
+    [{ ...playwright(), errors: [{ message: 'globalSetup failed' }] }, 'the run reported errors'],
   ])('flags %j', (report, message) => {
     expect(problems(summarize(report))).toContain(message);
   });
