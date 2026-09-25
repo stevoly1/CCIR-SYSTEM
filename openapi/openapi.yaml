@@ -1144,6 +1144,104 @@ paths:
         '500':
           $ref: '#/components/responses/ServerError'
 
+  /auth/password/forgot:
+    post:
+      tags: [auth]
+      summary: Ask for a password reset link
+      description: >
+        Always answers 202 with the same message, whether or not an account uses the address, and sends
+        any email after answering, so neither the answer nor its timing reveals whether an account exists.
+        An active password account gets a single-use link that expires in 30 minutes; a Google account is
+        told to sign in with Google; suspended, retired and unknown addresses get nothing. Limited to 10
+        requests per 15 minutes per client address and 3 per hour per email address.
+      operationId: forgotPassword
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  maxLength: 254
+            example:
+              email: ada@example.test
+      responses:
+        '202':
+          description: Accepted.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                msg: If an account uses this address, we have sent it a link to reset the password.
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /auth/password/reset:
+    post:
+      tags: [auth]
+      summary: Set a new password with a reset link
+      description: >
+        The token comes from the link's address fragment (`#token=…`). The new password takes effect, every
+        session of the account ends, and the account is emailed a notice; the caller is not signed in. An
+        unknown, expired, used or replaced token gets 400 `INVALID_OR_EXPIRED_TOKEN`; a password equal to
+        the email address gets 400 `PASSWORD_REJECTED` and leaves the link usable.
+      operationId: resetPassword
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token, password]
+              properties:
+                token:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                password:
+                  type: string
+                  minLength: 8
+                  maxLength: 128
+            example:
+              token: 3q2-7wEXAMPLEexampleEXAMPLEexampleEXAMPLE0
+              password: Brand-new-pass
+      responses:
+        '200':
+          description: Password reset; sign in with the new password.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+              example:
+                msg: Password reset. Sign in with your new password.
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
   /auth/google:
     get:
       tags: [auth]
