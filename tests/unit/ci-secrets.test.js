@@ -17,7 +17,13 @@ const tempDir = (prefix) => {
 afterAll(() => {
   for (const dir of tempDirs) fs.rmSync(dir, { recursive: true, force: true });
 });
-const git = (cwd, ...args) => spawnSync('git', args, { cwd });
+// Independent of this machine's git settings: a global signing key or hooks path must not make a
+// commit fail silently.
+const git = (cwd, ...args) => {
+  const result = spawnSync('git', ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args], { cwd, encoding: 'utf8' });
+  if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
+  return result;
+};
 const repo = (commits = ['a']) => {
   const dir = tempDir('ccir-secrets-');
   git(dir, 'init', '-q');
@@ -45,9 +51,12 @@ const reportPathOf = (args) => {
 describe('secret scan wrapper', () => {
   // CI logs of this public repository are public: a finding must never print the value, and only
   // the reviewed allowlist in .gitleaks.toml may silence one.
-  it('scans the whole history with the reviewed config, redacted, ignoring inline allow comments', () => {
+  // gitleaks's own log options plus -m: git log shows no diff for a merge commit unless asked, so a
+  // value added while resolving a merge would never be scanned (see secretScanSelfTest.js).
+  it('scans the whole history, merge commits included, with the reviewed config, redacted, ignoring inline allow comments', () => {
     expect(gitleaksArgs('/tmp/report.json')).toEqual([
       'git', '--config', '.gitleaks.toml', '--redact', '--no-banner', '--ignore-gitleaks-allow',
+      '--log-opts=--full-history --all --diff-filter=tuxdb -m',
       '--report-format', 'json', '--report-path', '/tmp/report.json', '.',
     ]);
     // --verbose would print text around each match, which can hold a second value.
@@ -122,7 +131,7 @@ describe('secret scan wrapper', () => {
     it('refuses a shallow clone, which would hide history', () => {
       const source = repo(['a', 'b']);
       const shallow = tempDir('ccir-secrets-shallow-');
-      spawnSync('git', ['clone', '-q', '--depth', '1', `file://${source}`, shallow]);
+      git(source, 'clone', '-q', '--depth', '1', `file://${source}`, shallow);
       const stderr = capture();
       expect(main({ cwd: shallow, spawn: () => ({ status: 0 }), stderr })).toBe(1);
       expect(stderr.text).toContain('full history');

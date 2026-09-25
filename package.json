@@ -8,6 +8,7 @@
         "check:tracked-files": "node scripts/ci/trackedFiles.js",
         "check:test-results": "node scripts/ci/checkTestResults.js",
         "check:secrets": "node scripts/ci/checkSecrets.js",
+        "check:secrets-self-test": "node scripts/ci/secretScanSelfTest.js",
         "check:audit": "npm audit --omit=dev --audit-level=high && npm --prefix client audit --omit=dev --audit-level=high",
         "preinstall": "node scripts/checkRuntime.js",
         "start": "node server.js",

@@ -170,5 +170,10 @@ jobs:
         run: npm run check:secrets
         env:
           GITLEAKS_BIN: ${{ runner.temp }}/gitleaks
+      # Proves the scan reads merge commits: it must catch a fake token only a merge commit adds.
+      - name: Secret scan self-test (a credential added only by a merge commit)
+        run: npm run check:secrets-self-test
+        env:
+          GITLEAKS_BIN: ${{ runner.temp }}/gitleaks
       - name: Dependency audit (production, high and critical)
         run: npm run check:audit
