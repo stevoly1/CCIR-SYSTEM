@@ -33,17 +33,17 @@ const commit = (dir, file, message = `add ${file}`) => {
   return git(dir, 'rev-parse', 'HEAD');
 };
 
-// A clone whose origin already has one clean commit on main.
-const setup = () => {
+// A clone whose origin already holds main with the given files (clean by default).
+const setup = (seedFiles = ['README.md']) => {
   const remote = tempDir('ccir-push-remote-');
   git(remote, 'init', '-q', '--bare', '-b', 'main');
   const seed = tempDir('ccir-push-seed-');
   git(seed, 'init', '-q', '-b', 'main');
-  commit(seed, 'README.md');
+  for (const file of seedFiles) commit(seed, file);
   git(seed, 'push', '-q', remote, 'main');
   const dir = tempDir('ccir-push-local-');
   git(dir, 'clone', '-q', remote, '.');
-  return { dir, pushedSha: git(dir, 'rev-parse', 'HEAD') };
+  return { dir, remote, pushedSha: git(dir, 'rev-parse', 'HEAD') };
 };
 const capture = () => {
   const out = { text: '' };
@@ -124,8 +124,17 @@ describe('pre-push guard', () => {
     expect(result.stderr).toContain('docs (private records)');
   });
 
-  // A new branch: only the commits the remote does not have yet are checked.
-  it('checks only the new commits of a new branch', () => {
+  // Pushing onto a branch the remote has: only the commits after the remote's are checked, so a
+  // path already in the remote's history does not block every later push.
+  it('checks only the commits after the remote branch when the remote has it', () => {
+    const { dir, pushedSha } = setup(['README.md', 'docs/old.md']);
+    const sha = commit(dir, 'src/app.js');
+    expect(push(dir, [`refs/heads/main ${sha} refs/heads/main ${pushedSha}`])).toMatchObject({ status: 0 });
+  });
+
+  // A new branch is checked over its whole history, as CI checks the repository: remote-tracking
+  // refs can be stale (a branch deleted on the remote), so they cannot vouch for what it holds.
+  it('checks the whole history of a new branch', () => {
     const { dir } = setup();
     git(dir, 'checkout', '-qb', 'feature');
     const clean = commit(dir, 'src/feature.js');
@@ -134,6 +143,89 @@ describe('pre-push guard', () => {
     const result = push(dir, [`refs/heads/feature ${sha} refs/heads/feature ${ZERO}`]);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('docs/plan.md (private records)');
+  });
+
+  it('refuses a new branch built on a stale remote-tracking ref that holds a private file', () => {
+    const { dir } = setup();
+    git(dir, 'checkout', '-qb', 'leak');
+    commit(dir, 'docs/secret.md');
+    git(dir, 'push', '-q', 'origin', 'leak');
+    // Deleted on the remote from elsewhere; this clone keeps its unpruned origin/leak.
+    git(dir, 'push', '-q', 'origin', '--delete', 'leak');
+    git(dir, 'update-ref', 'refs/remotes/origin/leak', git(dir, 'rev-parse', 'leak'));
+    git(dir, 'checkout', '-qb', 'again', 'origin/leak');
+    const sha = commit(dir, 'src/clean.js');
+    const result = push(dir, [`refs/heads/again ${sha} refs/heads/again ${ZERO}`]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('docs/secret.md (private records)');
+  });
+
+  it('checks the same way when pushing to a URL rather than a named remote', () => {
+    const { dir } = setup();
+    const sha = commit(dir, 'docs/url.md');
+    const stderr = capture();
+    const status = main({ args: ['https://example.test/repo.git', 'https://example.test/repo.git'], input: `refs/heads/x ${sha} refs/heads/x ${ZERO}\n`, cwd: dir, stderr });
+    expect(status).toBe(1);
+    expect(stderr.text).toContain('docs/url.md (private records)');
+  });
+
+  // The user's git settings must not hide a path.
+  it.each([
+    ['log.showRoot=false', (dir) => git(dir, 'config', 'log.showRoot', 'false')],
+    ['diff.renames=true', (dir) => git(dir, 'config', 'diff.renames', 'true')],
+  ])('sees every path whatever the setting %s', (_label, configure) => {
+    const { dir } = setup();
+    configure(dir);
+    git(dir, 'checkout', '-q', '--orphan', 'orphan');
+    git(dir, 'rm', '-rqf', '.');
+    const root = commit(dir, 'docs/root.md');
+    const rootResult = push(dir, [`refs/heads/orphan ${root} refs/heads/orphan ${ZERO}`]);
+    expect(rootResult.status).toBe(1);
+    expect(rootResult.stderr).toContain('docs/root.md (private records)');
+  });
+
+  it('sees a private path moved out of docs/ (the removal half of a rename)', () => {
+    const { dir, pushedSha } = setup(['README.md', 'docs/moved.md']);
+    git(dir, 'config', 'diff.renames', 'true');
+    fs.mkdirSync(path.join(dir, 'src'));
+    git(dir, 'mv', 'docs/moved.md', 'src/moved.md');
+    git(dir, 'commit', '-qm', 'move');
+    const result = push(dir, [`refs/heads/main ${git(dir, 'rev-parse', 'HEAD')} refs/heads/main ${pushedSha}`]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('docs/moved.md (private records)');
+  });
+
+  it.each([
+    ['diff.ignoreSubmodules=all in the user config', (dir) => git(dir, 'config', 'diff.ignoreSubmodules', 'all'), null],
+    ['ignore = all in a committed .gitmodules', () => {}, '[submodule "docs"]\n\tpath = docs\n\turl = ./docs\n\tignore = all\n'],
+  ])('sees a gitlink at docs whatever %s', (_label, configure, gitmodules) => {
+    const { dir, pushedSha } = setup();
+    configure(dir);
+    if (gitmodules) fs.writeFileSync(path.join(dir, '.gitmodules'), gitmodules);
+    if (gitmodules) git(dir, 'add', '.gitmodules');
+    git(dir, 'update-index', '--add', '--cacheinfo', `160000,${pushedSha},docs`);
+    git(dir, 'commit', '-qm', 'gitlink');
+    const result = push(dir, [`refs/heads/main ${git(dir, 'rev-parse', 'HEAD')} refs/heads/main ${pushedSha}`]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('docs (private records)');
+  });
+
+  // git log on a tree or blob prints nothing, so a tag pointing at one would pass unchecked.
+  it('refuses to push a tag that points at a tree rather than a commit', () => {
+    const { dir } = setup();
+    commit(dir, 'docs/secret.md');
+    const tree = git(dir, 'rev-parse', 'HEAD^{tree}');
+    const result = push(dir, [`refs/tags/treetag ${tree} refs/tags/treetag ${ZERO}`]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('refs/tags/treetag');
+    expect(result.stderr).toContain('not a commit');
+  });
+
+  it('refuses with one clear line when the guard itself fails', () => {
+    const { dir } = setup();
+    const result = push(dir, [`refs/heads/main ${'f'.repeat(40)} refs/heads/main ${ZERO}`]);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/^pre-push: the private-file guard failed \(.+\); push refused\. To push anyway, deliberately: git push --no-verify\n$/);
   });
 
   it('ignores a branch deletion and checks every other ref in the same push', () => {
@@ -170,6 +262,27 @@ describe('pre-push hook wrapper', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('scripts/ci/prePush.js');
     expect(result.stderr).toContain('--no-verify');
+  });
+
+  // End to end: a real git push through the installed hook, to a local bare repository.
+  it('refuses a real push through the installed hook, and lets a clean one through', () => {
+    const { dir } = setup();
+    fs.mkdirSync(path.join(dir, 'scripts/ci'), { recursive: true });
+    for (const file of ['prePush.js', 'trackedFiles.js']) {
+      fs.copyFileSync(path.resolve(__dirname, '../../scripts/ci', file), path.join(dir, 'scripts/ci', file));
+    }
+    git(dir, 'add', 'scripts');
+    git(dir, 'commit', '-qm', 'guard');
+    const hooks = tempDir('ccir-push-hooks-');
+    fs.copyFileSync(wrapper, path.join(hooks, 'pre-push'));
+    fs.chmodSync(path.join(hooks, 'pre-push'), 0o755);
+    const realPush = (...args) => spawnSync('git', ['-c', `core.hooksPath=${hooks}`, 'push', ...args], { cwd: dir, encoding: 'utf8' });
+    expect(realPush('-q', 'origin', 'main').status).toBe(0);
+    commit(dir, 'docs/leak.md');
+    const refused = realPush('-q', 'origin', 'main');
+    expect(refused.status).not.toBe(0);
+    expect(refused.stderr).toContain('docs/leak.md (private records)');
+    expect(git(dir, 'ls-remote', 'origin', 'main')).not.toContain(git(dir, 'rev-parse', 'HEAD'));
   });
 
   it('runs the guard with what git sends', () => {
