@@ -11,6 +11,7 @@ const { establishGoogleIdentitySession } = require('../services/googleIdentitySe
 const { safeStateEqual } = require('../policies/googleIdentityPolicy');
 const { getLogger } = require('../utils/logger');
 const { getBrowserSecurityConfig } = require('../config/browserSecurity');
+const { assertPasswordAllowed } = require('../validators/passwordPolicy');
 const { createThrottleService, secondsUntil } = require('../services/authThrottleService');
 
 const OAUTH_STATE_MAX_AGE_MS = 5 * 60 * 1000;
@@ -40,6 +41,7 @@ const googleFailureRedirect = (res, frontendUrl, code) => {
 
 const signup = async (req, res) => {
     const { email, password, name, phone } = req.body;
+    assertPasswordAllowed(password, { email });
 
     const existing = await User.findOne({ email });
     if (existing) {

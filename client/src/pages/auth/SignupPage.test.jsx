@@ -53,13 +53,14 @@ describe('SignupPage', () => {
 
   // The browser enforces these attributes before submitting (jsdom does not implement minLength,
   // so journey J6 proves the real-browser refusal); the server re-validates regardless.
-  it('declares the fields the browser must require, including a six-character password minimum', () => {
+  it('declares the fields the browser must require, including an eight-character password minimum', () => {
     renderPage();
     expect(screen.getByLabelText('Full name')).toBeRequired();
     expect(screen.getByLabelText('Email')).toBeRequired();
     expect(screen.getByLabelText('Email')).toHaveAttribute('type', 'email');
     expect(screen.getByLabelText('Password')).toBeRequired();
-    expect(screen.getByLabelText('Password')).toHaveAttribute('minLength', '6');
+    expect(screen.getByLabelText('Password')).toHaveAttribute('minLength', '8');
+    expect(screen.getByLabelText('Password')).toHaveAttribute('placeholder', 'At least 8 characters');
     expect(screen.getByLabelText('Password')).toHaveAttribute('type', 'password');
   });
 
