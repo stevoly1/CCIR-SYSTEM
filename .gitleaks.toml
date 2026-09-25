@@ -5,3 +5,13 @@
 # and refuses a .gitleaksignore file (scripts/ci/checkSecrets.js).
 [extend]
 useDefault = true
+
+# The log-redaction test plants deliberately distinctive fake values and fails if any reaches a
+# log line; this one is a made-up database password used nowhere else. Allowed only for that
+# rule, in that file, with that exact value.
+[[allowlists]]
+description = "Fake database password planted by the log-redaction test"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^tests/integration/log-redaction\.test\.js$''']
+regexes = ['''^Db-Pass-SECRET-321$''']
