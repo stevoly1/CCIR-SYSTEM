@@ -51,6 +51,21 @@ describe('ComplaintSummary', () => {
             expect(screen.getByRole('note')).toHaveTextContent('The AI could not classify this report');
         });
 
+        it.each([
+            ['TIMEOUT', 'The AI took too long to answer'],
+            ['PROVIDER_ERROR', 'The AI service refused the request or was unavailable, for example because its usage limit was reached'],
+            ['NETWORK_ERROR', 'The AI service could not be reached'],
+            ['INVALID_OUTPUT', "The AI's answer could not be used"],
+        ])('says why the AI fell back (%s)', (error, reason) => {
+            render(<ComplaintSummary staffView complaint={{ ...base, ai: { ...staffAi, error } }} />);
+            expect(screen.getByRole('note')).toHaveTextContent(reason);
+        });
+
+        it('still warns for a reason it does not know', () => {
+            render(<ComplaintSummary staffView complaint={{ ...base, ai: { ...staffAi, error: 'SOMETHING_NEW' } }} />);
+            expect(screen.getByRole('note')).toHaveTextContent('The AI could not classify this report');
+        });
+
         it('shows when a report was resolved, and says when that date is estimated', () => {
             const { rerender } = render(<ComplaintSummary staffView complaint={{ ...base, status: 'RESOLVED', resolvedAt: '2026-09-20T10:00:00.000Z', resolvedAtEstimated: false }} />);
             expect(screen.getByText(/^Resolved on /)).not.toHaveTextContent('estimated');

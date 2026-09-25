@@ -5,6 +5,13 @@ const { getLogger } = require('../utils/logger');
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
 const FALLBACK_CATEGORY = 'Other';
+// Gemini 3 models think before answering; "low" roughly halved a photo report's time (6-7 s to about
+// 3 s) with the same classifications. Earlier models do not take thinkingLevel.
+const THINKING_CONFIG = /^gemini-3/.test(GEMINI_MODEL) ? { thinkingLevel: 'low' } : undefined;
+// A busy (503) or other passing server error gets one more try. Refusals do not, and neither does a
+// quota limit (429): the free tier allows 5 requests a minute, so a retry would only use up more of it.
+const RETRYABLE_STATUSES = new Set([500, 502, 503, 504]);
+const RETRY_DELAY_MS = 250;
 
 const parseAiTimeout = (value) => {
     if (value === undefined) return 8000;
@@ -82,18 +89,25 @@ const fallbackResult = (errorCode) => ({
 });
 
 class AiFailure extends Error {
-    constructor(code) {
+    // details: non-sensitive facts for the log line, such as the provider's HTTP status.
+    constructor(code, details = {}) {
         super(code);
         this.code = code;
+        this.details = details;
     }
 }
+
+const pause = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
 // Classifies a complaint using Gemini (text + optional image). Every failure is
 // reduced to a deterministic non-sensitive fallback so provider outages do not
 // block complaint submission.
 const classifyComplaint = async ({ description, imageTempFilePath, imageMimeType, categoryNames }) => {
     const apiKey = process.env.GOOGLE_API_KEY;
-    if (!apiKey) return fallbackResult('PROVIDER_ERROR');
+    if (!apiKey) {
+        getLogger().warn({ errorCode: 'PROVIDER_ERROR', reason: 'GOOGLE_API_KEY_MISSING' }, 'AI classification failed; using the fallback');
+        return fallbackResult('PROVIDER_ERROR');
+    }
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
@@ -110,26 +124,35 @@ const classifyComplaint = async ({ description, imageTempFilePath, imageMimeType
             });
         }
 
-        let response;
-        try {
-            response = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts }],
-                        generationConfig: { responseMimeType: 'application/json' },
-                    }),
-                    signal: controller.signal,
-                },
-            );
-        } catch (error) {
-            if (controller.signal.aborted || error?.name === 'AbortError') throw new AiFailure('TIMEOUT');
-            throw new AiFailure('NETWORK_ERROR');
-        }
+        const body = JSON.stringify({
+            contents: [{ parts }],
+            generationConfig: { responseMimeType: 'application/json', thinkingConfig: THINKING_CONFIG },
+        });
+        // The key goes in a header, so it never appears in a URL that something might log.
+        const request = () => fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+                body,
+                signal: controller.signal,
+            },
+        );
 
-        if (!response.ok) throw new AiFailure('PROVIDER_ERROR');
+        // At most two attempts, both inside the one AI_TIMEOUT_MS budget.
+        let response;
+        for (let attempt = 1; ; attempt += 1) {
+            try {
+                response = await request();
+            } catch (error) {
+                if (controller.signal.aborted || error?.name === 'AbortError') throw new AiFailure('TIMEOUT');
+                if (attempt === 1) { await pause(RETRY_DELAY_MS); continue; }
+                throw new AiFailure('NETWORK_ERROR');
+            }
+            if (response.ok) break;
+            if (attempt === 1 && RETRYABLE_STATUSES.has(response.status)) { await pause(RETRY_DELAY_MS); continue; }
+            throw new AiFailure('PROVIDER_ERROR', { providerStatus: response.status });
+        }
 
         let data;
         try {
@@ -146,7 +169,7 @@ const classifyComplaint = async ({ description, imageTempFilePath, imageMimeType
         }
     } catch (error) {
         const errorCode = error instanceof AiFailure ? error.code : 'INVALID_OUTPUT';
-        getLogger().warn({ errorCode }, 'AI classification failed; using the fallback');
+        getLogger().warn({ errorCode, ...(error instanceof AiFailure ? error.details : {}) }, 'AI classification failed; using the fallback');
         return fallbackResult(errorCode);
     } finally {
         clearTimeout(timeout);

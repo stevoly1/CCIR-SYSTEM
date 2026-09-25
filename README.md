@@ -26,7 +26,7 @@ The AI classification feature uses a pretrained, general-purpose multimodal mode
 
 - Node.js 26 (26.9.0 or a later 26.x release) and npm 12.1.0 or later 12.x (`.nvmrc` records the verified version)
 - MongoDB 4.4 or later, **running as a replica set** (the API uses transactions). Hosted clusters such as MongoDB Atlas already are. A self-managed server, even a single one, must be started with `--replSet rs0` and initiated once with `rs.initiate()` in `mongosh`
-- A [Google AI Studio](https://aistudio.google.com/) API key (for AI classification — optional but recommended)
+- A [Google AI Studio](https://aistudio.google.com/) API key (for AI classification — optional but recommended). A free-tier key allows only a few requests a minute per model (5 for `gemini-3.6-flash` in September 2026; see [rate limits](https://ai.google.dev/gemini-api/docs/rate-limits)). Each new report, and each edit that changes the description, is one request; beyond the limit reports fall back to `Other`/`MEDIUM` until the minute resets. Use a billing-enabled key for real use. Every fallback is logged (`AI classification failed; using the fallback`) with its code and, for a refusal, the provider's HTTP status (`providerStatus` 429 means the quota was reached)
 - A [Cloudinary](https://cloudinary.com/) account (only required if citizens will attach photos to complaints — a text-only complaint never calls Cloudinary. Unlike the AI and email services, image upload has no fallback: a complaint submitted *with* a photo will fail without valid Cloudinary credentials)
 - Optionally: a [Resend](https://resend.com/) API key (email notifications) and Google OAuth credentials (Google sign-in)
 

@@ -2,6 +2,7 @@ const { captureLogs } = require('../helpers/captureLogs');
 
 const ORIGINAL_API_KEY = process.env.GOOGLE_API_KEY;
 const ORIGINAL_TIMEOUT = process.env.AI_TIMEOUT_MS;
+const ORIGINAL_MODEL = process.env.GEMINI_MODEL;
 
 const loadService = () => {
   vi.resetModules();
@@ -30,6 +31,7 @@ describe('AI classification contract', () => {
   beforeEach(() => {
     process.env.GOOGLE_API_KEY = 'test-key';
     delete process.env.AI_TIMEOUT_MS;
+    delete process.env.GEMINI_MODEL;
     logs = captureLogs();
   });
 
@@ -41,6 +43,8 @@ describe('AI classification contract', () => {
     else process.env.GOOGLE_API_KEY = ORIGINAL_API_KEY;
     if (ORIGINAL_TIMEOUT === undefined) delete process.env.AI_TIMEOUT_MS;
     else process.env.AI_TIMEOUT_MS = ORIGINAL_TIMEOUT;
+    if (ORIGINAL_MODEL === undefined) delete process.env.GEMINI_MODEL;
+    else process.env.GEMINI_MODEL = ORIGINAL_MODEL;
   });
 
   it('parses only integer timeout values within the governed range', () => {
@@ -225,5 +229,61 @@ describe('AI classification contract', () => {
     const { classifyComplaint } = loadService();
     await expect(classifyComplaint({ description: 'pothole', categoryNames: ['Roads', 'Other'] }))
       .resolves.toMatchObject({ error: 'INVALID_OUTPUT', category: 'Other' });
+  });
+
+  // Gemini answers "high demand" (503) now and then; one retry within the same time budget avoids
+  // most of those fallbacks. Refusals (a bad key, 400/403) and quota limits (429, which reset after
+  // up to a minute) are not retried: a retry would only spend more of the quota.
+  it.each([
+    ['a 503 from the provider', () => Promise.resolve({ ok: false, status: 503 })],
+    ['a network failure', () => Promise.reject(new Error('socket hang up'))],
+  ])('retries once after %s', async (_name, firstAttempt) => {
+    const fetchMock = vi.fn().mockImplementationOnce(firstAttempt).mockResolvedValue(providerResponse(validOutput()));
+    vi.stubGlobal('fetch', fetchMock);
+    const { classifyComplaint } = loadService();
+    await expect(classifyComplaint({ description: 'pothole', categoryNames: ['Roads', 'Other'] })).resolves.toMatchObject({ category: 'Roads', error: null });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([400, 403, 429])('does not retry a %s, and logs the provider status', async (status) => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status });
+    vi.stubGlobal('fetch', fetchMock);
+    const { classifyComplaint } = loadService();
+    await expect(classifyComplaint({ description: 'pothole', categoryNames: ['Roads', 'Other'] })).resolves.toMatchObject({ error: 'PROVIDER_ERROR' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(logs.lines).toEqual([expect.objectContaining({ errorCode: 'PROVIDER_ERROR', providerStatus: status })]);
+  });
+
+  it('logs why it fell back when no API key is configured', async () => {
+    delete process.env.GOOGLE_API_KEY;
+    vi.stubGlobal('fetch', vi.fn());
+    const { classifyComplaint } = loadService();
+    await classifyComplaint({ description: 'pothole', categoryNames: ['Roads', 'Other'] });
+    expect(logs.lines).toEqual([expect.objectContaining({ level: 40, errorCode: 'PROVIDER_ERROR', reason: 'GOOGLE_API_KEY_MISSING' })]);
+  });
+
+  it('sends the key in a header, never in the URL', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(providerResponse(validOutput()));
+    vi.stubGlobal('fetch', fetchMock);
+    const { classifyComplaint } = loadService();
+    await classifyComplaint({ description: 'pothole', categoryNames: ['Roads', 'Other'] });
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).not.toContain('test-key');
+    expect(options.headers['x-goog-api-key']).toBe('test-key');
+  });
+
+  // A photo report took 6-7 s at the default thinking level against an 8 s limit; "low" took about 3 s
+  // with the same answers. Only Gemini 3 models take thinkingLevel.
+  it.each([
+    [undefined, { thinkingLevel: 'low' }],
+    ['gemini-3.8-flash', { thinkingLevel: 'low' }],
+    ['gemini-2.5-flash', undefined],
+  ])('asks model %s for a short thinking step where it supports one', async (model, thinkingConfig) => {
+    if (model) process.env.GEMINI_MODEL = model;
+    const fetchMock = vi.fn().mockResolvedValue(providerResponse(validOutput()));
+    vi.stubGlobal('fetch', fetchMock);
+    const { classifyComplaint } = loadService();
+    await classifyComplaint({ description: 'pothole', categoryNames: ['Roads', 'Other'] });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).generationConfig.thinkingConfig).toEqual(thinkingConfig);
   });
 });
