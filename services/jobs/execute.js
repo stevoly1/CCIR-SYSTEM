@@ -29,6 +29,8 @@ const executeEntry = async (entryId, { runKey, attempt, maxAttempts, retryDelayM
       : { state: 'PENDING', notBefore: new Date(Date.now() + (jobError.retryAfterMs ?? retryDelayMs(attempt))) };
     await OutboxEntry.updateOne({ _id: entry._id, runKey }, {
       $set: { attempts: attempt, lastErrorCode: jobError.code, lastErrorAt: new Date(), ...next },
+      // A stored address is kept only while the job may still run; failed entries have no expiry.
+      ...(jobError.final ? { $unset: { 'refs.email': 1 } } : {}),
     });
     if (jobError.final && handler.onFinalFailure) {
       // The job's own failure is what callers need; a broken clean-up step is logged beside it.

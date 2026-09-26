@@ -1182,11 +1182,12 @@ paths:
       tags: [auth]
       summary: Ask for a password reset link
       description: >
-        Always answers 202 with the same message, whether or not an account uses the address, and sends
-        any email after answering, so neither the answer nor its timing reveals whether an account exists.
-        An active password account gets a single-use link that expires in 30 minutes; a Google account is
-        told to sign in with Google; suspended, retired and unknown addresses get nothing. Limited to 10
-        requests per 15 minutes per client address and 3 per hour per email address.
+        Always answers 202 with the same message, whether or not an account uses the address. The address
+        is looked up by a background job after the answer, so the answer and its timing are the same for
+        every address. An active password account gets a single-use link that expires in 30 minutes; a
+        Google account is told to sign in with Google; suspended, retired and unknown addresses get
+        nothing. Limited to 10 requests per 15 minutes per client address and 3 per hour per email
+        address; link emails to any one address are also capped at 3 an hour.
       operationId: forgotPassword
       security: []
       requestBody:

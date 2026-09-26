@@ -4,7 +4,7 @@ const { unsafeRequest, createAuthenticatedAgent } = require('../helpers/auth');
 const { createUserFixture } = require('../fixtures/user');
 const { RefreshToken, User } = require('../../models');
 const emailService = require('../../services/emailService');
-const passwordResetService = require('../../services/passwordResetService');
+const { drainOutbox } = require('../helpers/jobs');
 const { issueToken } = require('../../services/accountTokenService');
 const { retireAccount } = require('../../services/accountRetirementService');
 
@@ -13,13 +13,10 @@ const forgot = (email) => unsafeRequest(api(), 'post', '/api/v1/auth/password/fo
 const reset = (token, password) => unsafeRequest(api(), 'post', '/api/v1/auth/password/reset').send({ token, password });
 const login = (email, password) => unsafeRequest(api(), 'post', '/api/v1/auth/login').send({ email, password });
 
-// The email work runs after the response; this waits for it to finish.
+// The email work runs in a background job; this runs the queued jobs.
 const afterForgot = async (email) => {
-  const task = vi.spyOn(passwordResetService, 'sendPasswordResetFor');
   const response = await forgot(email);
-  await vi.waitFor(() => expect(task).toHaveBeenCalledTimes(1));
-  await task.mock.results[0].value;
-  task.mockRestore();
+  await drainOutbox();
   return response;
 };
 const googleUser = (email, googleId) => createUserFixture({ email, authProvider: 'google', googleId, password: undefined });
@@ -27,8 +24,8 @@ const googleUser = (email, googleId) => createUserFixture({ email, authProvider:
 describe('forgot password', () => {
   let resetMail; let googleMail;
   beforeEach(() => {
-    resetMail = vi.spyOn(emailService, 'sendPasswordResetEmail').mockResolvedValue(true);
-    googleMail = vi.spyOn(emailService, 'sendGoogleAccountNoticeEmail').mockResolvedValue(true);
+    resetMail = vi.spyOn(emailService, 'sendPasswordResetEmail').mockResolvedValue(undefined);
+    googleMail = vi.spyOn(emailService, 'sendGoogleAccountNoticeEmail').mockResolvedValue(undefined);
   });
 
   it('emails an active password account a reset link', async () => {
@@ -76,7 +73,7 @@ describe('forgot password', () => {
 
 describe('reset password', () => {
   const tokenFor = (user, now) => issueToken({ userId: user._id, purpose: 'password_reset', requestedBy: user._id, now });
-  beforeEach(() => { vi.spyOn(emailService, 'sendPasswordChangedEmail').mockResolvedValue(true); });
+  beforeEach(() => { vi.spyOn(emailService, 'sendPasswordChangedEmail').mockResolvedValue(undefined); });
 
   it('sets the new password, ends every session, and tells the account', async () => {
     const { agent, user } = await createAuthenticatedAgent();
@@ -86,7 +83,8 @@ describe('reset password', () => {
     expect((await agent.get('/api/v1/users/profile')).status).toBe(401);
     expect((await login(user.email, 'fixture-password')).status).toBe(401);
     expect((await login(user.email, 'Brand-new-pass')).status).toBe(200);
-    await vi.waitFor(() => expect(emailService.sendPasswordChangedEmail).toHaveBeenCalledWith(expect.objectContaining({ to: user.email })));
+    await drainOutbox();
+    expect(emailService.sendPasswordChangedEmail).toHaveBeenCalledWith(expect.objectContaining({ to: user.email }));
   });
 
   it.each([

@@ -2,4 +2,6 @@
 module.exports = Object.freeze({
   report_filed: 'email',
   status_update: 'email',
+  password_reset_request: 'email',
+  password_changed: 'email',
 });

@@ -1,10 +1,10 @@
 const { StatusCodes } = require('http-status-codes');
-const emailService = require('../services/emailService');
 const passwordResetService = require('../services/passwordResetService');
 const passwordChangeService = require('../services/passwordChangeService');
 const emailChangeService = require('../services/emailChangeService');
 const { accountThrottle, AUTH_WINDOW_MS } = require('../services/accountThrottle');
-const { afterResponse } = require('../utils/afterResponse');
+const { inTransaction } = require('../utils/transaction');
+const { enqueue } = require('../services/jobs/outbox');
 const { clearAttachedCookies } = require('../handlers/authHandler');
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -15,7 +15,8 @@ const forgotPassword = async (req, res) => {
     await accountThrottle().consume('reset-ip', req.ip, { limit: 10, windowMs: AUTH_WINDOW_MS });
     // Counted for every address, so the limit itself reveals nothing.
     await accountThrottle().consume('reset-email', email, { limit: 3, windowMs: HOUR_MS });
-    afterResponse(res, () => passwordResetService.sendPasswordResetFor(email));
+    // One entry for every address: the request does the same work whether or not an account exists.
+    await inTransaction((session) => enqueue(session, { queue: 'email', type: 'password_reset_request', refs: { email } }));
     res.status(StatusCodes.ACCEPTED).json({ msg: FORGOT_MESSAGE });
 };
 
@@ -23,7 +24,6 @@ const resetPassword = async (req, res) => {
     await accountThrottle().consume('token-ip', req.ip, { limit: 20, windowMs: AUTH_WINDOW_MS });
     const user = await passwordResetService.resetPassword(req.body);
     await accountThrottle().clear('login-account', user.email);
-    afterResponse(res, () => emailService.sendPasswordChangedEmail({ to: user.email, name: user.name }));
     clearAttachedCookies(res);
     res.status(StatusCodes.OK).json({ msg: 'Password reset. Sign in with your new password.' });
 };
@@ -35,7 +35,6 @@ const changePassword = async (req, res) => {
         currentPassword: req.body.currentPassword,
         newPassword: req.body.newPassword,
     });
-    afterResponse(res, () => emailService.sendPasswordChangedEmail({ to: user.email, name: user.name }));
     res.status(StatusCodes.OK).json({ msg: 'Password changed' });
 };
 

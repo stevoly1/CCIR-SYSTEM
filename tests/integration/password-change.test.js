@@ -5,12 +5,13 @@ const { createGoogleAgent } = require('../helpers/googleAuth');
 const { RefreshToken, AccountToken } = require('../../models');
 const emailService = require('../../services/emailService');
 const { issueToken } = require('../../services/accountTokenService');
+const { drainOutbox } = require('../helpers/jobs');
 
 const change = (agent, body) => unsafeRequest(agent, 'post', '/api/v1/users/profile/password').send(body);
 const login = (email, password) => unsafeRequest(request(testServer()), 'post', '/api/v1/auth/login').send({ email, password });
 
 describe('change password', () => {
-  beforeEach(() => { vi.spyOn(emailService, 'sendPasswordChangedEmail').mockResolvedValue(true); });
+  beforeEach(() => { vi.spyOn(emailService, 'sendPasswordChangedEmail').mockResolvedValue(undefined); });
 
   it('changes it, keeps this session, ends the others, cancels pending links, and tells the account', async () => {
     const { agent, user, password } = await createAuthenticatedAgent();
@@ -24,7 +25,8 @@ describe('change password', () => {
     expect(await RefreshToken.countDocuments({ user: user._id })).toBe(1);
     expect(await AccountToken.countDocuments({ user: user._id, usedAt: null })).toBe(0);
     expect((await login(user.email, 'Brand-new-pass')).status).toBe(200);
-    await vi.waitFor(() => expect(emailService.sendPasswordChangedEmail).toHaveBeenCalledWith(expect.objectContaining({ to: user.email })));
+    await drainOutbox();
+    expect(emailService.sendPasswordChangedEmail).toHaveBeenCalledWith(expect.objectContaining({ to: user.email }));
   });
 
   it('refuses a wrong current password, and locks after five', async () => {
