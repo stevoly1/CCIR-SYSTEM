@@ -139,6 +139,12 @@ describe('logger', () => {
     expect(serializeError(err).stack).not.toContain('pat.o+x@mail.example.test');
   });
 
+  it('keeps stack frames inside scoped packages', () => {
+    const err = new Error('boom');
+    err.stack = 'Error: boom\n    at saslprep (/app/node_modules/@mongodb-js/saslprep/dist/index.js:12:3)\n    at C:\\app\\node_modules\\@aws-sdk\\client\\index.js:4:1';
+    expect(serializeError(err).stack).toBe(err.stack);
+  });
+
   it('serialises non-error values unchanged', () => {
     expect(serializeError('plain')).toBe('plain');
   });
