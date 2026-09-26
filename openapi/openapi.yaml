@@ -239,8 +239,29 @@ components:
         queues:
           type: object
           additionalProperties: false
-          required: [email]
+          required: [ai, email]
           properties:
+            ai:
+              type: object
+              additionalProperties: false
+              required: [PENDING, QUEUED, FAILED, DONE, DISMISSED]
+              properties:
+                PENDING:
+                  type: integer
+                  minimum: 0
+                QUEUED:
+                  type: integer
+                  minimum: 0
+                FAILED:
+                  type: integer
+                  minimum: 0
+                DONE:
+                  type: integer
+                  minimum: 0
+                  description: Finished in the last seven days (older ones are removed).
+                DISMISSED:
+                  type: integer
+                  minimum: 0
             email:
               type: object
               additionalProperties: false
@@ -3620,6 +3641,12 @@ paths:
                 $ref: '#/components/schemas/JobsSummary'
               example:
                 queues:
+                  ai:
+                    PENDING: 0
+                    QUEUED: 0
+                    FAILED: 0
+                    DONE: 0
+                    DISMISSED: 0
                   email:
                     PENDING: 0
                     QUEUED: 1

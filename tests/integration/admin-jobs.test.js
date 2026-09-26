@@ -51,7 +51,11 @@ describe('Jobs API', () => {
     const response = await admin.get('/api/v1/admin/jobs/summary');
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
-      queues: { email: { PENDING: 0, QUEUED: 0, FAILED: 1, DONE: 0, DISMISSED: 0 } }, oldestPendingSeconds: null, workerLastSeenSeconds: null,
+      queues: {
+        ai: { PENDING: 0, QUEUED: 0, FAILED: 0, DONE: 0, DISMISSED: 0 },
+        email: { PENDING: 0, QUEUED: 0, FAILED: 1, DONE: 0, DISMISSED: 0 },
+      },
+      oldestPendingSeconds: null, workerLastSeenSeconds: null,
     });
   });
 
