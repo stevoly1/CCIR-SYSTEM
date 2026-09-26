@@ -365,8 +365,9 @@ components:
     PendingEmailChange:
       type: [object, 'null']
       description: >
-        The account's email change in progress, or the last one if it failed; null otherwise. Present on
-        the profile and on the administrators' user list.
+        The account's email change in progress, or the last one if it failed; null otherwise. A failed
+        change stops showing once a password change, password reset, suspension or newer confirmed
+        change ends it. Present on the profile and on the administrators' user list.
       additionalProperties: false
       required: [newEmail, state]
       properties:
