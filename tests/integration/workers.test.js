@@ -111,6 +111,27 @@ describe('workers', () => {
     await settle(first._id, 'DONE');
   });
 
+  it('holds the queue before the rate-limited failure is recorded, so nothing slips through in between', async () => {
+    behaviour.run.mockRejectedValueOnce(JobError.of('RATE_LIMITED', { retryAfterMs: 5000 })).mockResolvedValue(undefined);
+    await setUp();
+    const updateOne = OutboxEntry.updateOne.bind(OutboxEntry);
+    let pauseWhenRecorded;
+    const spy = vi.spyOn(OutboxEntry, 'updateOne').mockImplementation(async (filter, update, ...rest) => {
+      if (update?.$set?.lastErrorCode === 'RATE_LIMITED') pauseWhenRecorded = await queues.email.getRateLimitTtl(1);
+      return updateOne(filter, update, ...rest);
+    });
+    try {
+      const entry = await add();
+      await relay.runOnce();
+      await vi.waitFor(() => expect(pauseWhenRecorded).toBeDefined(), { timeout: 5000, interval: 20 });
+      expect(pauseWhenRecorded).toBeGreaterThan(4000);
+      expect((await OutboxEntry.findById(entry._id)).lastErrorCode).toBe('RATE_LIMITED');
+    } finally {
+      spy.mockRestore();
+      await queues.email.removeRateLimitKey();
+    }
+  });
+
   it('gives up on a provider that keeps rate-limiting, after the attempt limit', async () => {
     behaviour.run.mockRejectedValue(JobError.of('RATE_LIMITED', { retryAfterMs: 50 }));
     await setUp();

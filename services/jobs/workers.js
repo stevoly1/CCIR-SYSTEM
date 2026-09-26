@@ -23,16 +23,17 @@ const createWorkers = ({ connection, queues, policy = DEFAULT_POLICY, idle = IDL
     const worker = new Worker(name, async (job) => {
       try {
         return await executeEntry(job.data.entryId, {
-          runKey: job.data.runKey, attempt: job.data.attempt, maxAttempts: settings.attempts, retryDelayMs,
+          runKey: job.data.runKey,
+          attempt: job.data.attempt,
+          maxAttempts: settings.attempts,
+          retryDelayMs,
+          // The provider asked everyone to wait: hold the whole queue, not only this entry.
+          onRateLimited: (ms) => queues[name].rateLimit(ms),
         });
       } catch (error) {
         if (!(error instanceof JobError)) {
           getLogger().error({ event: 'job_crashed', queue: name, entryId: job.data.entryId, err: error }, 'Job could not be run or recorded');
           throw error;
-        }
-        if (error.code === 'RATE_LIMITED' && !error.final) {
-          // The provider asked everyone to wait: hold the whole queue, not only this entry.
-          await queues[name].rateLimit(error.retryAfterMs ?? retryDelayMs(job.data.attempt));
         }
         return error.final ? 'failed' : 'retrying';
       }

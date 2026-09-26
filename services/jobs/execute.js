@@ -13,7 +13,9 @@ const FINISHED = new Set(['DONE', 'FAILED', 'DISMISSED']);
 // A retryable failure puts the entry back to PENDING with a notBefore time, so the wait happens in
 // MongoDB. Waiting in Redis would cost commands: BullMQ polls every 10 seconds while any delayed
 // job exists, which on a per-command plan is about 78,000 commands a day.
-const executeEntry = async (entryId, { runKey, attempt, maxAttempts, retryDelayMs = () => 0 }) => {
+// onRateLimited(ms) holds the whole queue when the provider asks everyone to wait; it runs before
+// the failure is recorded, so no job slips through between the two.
+const executeEntry = async (entryId, { runKey, attempt, maxAttempts, retryDelayMs = () => 0, onRateLimited }) => {
   const entry = await OutboxEntry.findById(entryId);
   if (!entry || FINISHED.has(entry.state) || entry.runKey !== runKey || entry.attempts + 1 !== attempt) return 'skipped';
   const handler = registry.handlerFor(entry.type);
@@ -24,9 +26,14 @@ const executeEntry = async (entryId, { runKey, attempt, maxAttempts, retryDelayM
   } catch (error) {
     const jobError = toJobError(error);
     jobError.final = !jobError.retryable || attempt >= maxAttempts;
+    const waitMs = jobError.retryAfterMs ?? retryDelayMs(attempt);
+    if (jobError.code === 'RATE_LIMITED' && !jobError.final && onRateLimited) {
+      // Without the pause the entry still waits its own time; the failure is recorded either way.
+      await Promise.resolve(onRateLimited(waitMs)).catch((err) => getLogger().warn({ event: 'queue_pause_failed', queue: entry.queue, err }, 'Could not pause the queue'));
+    }
     const next = jobError.final
       ? { state: 'FAILED' }
-      : { state: 'PENDING', notBefore: new Date(Date.now() + (jobError.retryAfterMs ?? retryDelayMs(attempt))) };
+      : { state: 'PENDING', notBefore: new Date(Date.now() + waitMs) };
     await OutboxEntry.updateOne({ _id: entry._id, runKey }, {
       $set: { attempts: attempt, lastErrorCode: jobError.code, lastErrorAt: new Date(), ...next },
       // A stored address is kept only while the job may still run; failed entries have no expiry.
