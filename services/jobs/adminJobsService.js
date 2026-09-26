@@ -1,6 +1,8 @@
+// The handlers' retry steps are needed here, in the API process, where no worker has loaded them.
+require('./handlers');
 const { Complaint, EmailChange, OutboxEntry, User } = require('../../models');
 const registry = require('./registry');
-const { QUEUE_NAMES } = require('./queues');
+const JOB_TYPES = require('./jobTypes');
 const { checkBackground } = require('../readinessService');
 const { inTransaction } = require('../../utils/transaction');
 const { jobNotFailed } = require('../../errors/domainErrors');
@@ -8,6 +10,8 @@ const { NotFoundError } = require('../../errors');
 const { getLogger } = require('../../utils/logger');
 
 const STATES = ['PENDING', 'QUEUED', 'DONE', 'FAILED', 'DISMISSED'];
+// From the job types rather than the queue module, so the API never loads the queue library.
+const QUEUE_NAMES = [...new Set(Object.values(JOB_TYPES))];
 const RETRY_ALL_LIMIT = 100;
 
 // What an administrator may see: a report's reference or an account's name. Never an address.

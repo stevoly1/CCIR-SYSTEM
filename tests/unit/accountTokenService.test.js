@@ -12,7 +12,7 @@ describe('account token helpers', () => {
     expect(hashToken('abc')).toBe(crypto.createHash('sha256').update('abc').digest('hex'));
   });
 
-  it('gives reset links 30 minutes and email confirmations 24 hours', () => {
-    expect(TOKEN_TTL_MS).toEqual({ password_reset: 30 * 60 * 1000, email_change: 24 * 60 * 60 * 1000 });
+  it('gives reset links 30 minutes, and email confirmations and verification links 24 hours', () => {
+    expect(TOKEN_TTL_MS).toEqual({ password_reset: 30 * 60 * 1000, email_change: 24 * 60 * 60 * 1000, email_verify: 24 * 60 * 60 * 1000 });
   });
 });
