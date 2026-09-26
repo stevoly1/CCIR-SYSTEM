@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: CCIR API
-  version: 2.0.0
+  version: 2.1.0
   summary: Civic Complaint and Infrastructure Reporting backend.
   description: >
     Citizens file complaints about public infrastructure; agency staff and administrators triage,
@@ -38,6 +38,15 @@ info:
     **Breaking:** `PATCH /users/{id}` no longer accepts `email` (use `POST /users/{id}/email`), and
     `DELETE /users/profile` requires `password` (or `confirmEmail` for Google accounts). New passwords
     need 8 to 128 characters.
+
+
+    **Changes in 2.1.0.** Classification runs in a background job; filing returns with provisional
+    "Other", `categorySource` and `ai.status`. Citizens may choose a category; staff see AI failure,
+    provenance and disagreement details. The old `ai.error` field is deprecated. Staff may use
+    `PATCH /complaints/{id}/category` (recorded as `CATEGORY_CHANGED`), and administrators may use
+    `POST /complaints/{id}/reclassify`. Complaint lists accept staff AI-state and disagreement filters;
+    Jobs accepts the `ai` queue. **Breaking:** the Jobs list accepts only `state=FAILED`; no client
+    used the other states. Password-change wording now describes the sessions it signs out.
 
 
     **Changes in 2.0.0.** Every email is now sent by a background worker, and links are created when
