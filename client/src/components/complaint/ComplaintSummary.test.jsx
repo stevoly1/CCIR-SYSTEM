@@ -37,6 +37,16 @@ describe('ComplaintSummary', () => {
         }
     });
 
+    it('shows Classifying instead of the provisional category', () => {
+        render(<ComplaintSummary complaint={{ ...base, categorySource: 'PENDING', ai: { status: 'PENDING', summary: '', tags: [] } }} staffView={false} />);
+        expect(screen.getByRole('heading', { name: 'Category' }).nextSibling).toHaveTextContent('Classifying…');
+    });
+
+    it('shows the citizen choice while AI classification is pending', () => {
+        render(<ComplaintSummary complaint={{ ...base, categorySource: 'CITIZEN', ai: { status: 'PENDING', summary: '', tags: [] } }} staffView={false} />);
+        expect(screen.getByRole('heading', { name: 'Category' }).nextSibling).toHaveTextContent(base.category.name);
+    });
+
     describe('what staff see about the AI and the outcome', () => {
         const staffAi = { summary: 'AI text', tags: ['roads', 'safety'], confidence: 0.9, suggestedCategory: 'Roads', error: null };
 
@@ -44,26 +54,6 @@ describe('ComplaintSummary', () => {
             render(<ComplaintSummary staffView complaint={{ ...base, ai: staffAi }} />);
             expect(screen.getByText('Confidence 90%')).toBeInTheDocument();
             expect(screen.getByText('Tags: roads, safety')).toBeInTheDocument();
-        });
-
-        it('warns when the AI failed and a fallback set the category and priority', () => {
-            render(<ComplaintSummary staffView complaint={{ ...base, ai: { ...staffAi, summary: '', confidence: 0, tags: [], error: 'TIMEOUT' } }} />);
-            expect(screen.getByRole('note')).toHaveTextContent('The AI could not classify this report');
-        });
-
-        it.each([
-            ['TIMEOUT', 'The AI took too long to answer'],
-            ['PROVIDER_ERROR', 'The AI service refused the request or was unavailable, for example because its usage limit was reached'],
-            ['NETWORK_ERROR', 'The AI service could not be reached'],
-            ['INVALID_OUTPUT', "The AI's answer could not be used"],
-        ])('says why the AI fell back (%s)', (error, reason) => {
-            render(<ComplaintSummary staffView complaint={{ ...base, ai: { ...staffAi, error } }} />);
-            expect(screen.getByRole('note')).toHaveTextContent(reason);
-        });
-
-        it('still warns for a reason it does not know', () => {
-            render(<ComplaintSummary staffView complaint={{ ...base, ai: { ...staffAi, error: 'SOMETHING_NEW' } }} />);
-            expect(screen.getByRole('note')).toHaveTextContent('The AI could not classify this report');
         });
 
         it('shows when a report was resolved, and says when that date is estimated', () => {
@@ -74,8 +64,10 @@ describe('ComplaintSummary', () => {
         });
 
         it('keeps these staff details from the reporter', () => {
-            render(<ComplaintSummary staffView={false} complaint={{ ...base, ai: { summary: 'AI text', tags: ['roads'] } }} />);
+            render(<ComplaintSummary staffView={false} complaint={{ ...base, categorySource: 'FALLBACK', ai: { status: 'FAILED', summary: 'AI text', tags: ['roads'], failureCode: 'AUTH', provider: 'kimi', model: 'secret-model' } }} />);
             expect(screen.queryByText(/Confidence|Tags:/)).not.toBeInTheDocument();
+            expect(screen.queryByRole('heading', { name: 'AI details' })).not.toBeInTheDocument();
+            expect(document.body.textContent).not.toMatch(/AUTH|kimi|secret-model/);
         });
     });
 });

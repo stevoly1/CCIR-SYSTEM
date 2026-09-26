@@ -30,7 +30,7 @@ const ComplaintCard = ({ complaint }) => {
                 <div className="ref">{complaint.referenceCode}</div>
                 <div className="desc">{complaint.description}</div>
                 <div className="meta">
-                    <span>{categoryLabel(complaint.category)}</span>
+                    <span>{complaint.categorySource === 'PENDING' ? 'Classifying…' : categoryLabel(complaint.category)}</span>
                     <span className="meta-dot">&middot;</span>
                     <span>{complaint.address || 'No address recorded'}</span>
                     <span className="meta-dot">&middot;</span>
@@ -47,6 +47,7 @@ const ComplaintCard = ({ complaint }) => {
             <div className="complaint-badges">
                 <StatusBadge status={complaint.status} />
                 <PriorityBadge priority={complaint.priority} />
+                {complaint.ai?.disagreement?.name && <span className="badge badge-ai-disagrees">{`AI suggests ${complaint.ai.disagreement.name}`}</span>}
             </div>
         </div>
     );

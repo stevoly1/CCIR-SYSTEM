@@ -13,6 +13,7 @@ const ComplaintTimeline = ({ entries = [], staffView = false }) => (
                 <div className="complaint-info">
                     <StatusBadge status={entry.status} />
                     {entry.priorityChange && <p style={{ marginTop: 8 }}>{priorityText(entry.priorityChange)}</p>}
+                    {staffView && entry.categoryChange && <p style={{ marginTop: 8 }}>{`Category changed from ${entry.categoryChange.from.name} to ${entry.categoryChange.to.name}`}</p>}
                     {entry.publicNote && <p style={{ marginTop: 8 }}>{entry.publicNote}</p>}
                     {staffView && entry.internalNote && (
                         <p style={{ marginTop: 8, color: 'var(--color-text-muted)' }}>

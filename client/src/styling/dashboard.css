@@ -452,6 +452,11 @@
     flex-shrink: 0;
 }
 
+.badge-ai-disagrees {
+    background: rgba(91, 61, 224, 0.1);
+    color: var(--color-accent-lavender-text);
+}
+
 .edit-history {
     list-style: none;
     padding: 0;

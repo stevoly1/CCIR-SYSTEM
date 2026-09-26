@@ -13,6 +13,7 @@ import StaffActionsPanel from '../../components/complaint/StaffActionsPanel';
 import AdminDeleteDialog from '../../components/complaint/AdminDeleteDialog';
 import { fetchComplaint, clearCurrentComplaint } from '../../slices/complaintSlice';
 import EditHistory from '../../components/complaint/EditHistory';
+import { useClassificationPolling } from '../../components/complaint/useClassificationPolling';
 
 // Composition only: every permission shown here comes from the server's presenter.
 // A closed report nobody was assigned to will not be assigned, so it makes no such promise.
@@ -37,6 +38,7 @@ const ReportDetailPage = () => {
     }, [dispatch, id]);
 
     const reload = () => dispatch(fetchComplaint(id));
+    const { stalled, restart } = useClassificationPolling({ pending: current?.ai?.status === 'PENDING', refresh: reload });
 
     if (!current && detailStatus === 'failed') {
         return <div className="empty-state">This report could not be loaded.</div>;
@@ -80,6 +82,11 @@ const ReportDetailPage = () => {
                     </div>
 
                     <ComplaintSummary complaint={current} staffView={isStaff} />
+                    {stalled && current.ai?.status === 'PENDING' && (
+                        <p className="meta">
+                            Still classifying. <button type="button" className="btn btn-outline" onClick={() => { restart(); void reload(); }}>Refresh</button>
+                        </p>
+                    )}
 
                     {!isStaff && assignmentNote(current) && <p className="meta">{assignmentNote(current)}</p>}
 
