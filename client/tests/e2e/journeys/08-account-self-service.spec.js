@@ -7,15 +7,22 @@ const ORIGIN = 'http://127.0.0.1:4173';
 let counter = 0;
 
 // Every sign-in counts against one limit per address (20 in 15 minutes), and all journeys come from
-// 127.0.0.1 to one server per browser run. So these journeys sign in only where the sign-in is what
+// 127.0.0.1 to one server per browser run of their group (these run in the core group; the queue
+// group has its own server and limit). So these journeys sign in only where the sign-in is what
 // they prove: a fresh account signs up through `api`, and when `api` is the page's own request
 // context (page.request), the browser is signed in without spending a sign-in.
-const newAccount = async (api, name) => {
+// `verify` uses the verification link from the outbox, for journeys that file a report.
+const newAccount = async (api, name, { verify = false } = {}) => {
   counter += 1;
   const email = `j4b-${Date.now()}-${counter}@e2e.test`;
   const password = 'Start-pass-1';
   const response = await api.post(`${API}/auth/signup`, { headers: { Origin: ORIGIN }, data: { name, email, password } });
   expect(response.ok()).toBe(true);
+  if (verify) {
+    const token = new URL(await latestLink(email, 'verify_email')).hash.slice('#token='.length);
+    const verified = await api.post(`${API}/auth/email/verify`, { headers: { Origin: ORIGIN }, data: { token } });
+    expect(verified.ok()).toBe(true);
+  }
   return { email, password };
 };
 
@@ -94,7 +101,8 @@ test('J-4b-3 a user changes their own email address and confirms it', async ({ p
   await page.getByLabel('New email address').fill(newEmail);
   await page.getByLabel('Your password').fill(password);
   await page.getByRole('button', { name: 'Send confirmation link' }).click();
-  await expect(page.getByRole('status')).toContainText(newEmail);
+  // The worker tells the old address, then sends the link; the form follows its progress.
+  await expect(page.getByText(`Check your new inbox at ${newEmail}. Your address changes when you open the link; it expires in 24 hours.`)).toBeVisible({ timeout: 20000 });
   await latestMessage(email, 'email_change_notice');
 
   await page.goto(await latestLink(newEmail, 'email_change_confirmation'));
@@ -115,7 +123,8 @@ test('J-4b-4 an administrator corrects an address and the user confirms it signe
   await page.getByRole('button', { name: 'Change email' }).click();
   await page.getByLabel('New email address').fill(corrected);
   await page.getByRole('button', { name: 'Send confirmation' }).click();
-  await expect(page.getByText(`Confirmation sent to ${corrected}.`, { exact: false })).toBeVisible();
+  await expect(page.getByText(`Sending: first a notice to the user's current address, then a confirmation link to ${corrected}.`)).toBeFocused();
+  await latestMessage(email, 'email_change_notice');
   await page.keyboard.press('Escape');
 
   const userContext = await browser.newContext({ baseURL: ORIGIN });
@@ -134,7 +143,7 @@ test('J-4b-4 an administrator corrects an address and the user confirms it signe
 // this cannot tell whether the stored snapshots were scrubbed: the integration test
 // account-self-deletion proves that.
 test('J-4b-5 a citizen deletes their account; staff see the report without the name', async ({ page }) => {
-  const { password } = await newAccount(page.request, 'Leaving Person');
+  const { password } = await newAccount(page.request, 'Leaving Person', { verify: true });
   const reportPath = await fileReport(page, 'Broken streetlight near the leaving point');
 
   await page.goto('/dashboard/profile');
