@@ -8,6 +8,7 @@ const { createQueues } = require('../../services/jobs/queues');
 const { createRelay } = require('../../services/jobs/relay');
 const { createWorkers, backoffFor } = require('../../services/jobs/workers');
 const { startRedis } = require('../setup/memoryRedis.cjs');
+const { captureLogs } = require('../helpers/captureLogs');
 
 // Fast settings: the same code with short waits.
 const FAST = { email: { attempts: 3, backoffBaseMs: 50, backoffCapMs: 200, concurrency: 2, limiter: null } };
@@ -22,8 +23,10 @@ beforeAll(async () => {
   registry.registerHandler('test_worker', { queue: 'email', run: (...args) => behaviour.run(...args) });
   redis = await startRedis();
   producer = producerConnection(redis.url);
-  queues = createQueues({ connection: producer, policy: FAST });
+  queues = createQueues({ connection: producer });
+  // Retries come back through the relay, as in production.
   relay = createRelay({ queues, intervalMs: 100 });
+  relay.start();
 });
 afterEach(async () => {
   await workers?.close();
@@ -33,6 +36,7 @@ afterEach(async () => {
   behaviour.run.mockReset();
 });
 afterAll(async () => {
+  await relay.stop();
   await queues.email.close();
   producer.disconnect();
   await redis.stop();
@@ -63,6 +67,18 @@ describe('workers', () => {
     await relay.runOnce();
     await settle(entry._id, 'DONE');
     expect(await OutboxEntry.findById(entry._id)).toMatchObject({ attempts: 2 });
+  });
+
+  it('keeps a waiting retry out of Redis entirely', async () => {
+    behaviour.run.mockRejectedValue(JobError.of('PROVIDER_DOWN'));
+    await setUp({ policy: { email: { ...FAST.email, backoffBaseMs: 60000, backoffCapMs: 60000 } } });
+    const entry = await add();
+    await relay.runOnce();
+    await vi.waitFor(async () => expect((await OutboxEntry.findById(entry._id)).attempts).toBe(1), { timeout: 5000, interval: 20 });
+    expect((await OutboxEntry.findById(entry._id)).notBefore.getTime()).toBeGreaterThan(Date.now() + 50000);
+    await vi.waitFor(async () => expect(await queues.email.getJobCounts('waiting', 'active', 'delayed', 'failed', 'completed'))
+      .toEqual({ waiting: 0, active: 0, delayed: 0, failed: 0, completed: 0 }), { timeout: 5000, interval: 20 });
+    expect(await OutboxEntry.findById(entry._id)).toMatchObject({ state: 'PENDING', attempts: 1 });
   });
 
   it('stops at the last attempt, and at once when retrying cannot help', async () => {
@@ -102,6 +118,24 @@ describe('workers', () => {
     await relay.runOnce();
     await settle(entry._id, 'FAILED');
     expect(await OutboxEntry.findById(entry._id)).toMatchObject({ attempts: 3, lastErrorCode: 'RATE_LIMITED' });
+  });
+
+  it('removes and logs a job whose outcome cannot be recorded, leaving the entry for the re-offer', async () => {
+    behaviour.run.mockResolvedValue(undefined);
+    await setUp();
+    const find = vi.spyOn(OutboxEntry, 'findById').mockRejectedValueOnce(new Error('database gone'));
+    const logs = captureLogs();
+    try {
+      const entry = await add();
+      await relay.runOnce();
+      await vi.waitFor(() => expect(logs.lines).toContainEqual(expect.objectContaining({ event: 'job_crashed', queue: 'email', entryId: String(entry._id) })), { timeout: 5000, interval: 20 });
+      await vi.waitFor(async () => expect(await queues.email.getJobCounts('failed', 'waiting', 'active')).toEqual({ failed: 0, waiting: 0, active: 0 }), { timeout: 5000, interval: 20 });
+      expect((await OutboxEntry.findById(entry._id)).state).toBe('QUEUED');
+      expect(behaviour.run).not.toHaveBeenCalled();
+    } finally {
+      logs.restore();
+      find.mockRestore();
+    }
   });
 
   it('runs a job again when its worker disappears mid-job', async () => {

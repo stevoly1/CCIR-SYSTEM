@@ -4,7 +4,7 @@ const registry = require('../../services/jobs/registry');
 const { inTransaction } = require('../../utils/transaction');
 const { enqueue } = require('../../services/jobs/outbox');
 const { producerConnection } = require('../../config/queue');
-const { createQueues, DEFAULT_POLICY } = require('../../services/jobs/queues');
+const { createQueues } = require('../../services/jobs/queues');
 const { createRelay } = require('../../services/jobs/relay');
 const { jobIdFor } = require('../../services/jobs/jobId');
 const { startRedis } = require('../setup/memoryRedis.cjs');
@@ -17,7 +17,7 @@ beforeAll(async () => {
   registry.registerHandler('test_relay', { queue: 'email', run: async () => {} });
   redis = await startRedis();
   connection = producerConnection(redis.url);
-  queues = createQueues({ connection, policy: DEFAULT_POLICY });
+  queues = createQueues({ connection });
 });
 afterAll(async () => {
   await Promise.all(Object.values(queues).map((queue) => queue.close()));
@@ -36,8 +36,10 @@ describe('relay', () => {
     expect(await relay.runOnce()).toBe(2);
     const jobs = await queues.email.getJobs(['waiting'], 0, 10, true);
     expect(jobs.map((job) => job.id)).toEqual([jobIdFor(first), jobIdFor(second)]);
-    expect(jobs[0].data).toEqual({ entryId: String(first._id), runKey: 0 });
-    expect(jobs[0].opts).toMatchObject({ attempts: 8, removeOnComplete: true });
+    expect(jobs[0].data).toEqual({ entryId: String(first._id), runKey: 0, attempt: 1 });
+    // One BullMQ job is one attempt; retries are scheduled through the outbox.
+    expect(jobs[0].opts).toMatchObject({ attempts: 1, removeOnComplete: true, removeOnFail: true });
+    expect(jobs[0].opts.backoff).toBeUndefined();
     expect((await OutboxEntry.find().sort({ createdAt: 1 })).map((entry) => entry.state)).toEqual(['QUEUED', 'QUEUED']);
     expect(jobIdFor(first)).not.toContain(':');
   });
@@ -49,6 +51,23 @@ describe('relay', () => {
     await OutboxEntry.updateOne({ _id: entry._id }, { state: 'PENDING' });
     await relay.runOnce();
     expect(await queues.email.getJobCounts('waiting')).toEqual({ waiting: 1 });
+  });
+
+  it('holds a retry until its notBefore time, then offers it as a new job for the next attempt', async () => {
+    const entry = await add();
+    await OutboxEntry.updateOne({ _id: entry._id }, { attempts: 1, notBefore: new Date(Date.now() + 60000) });
+    const relay = createRelay({ queues, intervalMs: 1000 });
+    expect(await relay.runOnce()).toBe(0);
+    expect(await queues.email.getJobCounts('waiting', 'delayed')).toEqual({ waiting: 0, delayed: 0 });
+
+    await OutboxEntry.updateOne({ _id: entry._id }, { notBefore: new Date(Date.now() - 1) });
+    expect(await relay.runOnce()).toBe(1);
+    const [job] = await queues.email.getJobs(['waiting'], 0, 10, true);
+    expect(job.id).toBe(`${entry._id}-0-1`);
+    expect(job.data).toEqual({ entryId: String(entry._id), runKey: 0, attempt: 2 });
+    const saved = await OutboxEntry.findById(entry._id);
+    expect(saved.state).toBe('QUEUED');
+    expect(saved.notBefore).toBeUndefined();
   });
 
   it('re-offers long-queued entries, so a job Redis lost runs again, and nothing twice', async () => {

@@ -11,6 +11,8 @@ const outboxEntrySchema = new mongoose.Schema({
   attempts: { type: Number, default: 0, min: 0 },
   lastErrorCode: { type: String, maxlength: 40 },
   lastErrorAt: { type: Date },
+  // A retry waits here, in MongoDB, not in Redis: the relay offers the entry again once this passes.
+  notBefore: { type: Date },
   queuedAt: { type: Date },
   deliveredAt: { type: Date },
   doneAt: { type: Date },

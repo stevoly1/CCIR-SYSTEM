@@ -12,7 +12,7 @@ const startBackgroundWork = async ({ env = process.env, policy = DEFAULT_POLICY,
   const url = requireRedisUrl(config);
   const producer = producerConnection(url);
   const consumer = workerConnection(url);
-  const queues = createQueues({ connection: producer, policy });
+  const queues = createQueues({ connection: producer });
   const relay = createRelay({ queues, intervalMs: relayIntervalMs ?? config.relayIntervalMs });
   const workers = createWorkers({ connection: consumer, queues, policy, idle });
   const heartbeat = await startHeartbeat({ intervalMs: heartbeatMs });

@@ -37,7 +37,11 @@ const createRelay = ({ queues, intervalMs, batchSize = 50, reofferEveryMs = REOF
     }
   };
 
-  const offer = (entry) => queues[entry.queue].add(entry.type, { entryId: String(entry._id), runKey: entry.runKey }, { jobId: jobIdFor(entry) });
+  const offer = (entry) => queues[entry.queue].add(
+    entry.type,
+    { entryId: String(entry._id), runKey: entry.runKey, attempt: entry.attempts + 1 },
+    { jobId: jobIdFor(entry) },
+  );
 
   let passing = false;
   const runOnce = async () => {
@@ -45,13 +49,18 @@ const createRelay = ({ queues, intervalMs, batchSize = 50, reofferEveryMs = REOF
     passing = true;
     try {
       return await guarded(async () => {
-        const entries = await OutboxEntry.find({ state: 'PENDING', queue: { $in: Object.keys(queues) } })
+        // A retry waits for its notBefore time; $not also matches entries without one.
+        const entries = await OutboxEntry.find({ state: 'PENDING', queue: { $in: Object.keys(queues) }, notBefore: { $not: { $gt: new Date() } } })
           .sort({ createdAt: 1, _id: 1 }).limit(batchSize);
         let moved = 0;
         for (const entry of entries) {
           await offer(entry);
           // A fast worker may already have finished it; then this matches nothing.
-          await OutboxEntry.updateOne({ _id: entry._id, state: 'PENDING', runKey: entry.runKey }, { $set: { state: 'QUEUED', queuedAt: new Date() } });
+          // Matching the attempt count too: a failure recorded meanwhile has set a new notBefore.
+          await OutboxEntry.updateOne(
+            { _id: entry._id, state: 'PENDING', runKey: entry.runKey, attempts: entry.attempts },
+            { $set: { state: 'QUEUED', queuedAt: new Date() }, $unset: { notBefore: 1 } },
+          );
           moved += 1;
         }
         return moved;
@@ -67,7 +76,7 @@ const createRelay = ({ queues, intervalMs, batchSize = 50, reofferEveryMs = REOF
     }).sort({ queuedAt: 1 }).limit(batchSize);
     for (const entry of entries) {
       await offer(entry);
-      await OutboxEntry.updateOne({ _id: entry._id, state: 'QUEUED', runKey: entry.runKey }, { $set: { queuedAt: new Date() } });
+      await OutboxEntry.updateOne({ _id: entry._id, state: 'QUEUED', runKey: entry.runKey, attempts: entry.attempts }, { $set: { queuedAt: new Date() } });
     }
     return entries.length;
   });

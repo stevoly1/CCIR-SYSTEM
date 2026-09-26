@@ -1,4 +1,4 @@
-const { Worker, UnrecoverableError, RateLimitError } = require('bullmq');
+const { Worker } = require('bullmq');
 const { QUEUE_NAMES, DEFAULT_POLICY } = require('./queues');
 const { executeEntry } = require('./execute');
 const { JobError } = require('./jobError');
@@ -8,39 +8,41 @@ const { getLogger } = require('../../utils/logger');
 // seconds, and checks for stalled jobs every stalledInterval. Measured in the command-budget test.
 const IDLE_SETTINGS = { drainDelay: 120, stalledInterval: 120 * 1000 };
 
-const backoffFor = ({ backoffBaseMs, backoffCapMs }) => (attemptsMade) => Math.min(backoffBaseMs * 2 ** Math.max(0, attemptsMade - 1), backoffCapMs);
+const UNLIMITED = { max: 1000, duration: 1000 };
 
-// Attempts are counted from attemptsStarted, which also counts runs that ended in a rate limit,
-// so a provider that keeps asking us to wait still reaches the attempt limit.
+const backoffFor = ({ backoffBaseMs, backoffCapMs }) => (attempt) => Math.min(backoffBaseMs * 2 ** Math.max(0, attempt - 1), backoffCapMs);
+
+// Each job is one attempt of one outbox entry. Retries and give-ups are recorded in the outbox by
+// executeEntry, so the BullMQ job itself always completes, except when recording fails: then it
+// fails, is removed, and the relay re-offers the entry later.
 const createWorkers = ({ connection, queues, policy = DEFAULT_POLICY, idle = IDLE_SETTINGS, lockDuration }) => {
   const workers = QUEUE_NAMES.map((name) => {
     const settings = policy[name];
+    const retryDelayMs = backoffFor(settings);
     const worker = new Worker(name, async (job) => {
       try {
         return await executeEntry(job.data.entryId, {
-          runKey: job.data.runKey,
-          attempt: job.attemptsStarted,
-          maxAttempts: job.opts.attempts ?? settings.attempts,
+          runKey: job.data.runKey, attempt: job.data.attempt, maxAttempts: settings.attempts, retryDelayMs,
         });
       } catch (error) {
-        if (!(error instanceof JobError)) throw error;
-        if (error.final) throw new UnrecoverableError(error.code);
-        if (error.code === 'RATE_LIMITED') {
-          // The provider asked everyone to wait: hold the whole queue, and put this job back
-          // without spending one of BullMQ's failure retries.
-          await queues[name].rateLimit(error.retryAfterMs ?? 60 * 1000);
-          throw new RateLimitError();
+        if (!(error instanceof JobError)) {
+          getLogger().error({ event: 'job_crashed', queue: name, entryId: job.data.entryId, err: error }, 'Job could not be run or recorded');
+          throw error;
         }
-        throw error;
+        if (error.code === 'RATE_LIMITED' && !error.final) {
+          // The provider asked everyone to wait: hold the whole queue, not only this entry.
+          await queues[name].rateLimit(error.retryAfterMs ?? retryDelayMs(job.data.attempt));
+        }
+        return error.final ? 'failed' : 'retrying';
       }
     }, {
       connection,
       concurrency: settings.concurrency,
-      ...(settings.limiter ? { limiter: settings.limiter } : {}),
+      // BullMQ honours queue.rateLimit() only on a queue with a limiter, so there always is one.
+      limiter: settings.limiter ?? UNLIMITED,
       drainDelay: idle.drainDelay,
       stalledInterval: idle.stalledInterval,
       ...(lockDuration ? { lockDuration } : {}),
-      settings: { backoffStrategy: backoffFor(settings) },
     });
     worker.on('error', (err) => getLogger().warn({ event: 'worker_error', queue: name, err }, 'Queue worker error'));
     return worker;

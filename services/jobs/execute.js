@@ -7,10 +7,14 @@ const FINISHED = new Set(['DONE', 'FAILED', 'DISMISSED']);
 
 // Runs one entry's handler and records what happened. Handlers are written to be safe to repeat,
 // because a queue can deliver a job twice. A job for an older runKey (before an administrator's
-// retry) is skipped.
-const executeEntry = async (entryId, { runKey, attempt, maxAttempts }) => {
+// retry), or for an attempt already recorded, is skipped.
+//
+// A retryable failure puts the entry back to PENDING with a notBefore time, so the wait happens in
+// MongoDB. Waiting in Redis would cost commands: BullMQ polls every 10 seconds while any delayed
+// job exists, which on a per-command plan is about 78,000 commands a day.
+const executeEntry = async (entryId, { runKey, attempt, maxAttempts, retryDelayMs = () => 0 }) => {
   const entry = await OutboxEntry.findById(entryId);
-  if (!entry || FINISHED.has(entry.state) || entry.runKey !== runKey) return 'skipped';
+  if (!entry || FINISHED.has(entry.state) || entry.runKey !== runKey || entry.attempts + 1 !== attempt) return 'skipped';
   const handler = registry.handlerFor(entry.type);
   const started = Date.now();
   const log = { event: 'job', queue: entry.queue, type: entry.type, entryId: String(entry._id), attempt };
@@ -19,8 +23,11 @@ const executeEntry = async (entryId, { runKey, attempt, maxAttempts }) => {
   } catch (error) {
     const jobError = toJobError(error);
     jobError.final = !jobError.retryable || attempt >= maxAttempts;
+    const next = jobError.final
+      ? { state: 'FAILED' }
+      : { state: 'PENDING', notBefore: new Date(Date.now() + (jobError.retryAfterMs ?? retryDelayMs(attempt))) };
     await OutboxEntry.updateOne({ _id: entry._id, runKey }, {
-      $set: { attempts: attempt, lastErrorCode: jobError.code, lastErrorAt: new Date(), ...(jobError.final ? { state: 'FAILED' } : {}) },
+      $set: { attempts: attempt, lastErrorCode: jobError.code, lastErrorAt: new Date(), ...next },
     });
     if (jobError.final && handler.onFinalFailure) {
       // The job's own failure is what callers need; a broken clean-up step is logged beside it.
@@ -36,7 +43,7 @@ const executeEntry = async (entryId, { runKey, attempt, maxAttempts }) => {
   }
   await OutboxEntry.updateOne({ _id: entry._id, runKey }, {
     $set: { state: 'DONE', doneAt: new Date(), attempts: attempt },
-    $unset: { 'refs.email': 1 },
+    $unset: { 'refs.email': 1, notBefore: 1 },
   });
   getLogger().info({ ...log, outcome: 'done', durationMs: Date.now() - started }, 'Job done');
   return 'done';
