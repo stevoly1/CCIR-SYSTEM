@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { Resend } = require('resend');
 const { getLogger } = require('../utils/logger');
+const { JobError } = require('./jobs/jobError');
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
@@ -46,100 +47,111 @@ const wrapEmail = ({ heading, lines, linkUrl, linkLabel }) => `
   <p style="margin:0; font-size:12px;">CCIR System</p>
 </div>`;
 
-// Best-effort notifications — never throw, so a mail provider outage never blocks a citizen or staff action.
-// Each resolves to true when the provider accepted the message and false otherwise. The Resend SDK
-// returns provider and network failures as { error } instead of throwing, so both paths are checked.
-// The log line names the message kind and the provider's reason, never the recipient or content.
-const logSendFailure = (kind, details) => {
-    getLogger().warn({ provider: 'resend', kind, ...details }, 'Email not sent');
-};
-
-const sendComplaintFiledEmail = async ({ to, name, referenceCode, complaintId }) => {
-    if (!resend) return false;
-
-    try {
-        const { error } = await resend.emails.send({
-            from: process.env.EMAIL_FROM,
-            to,
-            subject: `Your report ${referenceCode} has been filed`,
-            html: wrapEmail({
-                heading: 'Report filed',
-                lines: [
-                    `Hi ${escapeHtml(name)},`,
-                    `Your report has been filed successfully. Reference number: <strong>${escapeHtml(referenceCode)}</strong>.`,
-                    'We will let you know by email whenever its status changes.',
-                ],
-                linkUrl: reportUrl(complaintId),
-                linkLabel: 'View your report',
-            }),
-        });
-        if (error) {
-            logSendFailure('report_filed', { reason: error.name || 'provider_error', statusCode: error.statusCode });
-            return false;
-        }
-        return true;
-    } catch (error) {
-        logSendFailure('report_filed', { err: error });
-        return false;
-    }
-};
-
-const sendStatusUpdateEmail = async ({ to, name, referenceCode, status, publicNote, complaintId }) => {
-    if (!resend) return false;
-
-    try {
-        const statusLabel = STATUS_LABELS[status] || status;
-        const lines = [
-            `Hi ${escapeHtml(name)},`,
-            `Your report <strong>${escapeHtml(referenceCode)}</strong> has been updated to: <strong>${escapeHtml(statusLabel)}</strong>.`,
-        ];
-        if (publicNote) lines.push(escapeHtml(publicNote));
-
-        const { error } = await resend.emails.send({
-            from: process.env.EMAIL_FROM,
-            to,
-            subject: `Update on your report ${referenceCode}`,
-            html: wrapEmail({
-                heading: 'Report updated',
-                lines,
-                linkUrl: reportUrl(complaintId),
-                linkLabel: 'View your report',
-            }),
-        });
-        if (error) {
-            logSendFailure('status_update', { reason: error.name || 'provider_error', statusCode: error.statusCode });
-            return false;
-        }
-        return true;
-    } catch (error) {
-        logSendFailure('status_update', { err: error });
-        return false;
-    }
-};
-
 const clientUrl = (pathAndFragment) => `${process.env.ALLOWED_ORIGIN || ''}${pathAndFragment}`;
 
-// The account emails' one way out: the test outbox, or Resend. Resolves true when the message was
-// accepted, false otherwise; never throws.
-const deliver = async ({ kind, to, subject, html, links = [] }) => {
-    if (outboxDir) {
-        fs.mkdirSync(outboxDir, { recursive: true });
-        const file = path.join(outboxDir, `${Date.now()}-${crypto.randomBytes(4).toString('hex')}.json`);
-        fs.writeFileSync(file, JSON.stringify({ kind, to, subject, links }));
-        return true;
+// Emails are sent only by background jobs. A failure throws a JobError, and the job decides whether
+// to try again; log lines carry the job's codes, never the recipient or the content.
+const SEND_TIMEOUT_MS = 15 * 1000;
+const QUOTA_WAIT_MS = 60 * 60 * 1000;
+const QUOTAS = new Set(['daily_quota_exceeded', 'monthly_quota_exceeded']);
+let notConfiguredLogged = false;
+
+const withTimeout = (promise, ms) => {
+    let timer;
+    const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), ms); });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+};
+
+const retryAfterMs = (headers) => {
+    const seconds = Number(headers?.['retry-after']);
+    return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : undefined;
+};
+
+// Resend returns failures as { error, headers } rather than throwing. Worth another try: a rate
+// limit, a server error, a network failure (no status), and a request with the same key still in
+// progress. Anything else (a bad address or sender, a key reused with other content) will not
+// change on a retry.
+const providerFailure = (error, headers) => {
+    const status = Number(error?.statusCode) || null;
+    if (status === 429 && QUOTAS.has(error.name)) {
+        getLogger().warn({ event: 'email_quota_exceeded', quota: error.name }, 'Email sending quota used up; emails wait');
+        return JobError.of('RATE_LIMITED', { retryAfterMs: Math.max(retryAfterMs(headers) ?? 0, QUOTA_WAIT_MS) });
     }
-    if (!resend) return false;
-    try {
-        const { error } = await resend.emails.send({ from: process.env.EMAIL_FROM, to, subject, html });
-        if (error) {
-            logSendFailure(kind, { reason: error.name || 'provider_error', statusCode: error.statusCode });
-            return false;
+    if (status === 429) return JobError.of('RATE_LIMITED', { retryAfterMs: retryAfterMs(headers) });
+    if (status === null) return JobError.of(error?.name === 'application_error' ? 'PROVIDER_DOWN' : 'REJECTED');
+    if (status >= 500) return JobError.of('PROVIDER_DOWN');
+    if (status === 409 && error.name === 'concurrent_idempotent_requests') return JobError.of('PROVIDER_DOWN');
+    return JobError.of('REJECTED');
+};
+
+// The one way out for every email: the test outbox, or Resend. Replaceable: the journey server
+// swaps send.
+const emailTransport = {
+    async send({ kind, to, subject, html, links = [], idempotencyKey }) {
+        if (outboxDir) {
+            fs.mkdirSync(outboxDir, { recursive: true });
+            const file = path.join(outboxDir, `${Date.now()}-${crypto.randomBytes(4).toString('hex')}.json`);
+            fs.writeFileSync(file, JSON.stringify({ kind, to, subject, links, idempotencyKey }));
+            return;
         }
-        return true;
-    } catch (error) {
-        logSendFailure(kind, { err: error });
-        return false;
-    }
+        if (!resend) {
+            if (!notConfiguredLogged) {
+                notConfiguredLogged = true;
+                getLogger().warn({ event: 'email_not_configured' }, 'RESEND_API_KEY is not set; emails fail until it is');
+            }
+            throw JobError.of('NOT_CONFIGURED');
+        }
+        let result;
+        try {
+            result = await withTimeout(
+                resend.emails.send({ from: process.env.EMAIL_FROM, to, subject, html }, idempotencyKey ? { idempotencyKey } : undefined),
+                SEND_TIMEOUT_MS,
+            );
+        } catch {
+            throw JobError.of('PROVIDER_DOWN');
+        }
+        if (result?.error) throw providerFailure(result.error, result.headers);
+    },
+};
+
+const deliver = (message) => emailTransport.send(message);
+
+const sendComplaintFiledEmail = ({ to, name, referenceCode, complaintId, idempotencyKey }) => {
+    const link = reportUrl(complaintId);
+    return deliver({
+        kind: 'report_filed',
+        to,
+        links: [link],
+        idempotencyKey,
+        subject: `Your report ${referenceCode} has been filed`,
+        html: wrapEmail({
+            heading: 'Report filed',
+            lines: [
+                `Hi ${escapeHtml(name)},`,
+                `Your report has been filed successfully. Reference number: <strong>${escapeHtml(referenceCode)}</strong>.`,
+                'We will let you know by email whenever its status changes.',
+            ],
+            linkUrl: link,
+            linkLabel: 'View your report',
+        }),
+    });
+};
+
+const sendStatusUpdateEmail = ({ to, name, referenceCode, status, publicNote, complaintId, idempotencyKey }) => {
+    const link = reportUrl(complaintId);
+    const lines = [
+        `Hi ${escapeHtml(name)},`,
+        `Your report <strong>${escapeHtml(referenceCode)}</strong> has been updated to: <strong>${escapeHtml(STATUS_LABELS[status] || status)}</strong>.`,
+    ];
+    if (publicNote) lines.push(escapeHtml(publicNote));
+    return deliver({
+        kind: 'status_update',
+        to,
+        links: [link],
+        idempotencyKey,
+        subject: `Update on your report ${referenceCode}`,
+        html: wrapEmail({ heading: 'Report updated', lines, linkUrl: link, linkLabel: 'View your report' }),
+    });
 };
 
 // Enough to recognise an address without handing it to whoever reads the old inbox.
@@ -149,12 +161,13 @@ const maskEmail = (email) => {
 };
 
 // The token travels after #, which browsers never send to a server, so it cannot reach a log.
-const sendPasswordResetEmail = ({ to, name, token }) => {
+const sendPasswordResetEmail = ({ to, name, token, idempotencyKey }) => {
     const link = clientUrl(`/reset-password#token=${token}`);
     return deliver({
         kind: 'password_reset',
         to,
         links: [link],
+        idempotencyKey,
         subject: 'Reset your CCIR password',
         html: wrapEmail({
             heading: 'Reset your password',
@@ -169,9 +182,10 @@ const sendPasswordResetEmail = ({ to, name, token }) => {
     });
 };
 
-const sendGoogleAccountNoticeEmail = ({ to, name }) => deliver({
+const sendGoogleAccountNoticeEmail = ({ to, name, idempotencyKey }) => deliver({
     kind: 'google_account_notice',
     to,
+    idempotencyKey,
     subject: 'You sign in to CCIR with Google',
     html: wrapEmail({
         heading: 'You sign in with Google',
@@ -183,9 +197,10 @@ const sendGoogleAccountNoticeEmail = ({ to, name }) => deliver({
     }),
 });
 
-const sendPasswordChangedEmail = ({ to, name }) => deliver({
+const sendPasswordChangedEmail = ({ to, name, idempotencyKey }) => deliver({
     kind: 'password_changed',
     to,
+    idempotencyKey,
     subject: 'Your CCIR password was changed',
     html: wrapEmail({
         heading: 'Password changed',
@@ -197,12 +212,13 @@ const sendPasswordChangedEmail = ({ to, name }) => deliver({
     }),
 });
 
-const sendEmailChangeConfirmation = ({ to, name, token }) => {
+const sendEmailChangeConfirmation = ({ to, name, token, idempotencyKey }) => {
     const link = clientUrl(`/confirm-email#token=${token}`);
     return deliver({
         kind: 'email_change_confirmation',
         to,
         links: [link],
+        idempotencyKey,
         subject: 'Confirm your new CCIR email address',
         html: wrapEmail({
             heading: 'Confirm your email address',
@@ -217,9 +233,10 @@ const sendEmailChangeConfirmation = ({ to, name, token }) => {
     });
 };
 
-const sendEmailChangeNotice = ({ to, name, newEmail, requestedByAdministrator = false }) => deliver({
+const sendEmailChangeNotice = ({ to, name, newEmail, requestedByAdministrator = false, idempotencyKey }) => deliver({
     kind: 'email_change_notice',
     to,
+    idempotencyKey,
     subject: 'A change to your CCIR email address was requested',
     html: wrapEmail({
         heading: 'Email change requested',
@@ -242,4 +259,5 @@ module.exports = {
     sendEmailChangeConfirmation,
     sendEmailChangeNotice,
     maskEmail,
+    emailTransport,
 };
