@@ -47,7 +47,7 @@ const ComplaintCard = ({ complaint }) => {
             <div className="complaint-badges">
                 <StatusBadge status={complaint.status} />
                 <PriorityBadge priority={complaint.priority} />
-                {complaint.ai?.disagreement?.name && <span className="badge badge-ai-disagrees">{`AI suggests ${complaint.ai.disagreement.name}`}</span>}
+                {'assignee' in complaint && complaint.ai?.disagreement?.name && <span className="badge badge-ai-disagrees">{`AI suggests ${complaint.ai.disagreement.name}`}</span>}
             </div>
         </div>
     );

@@ -14,6 +14,7 @@ import AdminDeleteDialog from '../../components/complaint/AdminDeleteDialog';
 import { fetchComplaint, clearCurrentComplaint } from '../../slices/complaintSlice';
 import EditHistory from '../../components/complaint/EditHistory';
 import { useClassificationPolling } from '../../components/complaint/useClassificationPolling';
+import DisagreementPanel from '../../components/complaint/DisagreementPanel';
 
 // Composition only: every permission shown here comes from the server's presenter.
 // A closed report nobody was assigned to will not be assigned, so it makes no such promise.
@@ -103,6 +104,7 @@ const ReportDetailPage = () => {
                 {isStaff && (
                     <div>
                         <ResponsibilityPanel complaint={current} onUpdated={reload} onConflict={reload} />
+                        <DisagreementPanel complaint={current} onUpdated={reload} onConflict={reload} />
                         <div className="section-header"><h2>Update report</h2></div>
                         <StaffActionsPanel key={current.version} complaint={current} onUpdated={reload} onConflict={reload} />
                     </div>

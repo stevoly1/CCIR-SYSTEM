@@ -115,4 +115,19 @@ describe('ReportsListPage triage filters', () => {
         renderAs('citizen');
         expect(screen.queryByRole('combobox', { name: 'Filter by assignee' })).not.toBeInTheDocument();
     });
+
+    it('lets staff filter by AI failure or disagreement', async () => {
+        const user = userEvent.setup();
+        renderAs('admin');
+        const filter = screen.getByRole('combobox', { name: 'Filter by AI state' });
+        await user.selectOptions(filter, 'FAILED');
+        await waitFor(() => expect(fetchComplaints).toHaveBeenLastCalledWith(expect.objectContaining({ aiStatus: 'FAILED' })));
+        await user.selectOptions(filter, 'DISAGREES');
+        await waitFor(() => expect(fetchComplaints).toHaveBeenLastCalledWith(expect.objectContaining({ disagreement: 'true' })));
+    });
+
+    it('does not show citizens the AI filter', () => {
+        renderAs('citizen');
+        expect(screen.queryByRole('combobox', { name: 'Filter by AI state' })).not.toBeInTheDocument();
+    });
 });

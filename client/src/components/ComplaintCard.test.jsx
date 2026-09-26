@@ -41,7 +41,12 @@ describe('ComplaintCard', () => {
     });
 
     it('shows a staff-visible AI disagreement', () => {
-        render(<ComplaintCard complaint={{ ...summary, ai: { disagreement: { name: 'Roads', confidence: 0.9 } } }} />);
+        render(<ComplaintCard complaint={{ ...summary, assignee: null, ai: { disagreement: { name: 'Roads', confidence: 0.9 } } }} />);
         expect(screen.getByText('AI suggests Roads')).toBeInTheDocument();
+    });
+
+    it('does not show a disagreement on a citizen summary', () => {
+        render(<ComplaintCard complaint={{ ...summary, ai: { disagreement: { name: 'Roads', confidence: 0.9 } } }} />);
+        expect(screen.queryByText('AI suggests Roads')).not.toBeInTheDocument();
     });
 });

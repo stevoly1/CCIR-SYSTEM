@@ -1,10 +1,13 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import axiosClient from '../../api/axiosClient';
 import StaffActionsPanel from './StaffActionsPanel';
 
 const dispatch = vi.fn();
 vi.mock('react-redux', () => ({ useDispatch: () => dispatch }));
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }));
+vi.mock('../../api/axiosClient', () => ({ default: { post: vi.fn(), get: vi.fn() }, extractErrorMessage: (error) => error?.response?.data?.error?.message || 'Something went wrong' }));
+vi.mock('./RecategoriseDialog', () => ({ default: ({ initialCategoryId, title }) => <div role="dialog" aria-label={title}>{initialCategoryId}</div> }));
 vi.mock('../../slices/complaintSlice', () => ({
     RELOAD_CODES: ['STALE_COMPLAINT', 'COMPLAINT_NOT_EDITABLE'],
     updateComplaintStatus: Object.assign((args) => ({ type: 'status', args }), { fulfilled: { match: (a) => a.type === 'status/fulfilled' } }),
@@ -49,7 +52,7 @@ describe('StaffActionsPanel', () => {
 
     it('explains when the viewer may not act', () => {
         render(<StaffActionsPanel complaint={{ ...base, allowedTransitions: [], canChangePriority: false }} onUpdated={vi.fn()} onConflict={vi.fn()} />);
-        expect(screen.getByText('Only the assigned staff member can update this report.')).toBeInTheDocument();
+        expect(screen.getByText('Status and priority cannot be changed here.')).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Save update' })).not.toBeInTheDocument();
     });
 
@@ -61,5 +64,30 @@ describe('StaffActionsPanel', () => {
         await user.selectOptions(screen.getByLabelText('Status'), 'IN_PROGRESS');
         await user.click(screen.getByRole('button', { name: 'Save update' }));
         expect(onConflict).toHaveBeenCalled();
+    });
+
+    it('shows recategorise only with permission, even without status authority', async () => {
+        const user = userEvent.setup();
+        const limited = { ...base, category: { _id: 'roads', name: 'Roads' }, allowedTransitions: [], canChangePriority: false, canRecategorise: true };
+        const { rerender } = render(<StaffActionsPanel complaint={limited} onUpdated={vi.fn()} onConflict={vi.fn()} />);
+        await user.click(screen.getByRole('button', { name: 'Re-categorise' }));
+        expect(screen.getByRole('dialog', { name: 'Re-categorise' })).toHaveTextContent('roads');
+        rerender(<StaffActionsPanel complaint={{ ...limited, canRecategorise: false }} onUpdated={vi.fn()} onConflict={vi.fn()} />);
+        expect(screen.queryByRole('button', { name: 'Re-categorise' })).not.toBeInTheDocument();
+    });
+
+    it('re-runs AI only with permission and reports a pending conflict', async () => {
+        const user = userEvent.setup();
+        const onUpdated = vi.fn();
+        const eligible = { ...base, canReclassify: true };
+        axiosClient.post.mockResolvedValueOnce({ data: {} }).mockRejectedValueOnce({ response: { data: { error: { code: 'CLASSIFICATION_PENDING', message: 'Classification is pending' } } } });
+        const { rerender } = render(<StaffActionsPanel complaint={eligible} onUpdated={onUpdated} onConflict={vi.fn()} />);
+        await user.click(screen.getByRole('button', { name: 'Re-run AI' }));
+        expect(axiosClient.post).toHaveBeenCalledWith('/complaints/c1/reclassify', {});
+        expect(onUpdated).toHaveBeenCalled();
+        await user.click(screen.getByRole('button', { name: 'Re-run AI' }));
+        expect(await screen.findByRole('alert')).toHaveTextContent('Classification is pending');
+        rerender(<StaffActionsPanel complaint={{ ...eligible, canReclassify: false }} onUpdated={onUpdated} onConflict={vi.fn()} />);
+        expect(screen.queryByRole('button', { name: 'Re-run AI' })).not.toBeInTheDocument();
     });
 });
