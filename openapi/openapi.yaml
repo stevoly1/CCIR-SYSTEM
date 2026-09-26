@@ -758,6 +758,30 @@ components:
           type: string
           enum: [ok, not_configured]
 
+    BackgroundCheck:
+      type: object
+      additionalProperties: false
+      required: [status, pending, workerLastSeenSeconds, oldestPendingSeconds]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        reason:
+          type: string
+          enum: [NO_WORKER, WORKER_SILENT, BACKLOG_OLD, CHECK_FAILED]
+        pending:
+          type: integer
+          minimum: 0
+          description: Jobs saved but not finished (waiting in the database or in the queue).
+        workerLastSeenSeconds:
+          type: [integer, 'null']
+          minimum: 0
+          description: Seconds since the newest worker heartbeat; null when no worker is running.
+        oldestPendingSeconds:
+          type: [integer, 'null']
+          minimum: 0
+          description: Age in seconds of the oldest unfinished job; null when none is waiting.
+
     Readiness:
       type: object
       additionalProperties: false
@@ -769,10 +793,12 @@ components:
         checks:
           type: object
           additionalProperties: false
-          required: [database, ai, uploads, email, googleSignIn, geocoding]
+          required: [database, background, ai, uploads, email, googleSignIn, geocoding]
           properties:
             database:
               $ref: '#/components/schemas/DatabaseCheck'
+            background:
+              $ref: '#/components/schemas/BackgroundCheck'
             ai:
               $ref: '#/components/schemas/ServiceCheck'
             uploads:
@@ -3278,9 +3304,13 @@ paths:
         optional service is configured; `degraded` when an optional service (AI, uploads, email,
         Google sign-in) is not configured, or when a TTL index is missing (the database check then
         reads `TTL_INDEXES_MISSING`: sessions and throttles would stop expiring); `unavailable` (503)
-        when the database check fails. Never
-        exposes setting values or connection details. Never rate-limited; the database result is
-        shared by concurrent calls and reused for up to `READINESS_CACHE_MS` (default one second).
+        when the database check fails. `background` reads the newest worker heartbeat and the oldest
+        waiting job from the database, never from Redis: `degraded` when no worker has written a
+        heartbeat in two minutes (`NO_WORKER`, `WORKER_SILENT`) or a job has waited over five
+        (`BACKLOG_OLD`), and `CHECK_FAILED` when it cannot be read. Never
+        exposes setting values or connection details. Never rate-limited; the database and
+        background results are shared by concurrent calls and reused for up to `READINESS_CACHE_MS`
+        (default one second).
       operationId: healthReady
       security: []
       responses:
@@ -3299,6 +3329,11 @@ paths:
                   database:
                     status: ok
                     serverVersion: 8.3.11
+                  background:
+                    status: ok
+                    pending: 0
+                    workerLastSeenSeconds: 12
+                    oldestPendingSeconds: null
                   ai:
                     status: ok
                   uploads:
@@ -3324,6 +3359,12 @@ paths:
                   database:
                     status: unavailable
                     reason: INDEXES_MISSING
+                  background:
+                    status: degraded
+                    reason: CHECK_FAILED
+                    pending: 0
+                    workerLastSeenSeconds: null
+                    oldestPendingSeconds: null
                   ai:
                     status: ok
                   uploads:

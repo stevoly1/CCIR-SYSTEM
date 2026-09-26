@@ -125,7 +125,7 @@ Logs are JSON lines on standard output, one line per request plus one per notabl
 | Endpoint | Answers | Status codes |
 |---|---|---|
 | `GET /api/v1/health/live` | the process is running (never checks the database) | 200 |
-| `GET /api/v1/health/ready` | `ready`, `degraded` (an optional service — AI, uploads, email, Google sign-in — is not configured, or a TTL index is missing) or `unavailable` | 200 when ready or degraded; 503 when unavailable |
+| `GET /api/v1/health/ready` | `ready`, `degraded` (an optional service — AI, uploads, email, Google sign-in — is not configured, a TTL index is missing, no background worker has written a heartbeat in two minutes, or a job has waited over five) or `unavailable` | 200 when ready or degraded; 503 when unavailable |
 
 When unavailable, `checks.database.reason` is one of `DATABASE_DISCONNECTED`, `DATABASE_TIMEOUT`, `TRANSACTIONS_UNSUPPORTED` (not a replica set), `INDEXES_MISSING` (run `db:indexes -- --apply`) or `DATABASE_ERROR`. When degraded because `checks.database.reason` is `TTL_INDEXES_MISSING`, sessions and sign-in throttles would stop expiring: run `db:indexes -- --apply`. Readiness needs the database user to be allowed `listIndexes` (the `readWrite` role is). Neither endpoint is rate-limited, and neither reveals a setting value or connection detail; readiness does show which optional services are configured and the MongoDB server version. Because readiness is public, its database check is shared: concurrent probes wait for one check, and the result is reused for `READINESS_CACHE_MS` milliseconds (default `1000`; `0` checks on every call).
 
