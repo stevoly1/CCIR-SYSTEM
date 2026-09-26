@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import toast from 'react-hot-toast';
 import axiosClient from '../../api/axiosClient';
@@ -15,7 +15,7 @@ vi.mock('../../api/axiosClient', () => ({
 const renderFor = (account) => render(<DeleteAccountSection user={account} />);
 
 describe('DeleteAccountSection', () => {
-  beforeEach(() => { axiosClient.delete.mockReset(); leaveTo.mockReset(); });
+  beforeEach(() => { axiosClient.delete.mockReset(); leaveTo.mockReset(); toast.error.mockReset(); });
 
   it('asks a password account for its password and an optional reason', async () => {
     axiosClient.delete.mockResolvedValue({ data: {} });
@@ -48,9 +48,13 @@ describe('DeleteAccountSection', () => {
     await user.click(screen.getByRole('button', { name: 'Delete account' }));
     await user.type(screen.getByLabelText('Password'), 'wrong');
     await user.click(screen.getByRole('button', { name: 'Delete my account' }));
-    expect(toast.error).toHaveBeenCalledWith('The current password is incorrect');
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    const dialog = screen.getByRole('dialog');
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('The current password is incorrect');
+    expect(toast.error).not.toHaveBeenCalled();
     expect(leaveTo).not.toHaveBeenCalled();
+    // Typing again clears the old reason.
+    await user.type(screen.getByLabelText('Password'), 'x');
+    expect(within(dialog).queryByRole('alert')).toBeNull();
   });
 
   it('tells a citizen their name leaves their reports, and staff that theirs stays in the handling history', () => {

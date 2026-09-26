@@ -193,6 +193,7 @@ const UsersPage = () => {
                                         {u.role}
                                     </span>
                                     {state && <span className="badge" style={state.style}>{state.label}</span>}
+                                    {u.emailVerified === false && !u.retiredAt && <span className="badge" style={{ background: '#FFF4E5', color: '#8A4B00' }}>Email not verified</span>}
                                     <div className="user-row-buttons">
                                         <button className="icon-btn" onClick={() => openEdit(u)} disabled={retired} title={retired ? 'Retired accounts cannot be changed' : 'Edit user'} aria-label="Edit user">
                                             <Pencil size={15} />
@@ -269,8 +270,13 @@ const UsersPage = () => {
                                 onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
                                 disabled={editingUser._id === currentUser?._id}
                             >
-                                {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                                {ROLES.map((r) => (
+                                    <option key={r} value={r} disabled={editingUser.emailVerified === false && r !== 'citizen' && r !== editingUser.role}>{r}</option>
+                                ))}
                             </select>
+                            {editingUser.emailVerified === false && (
+                                <p className="field-hint">Verify this account&apos;s email address before giving it a staff role.</p>
+                            )}
                         </div>
                         <button className="btn btn-primary" type="submit" disabled={saving}>
                             {saving ? <span className="spinner" /> : 'Save changes'}

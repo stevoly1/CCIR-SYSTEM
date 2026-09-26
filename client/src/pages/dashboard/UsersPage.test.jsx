@@ -214,6 +214,22 @@ describe('UsersPage', () => {
       expect(axiosClient.delete).toHaveBeenCalledWith('/users/u-cit', { data: { reason: 'Duplicate account' } });
     });
   });
+
+  it('marks unverified accounts, and will not give them a staff role', async () => {
+    const unverified = { ...citizen, _id: 'u-new', name: 'New Person', emailVerified: false };
+    axiosClient.get.mockResolvedValue({ data: { users: [admin, unverified] } });
+    const user = userEvent.setup();
+    render(<UsersPage />);
+    await screen.findByText('New Person');
+    expect(within(rowOf('New Person')).getByText('Email not verified')).toBeInTheDocument();
+    expect(within(rowOf('Chi Admin (you)')).queryByText('Email not verified')).toBeNull();
+    await user.click(within(rowOf('New Person')).getByRole('button', { name: 'Edit user' }));
+    const role = screen.getByLabelText('Role');
+    expect(within(role).getByRole('option', { name: 'agency' })).toBeDisabled();
+    expect(within(role).getByRole('option', { name: 'admin' })).toBeDisabled();
+    expect(within(role).getByRole('option', { name: 'citizen' })).not.toBeDisabled();
+    expect(screen.getByText("Verify this account's email address before giving it a staff role.")).toBeInTheDocument();
+  });
 });
 
 async function rowFor(text) {
