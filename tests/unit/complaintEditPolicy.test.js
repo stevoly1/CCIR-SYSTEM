@@ -22,15 +22,4 @@ describe('complaint edit policy', () => {
   it('treats a legacy complaint without an analysis count as analysed once', () => {
     expect(() => policy.assertEditAllowed({ complaint: { ai: {}, editHistory: [] }, material: true })).not.toThrow();
   });
-
-  it('keeps staff priority and derives the rest', () => {
-    const category = { defaultPriority: 'LOW' };
-    expect(policy.reanalysisPriority({ complaint: { prioritySource: 'STAFF' }, ai: { priority: 'HIGH', error: null }, category })).toEqual({});
-    expect(policy.reanalysisPriority({ complaint: { prioritySource: 'AI' }, ai: { priority: 'HIGH', error: null }, category }))
-      .toEqual({ priority: 'HIGH', prioritySource: 'AI' });
-    expect(policy.reanalysisPriority({ complaint: { prioritySource: 'CATEGORY_DEFAULT' }, ai: { priority: 'MEDIUM', error: 'TIMEOUT' }, category }))
-      .toEqual({ priority: 'LOW', prioritySource: 'CATEGORY_DEFAULT' });
-    expect(policy.reanalysisPriority({ complaint: {}, ai: { priority: 'HIGH', error: null }, category }))
-      .toEqual({ priority: 'HIGH', prioritySource: 'AI' });
-  });
 });

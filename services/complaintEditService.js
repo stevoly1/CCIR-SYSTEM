@@ -6,8 +6,16 @@ const { buildUserSnapshot } = require('./userSnapshotService');
 const { assertExpectedVersion } = require('./complaintVersionGuard');
 const authority = require('../policies/complaintAuthorityPolicy');
 const { chooseCategory, FALLBACK_NAME } = require('../policies/complaintCategoryPolicy');
-const { assertEditAllowed, isMaterialChange, reanalysisPriority } = require('../policies/complaintEditPolicy');
+const { assertEditAllowed, isMaterialChange } = require('../policies/complaintEditPolicy');
 const { buildLocation } = require('../validators/locationValidator');
+
+// Transitional synchronous edit path; removed when the background request replaces it in Task 12.
+const reanalysisPriority = ({ complaint, ai, category }) => {
+  if (complaint.prioritySource === 'STAFF') return {};
+  return ai.error
+    ? { priority: category.defaultPriority, prioritySource: 'CATEGORY_DEFAULT' }
+    : { priority: ai.priority, prioritySource: 'AI' };
+};
 
 const loadOwnedComplaint = async (complaintId, viewer) => {
   const complaint = await Complaint.findById(complaintId);

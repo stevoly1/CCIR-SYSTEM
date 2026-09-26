@@ -16,19 +16,10 @@ const assertEditAllowed = ({ complaint, material }) => {
   if (material && (complaint.ai?.analysisCount ?? 1) >= MAX_ANALYSES) throw editLimitReached();
 };
 
-// A staff-set priority is not AI-derived, so re-analysis never overwrites it.
-const reanalysisPriority = ({ complaint, ai, category }) => {
-  if (complaint.prioritySource === 'STAFF') return {};
-  return ai.error
-    ? { priority: category.defaultPriority, prioritySource: 'CATEGORY_DEFAULT' }
-    : { priority: ai.priority, prioritySource: 'AI' };
-};
-
 module.exports = {
   MAX_ANALYSES,
   MAX_EDITS,
   normaliseDescription,
   isMaterialChange,
   assertEditAllowed,
-  reanalysisPriority,
 };
