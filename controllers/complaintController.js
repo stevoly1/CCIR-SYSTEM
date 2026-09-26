@@ -14,11 +14,13 @@ const {
 } = require('../presenters/complaintPresenter');
 const { buildUserSnapshot } = require('../services/userSnapshotService');
 const { buildLocation } = require('../validators/locationValidator');
-const { categoryInactive, complaintWithdrawn, emailNotVerified } = require('../errors/domainErrors');
+const { categoryInactive, complaintWithdrawn, emailNotVerified, classificationPending, aiNotConfigured } = require('../errors/domainErrors');
 const { versionFilter } = require('../services/complaintVersionGuard');
 const { notAssignedToYou, staleComplaint } = require('../errors/domainErrors');
 const referenceService = require('../services/complaintReferenceService');
-const { enqueueClassification } = require('../services/classificationRequests');
+const { enqueueClassification, requestClassification } = require('../services/classificationRequests');
+const { getAiConfig } = require('../config/ai');
+const { getLogger } = require('../utils/logger');
 const { inTransaction } = require('../utils/transaction');
 const { enqueue } = require('../services/jobs/outbox');
 const complaintImageService = require('../services/complaintImageService');
@@ -289,6 +291,25 @@ const withdrawComplaint = async (req, res) => {
     await respondWithComplaint(res, StatusCodes.OK, complaint._id, viewer);
 };
 
+// Administrator-only route. The status predicate also protects a withdrawal that races this read.
+const reclassifyComplaint = async (req, res) => {
+    const viewer = viewerFromRequest(req);
+    const complaint = await Complaint.findById(req.params.id);
+    if (!complaint) throw new CustomError.NotFoundError(`No complaint found with id ${req.params.id}`);
+    if (complaint.status === 'WITHDRAWN') throw complaintWithdrawn();
+    if (!getAiConfig().configured) throw aiNotConfigured();
+    const requested = await inTransaction((session) => requestClassification({
+        session, complaintId: complaint._id,
+        where: { status: { $ne: 'WITHDRAWN' }, 'ai.status': { $ne: 'PENDING' } },
+    }));
+    if (!requested) {
+        const current = await Complaint.findById(complaint._id).select('status');
+        throw current?.status === 'WITHDRAWN' ? complaintWithdrawn() : classificationPending();
+    }
+    getLogger().info({ event: 'reclassify_requested', complaintId: String(complaint._id), by: String(viewer.userId) }, 'Classification requested again');
+    await respondWithComplaint(res, StatusCodes.ACCEPTED, complaint._id, viewer);
+};
+
 // Administrator-only (route-restricted); citizens withdraw instead.
 const deleteComplaint = async (req, res) => {
     await deleteComplaintPermanently({
@@ -308,5 +329,6 @@ module.exports = {
     updateComplaintStatus,
     assignComplaint,
     withdrawComplaint,
+    reclassifyComplaint,
     deleteComplaint,
 };

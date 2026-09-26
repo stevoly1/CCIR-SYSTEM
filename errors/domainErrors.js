@@ -6,6 +6,8 @@ module.exports = {
   staleComplaint: make(409, 'STALE_COMPLAINT', 'This report changed; reload it and try again'),
   complaintNotEditable: make(409, 'COMPLAINT_NOT_EDITABLE', 'Only pending reports can be changed by their reporter'),
   complaintWithdrawn: make(409, 'COMPLAINT_WITHDRAWN', 'Withdrawn reports can no longer be assigned or updated by staff'),
+  classificationPending: make(409, 'CLASSIFICATION_PENDING', 'This report is already being classified'),
+  aiNotConfigured: make(409, 'AI_NOT_CONFIGURED', 'AI classification is not configured on this server'),
   notAssignedToYou: make(403, 'NOT_ASSIGNED_TO_YOU', 'Only the assigned staff member can update this report'),
   noChange: make(409, 'NO_CHANGE', 'The update does not change the report'),
   editLimitReached: make(409, 'EDIT_LIMIT_REACHED', 'This report has reached its edit limit'),

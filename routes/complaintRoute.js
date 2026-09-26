@@ -21,6 +21,7 @@ const {
     updateComplaintStatus,
     assignComplaint,
     withdrawComplaint,
+    reclassifyComplaint,
     deleteComplaint,
 } = require('../controllers/complaintController');
 
@@ -41,5 +42,8 @@ ComplaintRouter.route('/:id/assign')
 
 ComplaintRouter.route('/:id/withdraw')
     .post(authentication, validate({ params: idParamsSchema, body: withdrawComplaintSchema, query: emptyQuerySchema }), withdrawComplaint);
+
+ComplaintRouter.route('/:id/reclassify')
+    .post(authentication, restrictTo('admin'), validate({ params: idParamsSchema, body: emptyQuerySchema, query: emptyQuerySchema }), reclassifyComplaint);
 
 module.exports = ComplaintRouter;

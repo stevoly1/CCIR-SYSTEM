@@ -3192,6 +3192,123 @@ paths:
         '500':
           $ref: '#/components/responses/ServerError'
 
+  /complaints/{id}/reclassify:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [complaints]
+      summary: Ask for a new AI classification (administrators)
+      description: >
+        Writes a new background classification request and returns immediately. A staff-set category
+        or priority is never changed by its answer. Refuses a pending classification, a withdrawn
+        report, or a server without configured AI.
+      operationId: reclassifyComplaint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+            example: {}
+      responses:
+        '202':
+          description: Classification requested; the current staff view remains available.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [complaint]
+                properties:
+                  complaint:
+                    $ref: '#/components/schemas/ComplaintStaffView'
+              example:
+                complaint:
+                  _id: 66f1a0c0a1b2c3d4e5f60020
+                  referenceCode: CCIR-EXAMPLE1
+                  status: PENDING
+                  priority: LOW
+                  description: Deep pothole outside the market gate
+                  category:
+                    _id: 66f1a0c0a1b2c3d4e5f60011
+                    name: Other
+                    recordedName: Other
+                    isActive: true
+                    deleted: false
+                  categorySource: FALLBACK
+                  address: 12 Market Road, Ikeja
+                  hasPrecisePosition: false
+                  imageCount: 0
+                  thumbnailUrl: null
+                  createdAt: '2026-09-24T09:20:00.000Z'
+                  updatedAt: '2026-09-24T09:40:00.000Z'
+                  reporter:
+                    userId: 66f1a0c0a1b2c3d4e5f60001
+                    displayName: Ada Citizen
+                    role: citizen
+                  assignee: null
+                  version: 0
+                  images: []
+                  citizenCategory: null
+                  ai:
+                    suggestedCategory: null
+                    confidence: null
+                    summary: ''
+                    tags: []
+                    classifiedAt: null
+                    error: null
+                    inputMode: null
+                    analysisCount: 1
+                    status: PENDING
+                    requestSeq: 2
+                    failureCode: null
+                    failedAt: null
+                    provider: null
+                    model: null
+                    promptVersion: null
+                    disagreement: null
+                  timeline: []
+                  responsibility: AWAITING_ASSIGNMENT
+                  canEdit: true
+                  canWithdraw: true
+                  location:
+                    address: 12 Market Road, Ikeja
+                    latitude: null
+                    longitude: null
+                    coordinateSource: null
+                  assignmentHistory: []
+                  editHistory: []
+                  allowedTransitions: [IN_REVIEW, REJECTED]
+                  canChangePriority: true
+                  canAssign: true
+                  canRecategorise: true
+                  canReclassify: false
+                  canDelete: true
+                  resolvedAt: null
+                  resolvedAtEstimated: false
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: CLASSIFICATION_PENDING, COMPLAINT_WITHDRAWN, or AI_NOT_CONFIGURED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: CLASSIFICATION_PENDING
+                  message: This report is already being classified
+                msg: This report is already being classified
+        '500':
+          $ref: '#/components/responses/ServerError'
+
   /complaints/{id}/status:
     parameters:
       - $ref: '#/components/parameters/Id'
