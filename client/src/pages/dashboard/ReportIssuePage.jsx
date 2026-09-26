@@ -8,6 +8,7 @@ import VerifyEmailBanner from '../../components/account/VerifyEmailBanner';
 import LocationField from '../../components/LocationField';
 import { EMPTY_LOCATION, locationToFormData } from '../../components/locationValue';
 import { createComplaint, resetCreateStatus } from '../../slices/complaintSlice';
+import { fetchCategories } from '../../slices/categorySlice';
 
 const MAX_IMAGES = 5;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -19,14 +20,18 @@ const ReportIssuePage = () => {
     const navigate = useNavigate();
     const { createStatus, error } = useSelector((state) => state.complaints);
     const user = useSelector((state) => state.auth.user);
+    const categories = useSelector((state) => state.categories.items);
 
     const [description, setDescription] = useState('');
+    const [categoryId, setCategoryId] = useState('');
     const [location, setLocation] = useState(EMPTY_LOCATION);
     const [images, setImages] = useState([]);
 
     useEffect(() => {
         return () => dispatch(resetCreateStatus());
     }, [dispatch]);
+
+    useEffect(() => { dispatch(fetchCategories()); }, [dispatch]);
 
     useEffect(() => {
         return () => images.forEach((img) => URL.revokeObjectURL(img.previewUrl));
@@ -78,6 +83,7 @@ const ReportIssuePage = () => {
 
         const formData = new FormData();
         formData.append('description', description);
+        if (categoryId) formData.append('categoryId', categoryId);
         locationToFormData(formData, location);
         images.forEach((img) => formData.append('image', img.file));
 
@@ -118,6 +124,17 @@ const ReportIssuePage = () => {
                         minLength={10}
                         required
                     />
+                </div>
+
+                <div className="field">
+                    <label htmlFor="report-category">Category (optional)</label>
+                    <select id="report-category" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+                        <option value="">Let the AI choose</option>
+                        {categories.filter((category) => category.isActive !== false).map((category) => (
+                            <option key={category._id} value={category._id}>{category.name}</option>
+                        ))}
+                    </select>
+                    <span className="meta">If you choose one, it stays; staff may still change it.</span>
                 </div>
 
                 <LocationField value={location} onChange={setLocation} />

@@ -1,11 +1,14 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import toast from 'react-hot-toast';
+import { createComplaint } from '../../slices/complaintSlice';
+import { fetchCategories } from '../../slices/categorySlice';
 import ReportIssuePage from './ReportIssuePage';
 
-const state = { complaints: { createStatus: 'idle', error: null }, auth: { user: { email: 'ada@example.test', emailVerified: true } } };
+const dispatchSpy = vi.hoisted(() => vi.fn((action) => action));
+const state = { complaints: { createStatus: 'idle', error: null }, auth: { user: { email: 'ada@example.test', emailVerified: true } }, categories: { items: [] } };
 vi.mock('react-redux', () => ({
-    useDispatch: () => vi.fn(),
+    useDispatch: () => dispatchSpy,
     useSelector: (select) => select(state),
 }));
 vi.mock('../../components/account/VerifyEmailBanner', () => ({ default: () => <p>verify panel stub</p> }));
@@ -16,9 +19,10 @@ vi.mock('react-hot-toast', () => ({
 vi.mock('../../components/Topbar', () => ({ default: () => null }));
 vi.mock('../../api/axiosClient', () => ({ default: { get: vi.fn() } }));
 vi.mock('../../slices/complaintSlice', () => ({
-    createComplaint: Object.assign(vi.fn(), { fulfilled: { match: vi.fn(() => false) } }),
+    createComplaint: Object.assign(vi.fn(() => ({ type: 'create/rejected', payload: 'Test response' })), { fulfilled: { match: vi.fn(() => false) } }),
     resetCreateStatus: vi.fn(() => ({ type: 'reset' })),
 }));
+vi.mock('../../slices/categorySlice', () => ({ fetchCategories: vi.fn(() => ({ type: 'fetchCategories' })) }));
 
 const fileOfSize = (name, size, type = 'image/jpeg') => new File([new Uint8Array(size)], name, { type });
 
@@ -118,5 +122,38 @@ describe('ReportIssuePage and email verification', () => {
         render(<ReportIssuePage />);
         expect(screen.queryByText('verify panel stub')).toBeNull();
         expect(screen.getByRole('button', { name: 'Submit Report' })).toBeInTheDocument();
+    });
+});
+
+describe('ReportIssuePage category choice', () => {
+    beforeEach(() => {
+        state.categories.items = [{ _id: 'c-roads', name: 'Roads', isActive: true }, { _id: 'c-old', name: 'Old', isActive: false }];
+        createComplaint.mockClear();
+        fetchCategories.mockClear();
+    });
+    afterEach(() => { state.categories.items = []; });
+
+    const submit = async () => {
+        fireEvent.change(screen.getByLabelText("What's the issue?"), { target: { value: 'A deep pothole near the market' } });
+        fireEvent.submit(document.querySelector('form'));
+        await vi.waitFor(() => expect(createComplaint).toHaveBeenCalledTimes(1));
+        return createComplaint.mock.calls[0][0];
+    };
+
+    it('sends the active category selected by the citizen', async () => {
+        const user = userEvent.setup();
+        render(<ReportIssuePage />);
+        expect(fetchCategories).toHaveBeenCalledTimes(1);
+        const select = screen.getByLabelText('Category (optional)');
+        expect(select).toHaveValue('');
+        expect(screen.queryByRole('option', { name: 'Old' })).not.toBeInTheDocument();
+        await user.selectOptions(select, 'c-roads');
+        expect((await submit()).get('categoryId')).toBe('c-roads');
+    });
+
+    it('sends no category when the citizen leaves the AI choice selected', async () => {
+        render(<ReportIssuePage />);
+        expect(screen.getByRole('option', { name: 'Let the AI choose' })).toBeInTheDocument();
+        expect((await submit()).has('categoryId')).toBe(false);
     });
 });
