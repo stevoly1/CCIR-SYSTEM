@@ -1,6 +1,6 @@
 import {} from 'react';
 import { Link, NavLink, useNavigate } from 'react-router';
-import { Home, PlusCircle, FileText, Users, Tags, Settings, LogOut, X } from 'lucide-react';
+import { Home, PlusCircle, FileText, Users, Tags, Activity, Settings, LogOut, X } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import { logout } from '../slices/authSlice';
 import toast from 'react-hot-toast';
@@ -56,6 +56,9 @@ const Sidebar = ({ open, onClose }) => {
                         </NavLink>
                         <NavLink to="/dashboard/categories" className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`} onClick={onClose}>
                             <Tags size={18} /> Categories
+                        </NavLink>
+                        <NavLink to="/dashboard/jobs" className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`} onClick={onClose}>
+                            <Activity size={18} /> Jobs
                         </NavLink>
                     </>
                 )}
