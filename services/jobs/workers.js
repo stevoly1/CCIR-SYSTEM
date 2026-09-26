@@ -5,8 +5,9 @@ const { JobError } = require('./jobError');
 const { getLogger } = require('../../utils/logger');
 
 // Idle cost on a per-command Redis (Upstash): a worker long-polls an empty queue for drainDelay
-// seconds, and checks for stalled jobs every stalledInterval. Measured in the command-budget test.
-const IDLE_SETTINGS = { drainDelay: 120, stalledInterval: 120 * 1000 };
+// seconds (a new job wakes it at once), and checks for stalled jobs every stalledInterval. These
+// are the values Upstash's BullMQ guide suggests; measured in the command-budget test.
+const IDLE_SETTINGS = { drainDelay: 300, stalledInterval: 300 * 1000 };
 
 const UNLIMITED = { max: 1000, duration: 1000 };
 
