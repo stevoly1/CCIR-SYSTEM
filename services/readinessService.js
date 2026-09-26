@@ -1,8 +1,8 @@
 const mongoose = require('mongoose');
+const { parseAiConfig } = require('../config/ai');
 
 // Optional services: each is "ok" when all of its settings are present. Values are never read out.
 const SERVICE_SETTINGS = {
-  ai: ['GOOGLE_API_KEY'],
   uploads: ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'],
   email: ['RESEND_API_KEY', 'EMAIL_FROM'],
   googleSignIn: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL'],
@@ -131,6 +131,7 @@ const checkReadiness = async ({
   for (const [service, names] of Object.entries(SERVICE_SETTINGS)) {
     checks[service] = names.every((name) => Boolean(env[name])) ? { status: 'ok' } : { status: 'not_configured' };
   }
+  checks.ai = parseAiConfig(env).configured ? { status: 'ok' } : { status: 'not_configured' };
   // Photon is a keyless public service; there is no setting to check.
   checks.geocoding = { status: 'ok' };
 

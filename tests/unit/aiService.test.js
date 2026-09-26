@@ -53,7 +53,9 @@ describe('AI classification contract', () => {
     expect(parseAiTimeout(undefined)).toBe(8000);
     expect(parseAiTimeout('1000')).toBe(1000);
     expect(parseAiTimeout('15000')).toBe(15000);
-    for (const value of ['', '999', '15001', '1000.5', 'not-a-number']) {
+    expect(parseAiTimeout('20000')).toBe(20000);
+    expect(parseAiTimeout('60000')).toBe(60000);
+    for (const value of ['', '999', '60001', '1000.5', 'not-a-number']) {
       expect(() => parseAiTimeout(value)).toThrow(/AI_TIMEOUT_MS/);
     }
   });

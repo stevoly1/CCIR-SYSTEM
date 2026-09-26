@@ -16,11 +16,11 @@ const RETRY_DELAY_MS = 250;
 const parseAiTimeout = (value) => {
     if (value === undefined) return 8000;
     if (typeof value !== 'string' || !/^\d+$/.test(value)) {
-        throw new Error('AI_TIMEOUT_MS must be an integer between 1000 and 15000');
+        throw new Error('AI_TIMEOUT_MS must be an integer between 1000 and 60000');
     }
     const timeout = Number(value);
-    if (!Number.isSafeInteger(timeout) || timeout < 1000 || timeout > 15000) {
-        throw new Error('AI_TIMEOUT_MS must be an integer between 1000 and 15000');
+    if (!Number.isSafeInteger(timeout) || timeout < 1000 || timeout > 60000) {
+        throw new Error('AI_TIMEOUT_MS must be an integer between 1000 and 60000');
     }
     return timeout;
 };

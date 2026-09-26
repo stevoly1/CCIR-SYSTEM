@@ -942,6 +942,7 @@ components:
             background:
               $ref: '#/components/schemas/BackgroundCheck'
             ai:
+              description: Configured when AI_PROVIDER selects an adapter and its key is present.
               $ref: '#/components/schemas/ServiceCheck'
             uploads:
               $ref: '#/components/schemas/ServiceCheck'

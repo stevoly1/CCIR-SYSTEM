@@ -77,4 +77,29 @@ describe('worker processes', () => {
     expect(code).toBe(1);
     expect(output()).toContain('WORKERS_IN_PROCESS must be true or false');
   }, 30000);
+
+  it.each(['server.js', 'worker.js'])('refuses to start %s with an invalid AI setting', async (script) => {
+    const child = spawn(process.execPath, [path.join(ROOT, script)], {
+      cwd: emptyDir(),
+      env: childEnv(redis.url, { AI_RATE_PER_MINUTE: '0', MONGO_URL: 'not-a-uri', PORT: '0' }),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const output = collect(child);
+    const [code] = await once(child, 'exit');
+    expect(code).not.toBe(0);
+    expect(output()).toContain('AI_RATE_PER_MINUTE must be an integer from 1 to 600');
+  }, 30000);
+
+  it('accepts the new default AI timeout before the API connects to MongoDB', async () => {
+    const child = spawn(process.execPath, [path.join(ROOT, 'server.js')], {
+      cwd: emptyDir(),
+      env: childEnv(redis.url, { AI_TIMEOUT_MS: '20000', MONGO_URL: 'not-a-uri', PORT: '0' }),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const output = collect(child);
+    const [code] = await once(child, 'exit');
+    expect(code).toBe(1);
+    expect(output()).toContain('Invalid scheme');
+    expect(output()).not.toContain('AI_TIMEOUT_MS must');
+  }, 30000);
 });

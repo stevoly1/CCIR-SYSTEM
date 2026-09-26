@@ -6,6 +6,7 @@ const app = require('./app');
 const connectDB = require('./config/db');
 const seedDefaultCategories = require('./utils/seedCategories');
 const { parseQueueConfig, requireRedisUrl } = require('./config/queue');
+const { getAiConfig, legacyAiSettings } = require('./config/ai');
 const { getLogger } = require('./utils/logger');
 
 const port = process.env.PORT || 8080;
@@ -17,6 +18,11 @@ const startApp = async () => {
     // Queue settings are checked before anything starts, so a bad value never leaves a half-started app.
     const queueConfig = parseQueueConfig(process.env);
     if (queueConfig.workersInProcess) requireRedisUrl(queueConfig);
+    getAiConfig();
+    const legacy = legacyAiSettings(process.env);
+    if (legacy.length) {
+      getLogger().warn({ event: 'legacy_ai_settings', settings: legacy }, 'These settings are no longer used; remove them');
+    }
     await connectDB();
     const seeding = await seedDefaultCategories({ requireUniqueIndexes: process.env.NODE_ENV === 'production' });
     if (!seeding.seeded) {
