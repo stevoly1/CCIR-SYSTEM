@@ -6,7 +6,6 @@ const app = require('./app');
 const connectDB = require('./config/db');
 const seedDefaultCategories = require('./utils/seedCategories');
 const { parseQueueConfig, requireRedisUrl } = require('./config/queue');
-const { startBackgroundWork } = require('./services/jobs/background');
 const { getLogger } = require('./utils/logger');
 
 const port = process.env.PORT || 8080;
@@ -32,8 +31,9 @@ const startApp = async () => {
     getLogger().info({ port: server.address().port }, 'App is listening');
 
     // Signal handlers are in place before background work starts, so a stop during start-up
-    // still waits for it and removes the heartbeat.
-    const starting = queueConfig.workersInProcess ? startBackgroundWork() : Promise.resolve(null);
+    // still waits for it and removes the heartbeat. The background module is required only here,
+    // so an API that runs without workers never loads the queue library.
+    const starting = queueConfig.workersInProcess ? require('./services/jobs/background').startBackgroundWork() : Promise.resolve(null);
     let stopping = false;
     const shutdown = async (signal) => {
       if (stopping) return;

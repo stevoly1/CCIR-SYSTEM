@@ -21,4 +21,14 @@ describe('what the API process loads for background jobs', () => {
     expect(result.status).toBe(0);
     expect(JSON.parse(result.stdout)).toEqual({ types: 7, loaded: 0 });
   });
+
+  it('serves every route without loading the queue library', () => {
+    const result = inFreshProcess(`
+      require('./app');
+      const loaded = Object.keys(require.cache).filter((file) => /node_modules[\\\\/](bullmq|ioredis)[\\\\/]/.test(file));
+      process.stdout.write(JSON.stringify({ loaded: loaded.length }));
+    `);
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ loaded: 0 });
+  });
 });
