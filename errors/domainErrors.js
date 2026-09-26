@@ -14,7 +14,6 @@ module.exports = {
   categoryInUse: make(409, 'CATEGORY_IN_USE', 'Only an inactive category with no reports can be deleted'),
   categoryProtected: make(409, 'CATEGORY_PROTECTED', 'Other is the required active fallback category'),
   invalidOrExpiredToken: make(400, 'INVALID_OR_EXPIRED_TOKEN', 'This link is invalid or has expired; request a new one'),
-  emailNotSent: make(503, 'EMAIL_NOT_SENT', 'We could not send the email; please try again'),
   googleAccount: make(409, 'GOOGLE_ACCOUNT', 'This account signs in with Google, which manages its password and email address'),
   wrongPassword: make(401, 'WRONG_PASSWORD', 'The current password is incorrect'),
   samePassword: make(400, 'SAME_PASSWORD', 'The new password must differ from the current one'),

@@ -1,4 +1,4 @@
-const { Complaint, OutboxEntry, User } = require('../../models');
+const { AccountToken, Complaint, EmailChange, OutboxEntry, User } = require('../../models');
 const emailService = require('../emailService');
 const { registerHandler } = require('./registry');
 const { accountThrottle } = require('../accountThrottle');
@@ -7,6 +7,8 @@ const { inTransaction } = require('../../utils/transaction');
 const { issueTokenRecord } = require('../accountTokenService');
 const { ensureAccountLifecycleGuard, touchAccountLifecycleGuard } = require('../accountLifecycleGuard');
 const { getLogger } = require('../../utils/logger');
+const { JobError } = require('./jobError');
+const { enqueue } = require('./outbox');
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -114,6 +116,93 @@ registerHandler('password_changed', {
     if (!user || user.retiredAt) return;
     await sendOnce(entry, () => emailService.sendPasswordChangedEmail({ to: user.email, name: user.name, idempotencyKey: keyFor(entry) }));
   },
+});
+
+const endChange = (changeId, state, failedCode) => EmailChange.updateOne(
+  { _id: changeId, active: true },
+  { $set: { state, endedAt: new Date(), ...(failedCode ? { failedCode } : {}) }, $unset: { active: 1 } },
+);
+
+// An email that cannot be sent ends the change: nothing changed, and no link may outlive it.
+const failChange = async (changeId, code) => {
+  const change = await EmailChange.findById(changeId);
+  if (!change) return;
+  await endChange(change._id, 'FAILED', code);
+  await AccountToken.deleteMany({ user: change.user, purpose: 'email_change', emailChange: change._id, usedAt: null });
+};
+
+// An administrator's retry (the Jobs page) puts a failed change back where its job left off. The
+// change may also still be in that state, if its final-failure step itself failed. A newer change
+// for the account, which holds the one active slot, stops it.
+const reopenChange = (state) => async (entry, session) => {
+  let reopened;
+  try {
+    reopened = await EmailChange.updateOne(
+      { _id: entry.refs.emailChangeId, $or: [{ state: 'FAILED' }, { state, active: true }] },
+      { $set: { state, active: true }, $unset: { failedCode: 1, endedAt: 1 } },
+      { session },
+    );
+  } catch (error) {
+    if (error?.code !== 11000) throw error;
+    reopened = { matchedCount: 0 };
+  }
+  if (reopened.matchedCount !== 1) throw new Error('This email change can no longer be retried');
+};
+
+const changeAndUser = async (entry, expectedState) => {
+  const change = await EmailChange.findById(entry.refs.emailChangeId);
+  if (!change || change.state !== expectedState || !change.active) return {};
+  const user = await User.findById(change.user);
+  if (!user || user.retiredAt || user.isActive !== true || user.authProvider !== 'local') {
+    await endChange(change._id, 'CANCELLED');
+    return {};
+  }
+  return { change, user };
+};
+
+registerHandler('email_change_notice', {
+  queue: 'email',
+  run: async (entry) => {
+    const { change, user } = await changeAndUser(entry, 'NOTICE_PENDING');
+    if (!change) return;
+    await sendOnce(entry, () => emailService.sendEmailChangeNotice({
+      to: user.email, name: user.name, newEmail: change.newEmail, requestedByAdministrator: change.byAdministrator, idempotencyKey: keyFor(entry),
+    }));
+    // Only now may the link be sent: the move and the link job are written together.
+    await inTransaction(async (session) => {
+      const moved = await EmailChange.updateOne({ _id: change._id, state: 'NOTICE_PENDING', active: true }, { $set: { state: 'NOTICE_SENT' } }, { session });
+      if (moved.modifiedCount === 1) {
+        await enqueue(session, { queue: 'email', type: 'email_change_link', refs: { emailChangeId: String(change._id) } });
+      }
+    });
+    getLogger().info({ event: 'email_change_requested', userId: String(change.user), requestedBy: String(change.requestedBy) }, 'Email change requested');
+  },
+  onFinalFailure: (entry, code) => failChange(entry.refs.emailChangeId, code),
+  onRetry: reopenChange('NOTICE_PENDING'),
+});
+
+registerHandler('email_change_link', {
+  queue: 'email',
+  run: async (entry) => {
+    const { change, user } = await changeAndUser(entry, 'NOTICE_SENT');
+    if (!change) return;
+    if (!entry.deliveredAt) {
+      // Over the recipient cap the change fails, visibly, rather than waiting for ever.
+      if (!(await withinRecipientCap(entry, change.newEmail))) throw JobError.of('RECIPIENT_CAPPED');
+      const link = await issueLinkFor({
+        userId: user._id, email: user.email, purpose: 'email_change', requestedBy: change.requestedBy, newEmail: change.newEmail, emailChange: change._id,
+      });
+      if (!link) {
+        await endChange(change._id, 'CANCELLED');
+        return;
+      }
+      await emailService.sendEmailChangeConfirmation({ to: change.newEmail, name: user.name, token: link.token, idempotencyKey: `link-${link.record._id}` });
+      await markDelivered(entry);
+    }
+    await EmailChange.updateOne({ _id: change._id, state: 'NOTICE_SENT', active: true }, { $set: { state: 'LINK_SENT' } });
+  },
+  onFinalFailure: (entry, code) => failChange(entry.refs.emailChangeId, code),
+  onRetry: reopenChange('NOTICE_SENT'),
 });
 
 module.exports = { keyFor, sendOnce, markDelivered, canReceiveReportEmails, withinRecipientCap, issueLinkFor };

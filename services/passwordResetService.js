@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const { User } = require('../models');
 const { consumeToken, cancelTokens } = require('./accountTokenService');
 const { enqueue } = require('./jobs/outbox');
+const { endActiveChanges } = require('./emailChangeState');
 const { endSessions } = require('./sessionService');
 const { ensureAccountLifecycleGuard, touchAccountLifecycleGuard } = require('./accountLifecycleGuard');
 const { assertPasswordAllowed } = require('../validators/passwordPolicy');
@@ -24,6 +25,7 @@ const resetPassword = async ({ token, password }) => {
       await user.save({ session });
       await endSessions({ userId: user._id, session });
       await cancelTokens({ userId: user._id, session });
+      await endActiveChanges({ userId: user._id, state: 'CANCELLED', session });
       await enqueue(session, { queue: 'email', type: 'password_changed', refs: { userId: String(user._id) } });
     });
   } finally {

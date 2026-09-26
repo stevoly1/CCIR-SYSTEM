@@ -7,6 +7,8 @@ const accountTokenSchema = new mongoose.Schema({
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     tokenHash: { type: String, required: true, unique: true, match: /^[0-9a-f]{64}$/ },
     newEmail: { type: String, lowercase: true, trim: true },
+    // The email change this link belongs to (email_change links only).
+    emailChange: { type: mongoose.Schema.Types.ObjectId, ref: 'EmailChange' },
     requestedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     expiresAt: { type: Date, required: true },
     usedAt: { type: Date, default: null },

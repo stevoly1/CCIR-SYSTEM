@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { Complaint, RefreshToken, User } = require('../models');
+const { AccountToken, Complaint, EmailChange, RefreshToken, User } = require('../models');
 const { buildUserSnapshot } = require('./userSnapshotService');
 const {
   ensureAccountLifecycleGuard,
@@ -7,6 +7,7 @@ const {
 } = require('./accountLifecycleGuard');
 const { BadRequestError, ConflictError, ForbiddenError, NotFoundError } = require('../errors');
 const { cancelTokens } = require('./accountTokenService');
+const { endActiveChanges } = require('./emailChangeState');
 
 const TERMINAL_STATUSES = new Set(['RESOLVED', 'REJECTED', 'WITHDRAWN']);
 const RETIRED_NAME = 'Retired account';
@@ -124,7 +125,9 @@ const retireAccount = async ({ targetUserId, actorUserId, reason }) => {
       const now = new Date();
       await preserveSnapshotsAndAssignments({ target, actor, reason: normalizedReason, session, now, scrub: self && target.role === 'citizen' });
       await RefreshToken.deleteMany({ user: target._id }, { session });
-      await cancelTokens({ userId: target._id, session });
+      // Used links too: a used email-change record still holds the address it moved to.
+      await AccountToken.deleteMany({ user: target._id }, { session });
+      await EmailChange.deleteMany({ user: target._id }, { session });
 
       target.name = 'Retired account';
       target.email = `retired+${target._id}@invalid.local`;
@@ -211,6 +214,11 @@ const mutateAdministrator = async ({ targetUserId, actorUserId, changes, reason 
       }
       Object.assign(target, changes);
       await target.save({ session });
+      if (changes.isActive === false) {
+        // A suspended account's links, and any email change under way, end with it.
+        await cancelTokens({ userId: target._id, session });
+        await endActiveChanges({ userId: target._id, state: 'CANCELLED', session });
+      }
       if (changes.isActive === false || roleChanged) {
         await RefreshToken.deleteMany({ user: target._id }, { session });
       }

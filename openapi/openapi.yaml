@@ -248,6 +248,36 @@ components:
           format: date-time
         __v:
           type: integer
+        pendingEmailChange:
+          $ref: '#/components/schemas/PendingEmailChange'
+
+    PendingEmailChange:
+      type: [object, 'null']
+      description: >
+        The account's email change in progress, or the last one if it failed; null otherwise. Present on
+        the profile and on the administrators' user list.
+      additionalProperties: false
+      required: [newEmail, state]
+      properties:
+        newEmail:
+          type: string
+          format: email
+        state:
+          type: string
+          enum: [NOTICE_PENDING, NOTICE_SENT, LINK_SENT, FAILED]
+          description: >
+            NOTICE_PENDING and NOTICE_SENT: the emails are being sent. LINK_SENT: the confirmation link is
+            in the new inbox. FAILED: an email could not be sent after several tries; nothing changed.
+
+    EmailChangeAccepted:
+      type: object
+      additionalProperties: false
+      required: [msg, pendingEmailChange]
+      properties:
+        msg:
+          type: string
+        pendingEmailChange:
+          $ref: '#/components/schemas/PendingEmailChange'
 
     AssignableUser:
       type: object
@@ -1283,7 +1313,8 @@ paths:
       description: >
         The token comes from the link's address fragment (`#token=…`). Works signed in or out. The account's
         address changes, sessions are kept, and pending links for the account are cancelled. 400
-        `INVALID_OR_EXPIRED_TOKEN`; 409 if the address was taken meanwhile or the account can no longer change.
+        `INVALID_OR_EXPIRED_TOKEN` for a used, expired or replaced link, and for a change that was cancelled
+        (a password change, a suspension, a retirement); 409 if the address was taken meanwhile.
       operationId: confirmEmailChange
       security: []
       requestBody:
@@ -1710,12 +1741,14 @@ paths:
       tags: [users]
       summary: Ask to change the signed-in user's email address
       description: >
-        Needs the current password (401 `WRONG_PASSWORD`, counted against the sign-in lockout). A single-use
-        confirmation link, valid for 24 hours, goes to the new address and the old address is told; nothing
-        changes until the link is used (`POST /auth/email/confirm`). 400 `SAME_EMAIL`, 409 when the address
-        is in use or the account signs in with Google (`GOOGLE_ACCOUNT`), 503 `EMAIL_NOT_SENT` when the
-        confirmation or the notice to the old address could not be sent (no link is kept; try again). 5
-        requests per hour per account.
+        Needs the current password (401 `WRONG_PASSWORD`, counted against the sign-in lockout). Answers
+        202 at once; background jobs then tell the old address first and only then send a single-use
+        confirmation link, valid for 24 hours, to the new one. Nothing changes until the link is used
+        (`POST /auth/email/confirm`). `pendingEmailChange` shows the progress, as does the profile; if
+        either email cannot be sent after several tries, the change ends `FAILED`, no link is kept, and
+        nothing changed. A new request replaces an unfinished one. 400 `SAME_EMAIL`, 409 when the address
+        is in use or the account signs in with Google (`GOOGLE_ACCOUNT`). 5 requests per hour per
+        account.
       operationId: requestOwnEmailChange
       requestBody:
         required: true
@@ -1739,16 +1772,19 @@ paths:
               currentPassword: Example-pass-1
       responses:
         '202':
-          description: Confirmation sent to the new address.
+          description: The change is recorded; the emails follow from a background job.
           headers:
             X-Request-Id:
               $ref: '#/components/headers/RequestId'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Message'
+                $ref: '#/components/schemas/EmailChangeAccepted'
               example:
-                msg: We have sent a confirmation link to the new address
+                msg: We will tell your current address, then send a confirmation link to the new one
+                pendingEmailChange:
+                  newEmail: ada.new@example.test
+                  state: NOTICE_PENDING
         '400':
           $ref: '#/components/responses/ValidationFailed'
         '401':
@@ -1761,8 +1797,6 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/ServerError'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
   /users/logout:
     post:
       tags: [users]
@@ -1926,11 +1960,12 @@ paths:
       tags: [users]
       summary: Ask to change a user's email address (administrators)
       description: >
-        Sends a single-use confirmation link, valid for 24 hours, to the new address and tells the old one
-        that an administrator asked; nothing changes until the user confirms. Administrators change their
-        own address from their profile (400 `USE_PROFILE`). 409 for a retired account, an address in use,
-        or a Google account (`GOOGLE_ACCOUNT`); 503 `EMAIL_NOT_SENT` when the confirmation or the notice to
-        the old address could not be sent (no link is kept).
+        Answers 202 at once; background jobs then tell the old address that an administrator asked, and
+        only then send a single-use confirmation link, valid for 24 hours, to the new address. Nothing
+        changes until the user confirms. `pendingEmailChange` shows the progress, as does the user list;
+        if either email cannot be sent after several tries, the change ends `FAILED` and no link is kept.
+        Administrators change their own address from their profile (400 `USE_PROFILE`). 409 for a retired
+        account, an address in use, or a Google account (`GOOGLE_ACCOUNT`).
       operationId: requestUserEmailChange
       parameters:
         - $ref: '#/components/parameters/Id'
@@ -1951,16 +1986,19 @@ paths:
               newEmail: correct.address@example.test
       responses:
         '202':
-          description: Confirmation sent to the new address.
+          description: The change is recorded; the emails follow from a background job.
           headers:
             X-Request-Id:
               $ref: '#/components/headers/RequestId'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Message'
+                $ref: '#/components/schemas/EmailChangeAccepted'
               example:
-                msg: We have sent a confirmation link to the new address
+                msg: We will tell your current address, then send a confirmation link to the new one
+                pendingEmailChange:
+                  newEmail: ada.new@example.test
+                  state: NOTICE_PENDING
         '400':
           $ref: '#/components/responses/ValidationFailed'
         '401':
@@ -1975,8 +2013,6 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/ServerError'
-        '503':
-          $ref: '#/components/responses/ServiceUnavailable'
   /categories:
     get:
       tags: [categories]

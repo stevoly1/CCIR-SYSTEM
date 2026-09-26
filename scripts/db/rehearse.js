@@ -18,7 +18,7 @@ const withDatabase = (uri, name) => { const url = new URL(uri); url.pathname = `
 const seedEveryCollection = async (uri) => {
   await mongoose.connect(uri);
   require('../../models');
-  const { User, Category, Complaint, ComplaintDeletion, RefreshToken, AuthThrottle, OAuthState, AdminControl, AccountToken, OutboxEntry, WorkerHeartbeat } = mongoose.models;
+  const { User, Category, Complaint, ComplaintDeletion, RefreshToken, AuthThrottle, OAuthState, AdminControl, AccountToken, OutboxEntry, WorkerHeartbeat, EmailChange } = mongoose.models;
   await Promise.all(Object.values(mongoose.models).map((model) => model.createIndexes()));
   const admin = await User.create({ name: 'Rehearsal Admin', email: 'rehearsal.admin@example.test', password: 'Rehearsal-pass-1', role: 'admin' });
   const citizen = await User.create({ name: 'Rehearsal Citizen', email: 'rehearsal.citizen@example.test', password: 'Rehearsal-pass-1' });
@@ -37,6 +37,7 @@ const seedEveryCollection = async (uri) => {
   // A pending job must survive a restore; the heartbeat expires a day after it was last written.
   await OutboxEntry.create({ queue: 'email', type: 'rehearsal_job', refs: { complaintId: other._id } });
   await WorkerHeartbeat.create({ _id: 'rehearsal-worker', host: 'rehearsal', pid: 1, startedAt: new Date(), lastSeenAt: new Date() });
+  await EmailChange.create({ user: citizen._id, newEmail: 'rehearsal.new@example.test', requestedBy: citizen._id, state: 'NOTICE_PENDING', active: true });
   await mongoose.disconnect();
 };
 

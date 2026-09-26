@@ -15,7 +15,6 @@ const EXPECTED = {
   categoryProtected: [409, 'CATEGORY_PROTECTED'],
   locationProviderUnavailable: [503, 'LOCATION_PROVIDER_UNAVAILABLE'],
   invalidOrExpiredToken: [400, 'INVALID_OR_EXPIRED_TOKEN'],
-  emailNotSent: [503, 'EMAIL_NOT_SENT'],
   googleAccount: [409, 'GOOGLE_ACCOUNT'],
   wrongPassword: [401, 'WRONG_PASSWORD'],
   samePassword: [400, 'SAME_PASSWORD'],
