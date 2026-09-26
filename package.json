@@ -17,6 +17,7 @@
         "set-role": "node scripts/setUserRole.js",
         "migrate:phase1": "node scripts/migratePhase1.js",
         "migrate:phase2": "node scripts/migratePhase2.js",
+        "migrate:phase4c": "node scripts/migratePhase4c.js",
         "pretest": "node scripts/checkRuntime.js",
         "test": "npm run test:unit && npm run test:integration",
         "pretest:unit": "node scripts/checkRuntime.js",
