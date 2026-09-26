@@ -9,4 +9,5 @@ module.exports = {
     OAuthState: require('./OAuthState'),
     AccountToken: require('./AccountToken'),
     OutboxEntry: require('./OutboxEntry'),
+    WorkerHeartbeat: require('./WorkerHeartbeat'),
 };

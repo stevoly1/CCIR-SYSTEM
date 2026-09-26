@@ -12,6 +12,7 @@
         "check:audit": "npm audit --omit=dev --audit-level=high && npm --prefix client audit --omit=dev --audit-level=high",
         "preinstall": "node scripts/checkRuntime.js",
         "start": "node server.js",
+        "worker": "node worker.js",
         "dev": "nodemon server.js",
         "set-role": "node scripts/setUserRole.js",
         "migrate:phase1": "node scripts/migratePhase1.js",
