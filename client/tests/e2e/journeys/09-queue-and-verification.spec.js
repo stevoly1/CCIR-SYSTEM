@@ -7,7 +7,7 @@ const ORIGIN = 'http://127.0.0.1:4173';
 const PASSWORD = 'Start-pass-1';
 const unique = (prefix) => `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@e2e.test`;
 
-// The queue group runs against its own server, so its sign-ins (two, both the administrator's) have
+// The queue group runs against its own server, so its sign-ins (three, all the administrator's) have
 // their own limit. A fresh account signs up through `api`; with page.request the browser is signed
 // in without spending a sign-in.
 const signUp = async (api, name, email) => {
@@ -90,4 +90,44 @@ test('J-4c-3 an email change whose notice fails is retried from the Jobs page an
   await page.goto(await latestLink(newEmail, 'email_change_confirmation'));
   await page.getByRole('button', { name: 'Confirm new email address' }).click();
   await expect(page.getByText('Your email address has been changed.')).toBeVisible();
+});
+
+test('J-4c-4 an administrator dismisses one failed email with a reason and retries the rest', async ({ page, playwright }) => {
+  // Two accounts whose change notices fail once. Each asks from its own request context, which holds
+  // its session, so no browser sign-in is spent.
+  const failingChange = async (name) => {
+    const email = unique('fail-once-j4c4');
+    const api = await playwright.request.newContext();
+    await signUp(api, name, email);
+    const asked = await api.post(`${API}/users/profile/email`, { headers: { Origin: ORIGIN }, data: { newEmail: unique('j4c4-new'), currentPassword: PASSWORD } });
+    expect(asked.status()).toBe(202);
+    await expect.poll(async () => (await (await api.get(`${API}/users/profile`)).json()).user.pendingEmailChange?.state, { timeout: 20000 }).toBe('FAILED');
+    return { api, email };
+  };
+  const dismissed = await failingChange('Dora Dismissed');
+  const retried = await failingChange('Rex Retried');
+
+  await loginAs(page, 'admin@e2e.test');
+  await page.goto('/dashboard/jobs');
+  const doraRow = page.locator('tr', { hasText: 'Dora Dismissed' });
+  await expect(doraRow).toBeVisible();
+  await expect(page.locator('tr', { hasText: 'Rex Retried' })).toBeVisible();
+
+  await doraRow.getByRole('button', { name: 'Dismiss' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Dismiss failed job' });
+  await expect(dialog.getByRole('button', { name: 'Dismiss' })).toBeDisabled();
+  await dialog.getByLabel('Reason').fill('The person asked for a different address');
+  await dialog.getByRole('button', { name: 'Dismiss' }).click();
+  await expect(page.getByText('Dismissed', { exact: true })).toBeVisible();
+  await expect(doraRow).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Retry all failed' }).click();
+  await expect(page.getByText('1 job queued again')).toBeVisible();
+  await expect(page.getByText('No failed jobs.')).toBeVisible();
+  // Only the retried change goes on: its old address is told, then its link is sent.
+  await latestMessage(retried.email, 'email_change_notice');
+  await expect.poll(async () => (await (await retried.api.get(`${API}/users/profile`)).json()).user.pendingEmailChange?.state, { timeout: 20000 }).toBe('LINK_SENT');
+  expect((await (await dismissed.api.get(`${API}/users/profile`)).json()).user.pendingEmailChange.state).toBe('FAILED');
+  await dismissed.api.dispose();
+  await retried.api.dispose();
 });
