@@ -12,9 +12,10 @@ const ACCOUNTS = [
 ];
 const CATEGORIES = [['Other', 'LOW'], ['Roads', 'HIGH'], ['Drainage', 'MEDIUM'], ['Streetlights', 'LOW']];
 
+// Seeded accounts have verified their addresses; journeys that need an unverified one sign up.
 const seed = async () => {
   for (const [email, name, role] of ACCOUNTS) {
-    await User.create({ email, name, role, password: PASSWORD, isActive: true });
+    await User.create({ email, name, role, password: PASSWORD, isActive: true, emailVerifiedAt: new Date() });
   }
   for (const [name, defaultPriority] of CATEGORIES) {
     await Category.create({ name, defaultPriority, isActive: true });

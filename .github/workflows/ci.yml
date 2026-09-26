@@ -142,7 +142,7 @@ jobs:
         env:
           TEST_RESULTS_DIR: ${{ runner.temp }}/results
       - name: Every journey ran
-        run: npm run check:test-results -- "$RUNNER_TEMP/results/e2e-chrome.json" "$RUNNER_TEMP/results/e2e-webkit.json"
+        run: npm run check:test-results -- "$RUNNER_TEMP/results/e2e-core-chrome.json" "$RUNNER_TEMP/results/e2e-core-webkit.json" "$RUNNER_TEMP/results/e2e-queue-chrome.json" "$RUNNER_TEMP/results/e2e-queue-webkit.json"
       - if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

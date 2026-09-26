@@ -35,6 +35,19 @@ const install = () => {
   uploadService.deleteComplaintImages = async () => [];
   // Google sign-in without Google: the "consent screen" sends the browser straight back to the
   // callback, and the exchange returns one fixed test identity.
+  // The first email-change notice to a fail-once- address fails, as a provider outage would; an
+  // administrator's retry then succeeds. Every other email goes to the test outbox.
+  const emailService = require('../../services/emailService');
+  const { JobError } = require('../../services/jobs/jobError');
+  const send = emailService.emailTransport.send;
+  const failedOnce = new Set();
+  emailService.emailTransport.send = async (message) => {
+    if (message.kind === 'email_change_notice' && /^fail-once-/.test(message.to) && !failedOnce.has(message.to)) {
+      failedOnce.add(message.to);
+      throw JobError.of('PROVIDER_DOWN');
+    }
+    return send(message);
+  };
   googleOAuthService.isConfigured = () => true;
   googleOAuthService.buildAuthUrl = (state) => `http://127.0.0.1:8181/api/v1/auth/google/callback?code=e2e-code&state=${state}`;
   googleOAuthService.exchangeCodeForProfile = async () => ({
