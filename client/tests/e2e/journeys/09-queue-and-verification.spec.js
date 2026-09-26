@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { loginAs } from '../support/session';
-import { latestLink, latestMessage } from '../support/outbox';
+import { latestLink, latestMessage, newerLink } from '../support/outbox';
 
 const API = 'http://127.0.0.1:8181/api/v1';
 const ORIGIN = 'http://127.0.0.1:4173';
@@ -28,7 +28,20 @@ test('J-4c-1 a new account verifies its email before it can report', async ({ pa
   await page.goto('/dashboard/report');
   await expect(page.getByRole('button', { name: 'Submit Report' })).toHaveCount(0);
 
-  await page.goto(await latestLink(email, 'verify_email'));
+  // A resend replaces the first link.
+  const firstLink = await latestLink(email, 'verify_email');
+  await page.goto('/dashboard');
+  const banner = page.getByRole('region', { name: 'Email verification' });
+  await banner.getByRole('button', { name: 'Resend link' }).click();
+  await expect(banner.getByRole('status')).toHaveText(`We sent a new link to ${email}.`);
+  const secondLink = await newerLink(email, 'verify_email', firstLink);
+  await page.goto(firstLink);
+  await page.getByRole('button', { name: 'Verify my email address' }).click();
+  await expect(page.getByText('This link is invalid or has expired.')).toBeVisible();
+
+  // Each link opens as its own page load, as it does from an inbox.
+  await page.goto('/dashboard');
+  await page.goto(secondLink);
   await expect(page).toHaveURL(/\/verify-email$/); // the token left the address bar
   await page.getByRole('button', { name: 'Verify my email address' }).click();
   await expect(page.getByText('Your email address is verified. You can now report issues.')).toBeVisible();

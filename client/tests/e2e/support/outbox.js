@@ -20,3 +20,13 @@ export const latestMessage = async (to, kind) => {
 };
 
 export const latestLink = async (to, kind) => (await latestMessage(to, kind)).links[0];
+
+// A link of a kind to an address other than `previous`: the one a resend produced, once it arrives.
+export const newerLink = async (to, kind, previous) => {
+  let link;
+  await expect.poll(() => {
+    link = messages().filter((m) => m.to === to && m.kind === kind).at(-1)?.links[0];
+    return Boolean(link) && link !== previous;
+  }, { message: `no new ${kind} link to ${to}` }).toBe(true);
+  return link;
+};
