@@ -1379,8 +1379,9 @@ paths:
       summary: Set a new password with a reset link
       description: >
         The token comes from the link's address fragment (`#token=…`). The new password takes effect, every
-        session of the account ends, and the account is emailed a notice; the caller is not signed in. An
-        unknown, expired, used or replaced token gets 400 `INVALID_OR_EXPIRED_TOKEN`; a password equal to
+        session of the account ends, every pending link (password reset, email change, verification) is
+        cancelled, any email change under way ends, and the account is emailed a notice; the caller is not
+        signed in. An unknown, expired, used or replaced token gets 400 `INVALID_OR_EXPIRED_TOKEN`; a password equal to
         the email address gets 400 `PASSWORD_REJECTED` and leaves the link usable.
       operationId: resetPassword
       security: []
@@ -1856,8 +1857,9 @@ paths:
         Needs the current password. A wrong one gets 401 `WRONG_PASSWORD` and counts against the account's
         sign-in lockout (5 per 15 minutes, then 429). The new password must be 8 to 128 characters, differ
         from the current one (400 `SAME_PASSWORD`) and not be the email address (400 `PASSWORD_REJECTED`).
-        This session stays signed in; every other session ends, pending reset links are cancelled, and the
-        account is emailed a notice. Google accounts have no password (409 `GOOGLE_ACCOUNT`).
+        This session stays signed in; every other session ends, every pending link (password reset, email
+        change, verification) is cancelled, any email change under way ends, and the account is emailed a
+        notice. Google accounts have no password (409 `GOOGLE_ACCOUNT`).
       operationId: changePassword
       requestBody:
         required: true
