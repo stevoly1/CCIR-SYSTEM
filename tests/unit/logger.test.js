@@ -133,6 +133,12 @@ describe('logger', () => {
     expect(scrubSecrets('mongodb://db.example.net:27017/ccir')).toBe('mongodb://db.example.net:27017/ccir');
   });
 
+  it('removes addresses from logged errors, and still hides connection-string credentials', () => {
+    const err = new Error('E11000 duplicate key { email: "pat.o+x@mail.example.test" } via mongodb+srv://app:S3cret@cluster0.example.net/ccir');
+    expect(serializeError(err).message).toBe('E11000 duplicate key { email: "[email]" } via mongodb+srv://[REDACTED]@cluster0.example.net/ccir');
+    expect(serializeError(err).stack).not.toContain('pat.o+x@mail.example.test');
+  });
+
   it('serialises non-error values unchanged', () => {
     expect(serializeError('plain')).toBe('plain');
   });

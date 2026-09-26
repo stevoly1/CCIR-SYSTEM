@@ -72,14 +72,19 @@ const scrubLine = (line) => {
   }
 };
 
+// Error messages can quote the data that caused them (a duplicate-key error names the address),
+// so addresses are removed from logged errors as well as secrets.
+const EMAIL_ADDRESS = /[^\s@"'`<>()[\]{},;:]+@[^\s@"'`<>()[\]{},;:]+\.[a-z]{2,}/gi;
+const scrubErrorText = (text) => scrubSecrets(text).replace(EMAIL_ADDRESS, '[email]');
+
 const serializeError = (err) => {
   if (!err || typeof err !== 'object') return err;
   return {
     // `type` covers errors already shaped by pino's standard serializer (pino-http wraps ours).
     type: err.name || err.type || 'Error',
-    message: scrubSecrets(String(err.message ?? '')),
+    message: scrubErrorText(String(err.message ?? '')),
     ...(typeof err.code === 'string' || typeof err.code === 'number' ? { code: err.code } : {}),
-    ...(err.stack ? { stack: scrubSecrets(err.stack) } : {}),
+    ...(err.stack ? { stack: scrubErrorText(err.stack) } : {}),
   };
 };
 

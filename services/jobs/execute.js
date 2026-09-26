@@ -1,7 +1,7 @@
 require('./handlers');
 const { OutboxEntry } = require('../../models');
 const registry = require('./registry');
-const { toJobError } = require('./jobError');
+const { JobError, toJobError } = require('./jobError');
 const { getLogger } = require('../../utils/logger');
 
 const FINISHED = new Set(['DONE', 'FAILED', 'DISMISSED']);
@@ -48,7 +48,9 @@ const executeEntry = async (entryId, { runKey, attempt, maxAttempts, retryDelayM
       }
     }
     const outcome = jobError.final ? 'failed' : 'retrying';
-    getLogger()[jobError.final ? 'warn' : 'info']({ ...log, outcome, failureCode: jobError.code, durationMs: Date.now() - started }, 'Job did not succeed');
+    // An unexpected error (a bug, a database timeout) carries what it was; expected failures have their code.
+    const detail = error instanceof JobError ? {} : { err: error };
+    getLogger()[jobError.final ? 'warn' : 'info']({ ...log, outcome, failureCode: jobError.code, ...detail, durationMs: Date.now() - started }, 'Job did not succeed');
     throw jobError;
   }
   await OutboxEntry.updateOne({ _id: entry._id, runKey }, {

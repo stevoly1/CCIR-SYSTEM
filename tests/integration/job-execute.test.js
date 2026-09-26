@@ -114,6 +114,34 @@ describe('running one outbox entry', () => {
     expect(logs.text()).not.toContain('someone@example.test');
   });
 
+  it('logs what an unexpected error was, with any address removed, so a bug can be told from an outage', async () => {
+    behaviour.run.mockRejectedValue(new TypeError('E11000 duplicate key { email: "someone@example.test" } at step 3'));
+    const entry = await add();
+    const logs = captureLogs();
+    try {
+      await executeEntry(entry._id, { runKey: 0, attempt: 1, maxAttempts: 2 }).catch(() => {});
+    } finally {
+      logs.restore();
+    }
+    const line = logs.lines.find((l) => l.event === 'job');
+    expect(line).toMatchObject({ outcome: 'retrying', failureCode: 'INTERNAL', err: { type: 'TypeError' } });
+    expect(line.err.message).toContain('at step 3');
+    expect(line.err.stack).toContain('job-execute.test.js');
+    expect(logs.text()).not.toContain('someone@example.test');
+  });
+
+  it('logs no error detail for an expected failure', async () => {
+    behaviour.run.mockRejectedValue(JobError.of('PROVIDER_DOWN'));
+    const entry = await add();
+    const logs = captureLogs();
+    try {
+      await executeEntry(entry._id, { runKey: 0, attempt: 1, maxAttempts: 2 }).catch(() => {});
+    } finally {
+      logs.restore();
+    }
+    expect(logs.lines.find((l) => l.event === 'job').err).toBeUndefined();
+  });
+
   it('drains the outbox for tests, retrying up to maxAttempts', async () => {
     behaviour.run.mockRejectedValueOnce(JobError.of('TIMEOUT')).mockResolvedValue(undefined);
     await add();
