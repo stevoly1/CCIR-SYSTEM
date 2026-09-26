@@ -10,7 +10,7 @@ The core deliverable of this project is the **backend** — the API, database, a
 
 - **Backend**: Node.js, Express 5, MongoDB (Mongoose)
 - **Auth**: email/password (bcrypt) + optional Google OAuth, JWT access/refresh tokens in signed HTTP-only cookies
-- **AI classification**: Google Gemini (multimodal — text and photo), via `services/aiService.js`. Never blocks complaint submission; falls back to a default category/priority if the AI call fails or is unconfigured.
+- **AI classification**: provider-neutral background jobs with a Kimi adapter for text and photo. Filing returns before classification; a failed or unconfigured provider leaves the report in its fallback category.
 - **Location**: Photon (OpenStreetMap-based, keyless) for address autocomplete, forward geocoding, and reverse geocoding, via `services/locationService.js`
 - **Photo storage**: Cloudinary
 - **Email notifications**: Resend (optional — the app works without it)
@@ -20,7 +20,7 @@ If `client/dist` exists (i.e. the frontend has been built), the backend serves i
 
 ### A note on the AI component
 
-The AI classification feature uses a pretrained, general-purpose multimodal model (Google Gemini) called via API with a prompt — it does not train or fine-tune a custom model. This was a deliberate choice: it avoids needing a large labelled dataset of civic complaints, and pretrained models already handle both text and images. One consequence is that AI classification and location autocomplete/geocoding depend on external third-party services and internet access. The backend itself can be fully self-hosted on your own servers, but these two specific features will keep relying on Google's and Photon's public APIs unless you swap in a different provider.
+The AI classification feature sends reports to a configured pretrained multimodal provider in a background job; it does not train or fine-tune a custom model. The current adapter uses Moonshot Kimi for text and optional images. Classification and location autocomplete/geocoding depend on external services and internet access. The backend itself can be self-hosted, while these features require their configured providers.
 
 ## Prerequisites
 

@@ -1,5 +1,4 @@
 // Deterministic stand-ins for external providers, installed only by the e2e server.
-const aiService = require('../../services/aiService');
 const ai = require('../../services/ai');
 const googleOAuthService = require('../../services/googleOAuthService');
 const locationService = require('../../services/locationService');
@@ -19,18 +18,6 @@ const install = () => {
       category, priority, summary: `AI summary: ${description.slice(0, 40)}`,
       tags: [category.toLowerCase()], confidence: 0.9,
       meta: { provider: 'kimi', model: 'kimi-e2e', promptVersion: 'classify-v1', durationMs: 1 },
-    };
-  };
-  // The synchronous edit path still uses this service until Task 12 moves edits to jobs.
-  aiService.classifyComplaint = async ({ description }) => {
-    const [, category, priority] = RULES.find(([pattern]) => pattern.test(description)) ?? [null, 'Other', 'LOW'];
-    return {
-      category,
-      priority,
-      summary: `AI summary: ${description.slice(0, 40)}`,
-      tags: [category.toLowerCase()],
-      confidence: 0.9,
-      error: null,
     };
   };
   locationService.autocomplete = async () => ([

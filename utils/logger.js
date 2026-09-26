@@ -14,7 +14,7 @@ const MAX_DEPTH = 4;
 // Guards the final-line pass against pathological nesting; deeper values are dropped.
 const MAX_LINE_DEPTH = 32;
 
-// Gemini puts its API key in the request URL, so URL secrets are scrubbed from any text we log.
+// Scrub credentials in provider and callback URLs from any text we log.
 const URL_SECRET = /([?&](?:key|api_key|apikey|token|access_token|signature|code|state)=)[^&\s"'#]+/gi;
 // Database and proxy connection strings can carry credentials before the host
 // (mongodb+srv://user:password@cluster/…); the user-and-password part is replaced.
