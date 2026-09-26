@@ -7,7 +7,7 @@ const {
 } = require('./accountLifecycleGuard');
 const { BadRequestError, ConflictError, ForbiddenError, NotFoundError } = require('../errors');
 const { cancelTokens } = require('./accountTokenService');
-const { endActiveChanges } = require('./emailChangeState');
+const { endOpenChanges } = require('./emailChangeState');
 const { emailNotVerifiedForRole } = require('../errors/domainErrors');
 
 const TERMINAL_STATUSES = new Set(['RESOLVED', 'REJECTED', 'WITHDRAWN']);
@@ -221,7 +221,7 @@ const mutateAdministrator = async ({ targetUserId, actorUserId, changes, reason 
       if (changes.isActive === false) {
         // A suspended account's links, and any email change under way, end with it.
         await cancelTokens({ userId: target._id, session });
-        await endActiveChanges({ userId: target._id, state: 'CANCELLED', session });
+        await endOpenChanges({ userId: target._id, state: 'CANCELLED', session });
       }
       if (changes.isActive === false || roleChanged) {
         await RefreshToken.deleteMany({ user: target._id }, { session });

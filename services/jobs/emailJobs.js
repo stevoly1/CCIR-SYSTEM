@@ -79,14 +79,16 @@ const withinRecipientCap = async (entry, address) => {
 };
 
 // Made inside the lifecycle guard, so a link cannot appear after a concurrent password or email
-// change has cancelled the account's links; and only while the account still uses this address.
-// Each attempt makes a fresh link under a fresh idempotency key, replacing the previous attempt's.
+// change has cancelled the account's links; and only while the account still uses this address,
+// and an email-change link only while its change is still waiting for it. Each attempt makes a
+// fresh link under a fresh idempotency key, replacing the previous attempt's.
 const issueLinkFor = async ({ userId, email, purpose, requestedBy, newEmail, emailChange }) => {
   await ensureAccountLifecycleGuard();
   return inTransaction(async (session) => {
     await touchAccountLifecycleGuard(session);
     const user = await User.findById(userId).session(session);
     if (!user || user.retiredAt || user.isActive !== true || user.email !== email) return null;
+    if (emailChange && !(await EmailChange.exists({ _id: emailChange, state: 'NOTICE_SENT', active: true }).session(session))) return null;
     return issueTokenRecord({ userId, purpose, requestedBy: requestedBy ?? userId, newEmail, emailChange, session });
   });
 };
@@ -138,13 +140,21 @@ const failChange = async (changeId, code) => {
 };
 
 // An administrator's retry (the Jobs page) puts a failed change back where its job left off. The
-// change may also still be in that state, if its final-failure step itself failed. A newer change
-// for the account, which holds the one active slot, stops it.
+// change may also still be in that state, if its final-failure step itself failed. Only the
+// account's latest change can come back: a newer one, even one that ended, means the person has
+// moved on. Password changes, resets, suspensions and confirmations end failed changes as well
+// (endOpenChanges), so those stop a retry too. A newer change still holding the one active slot
+// also stops it.
 const reopenChange = (state) => async (entry, session) => {
+  const change = await EmailChange.findById(entry.refs.emailChangeId).session(session);
+  const newer = change && await EmailChange.exists({
+    user: change.user, _id: { $ne: change._id }, createdAt: { $gte: change.createdAt },
+  }).session(session);
+  if (!change || newer) throw jobCannotRetry();
   let reopened;
   try {
     reopened = await EmailChange.updateOne(
-      { _id: entry.refs.emailChangeId, $or: [{ state: 'FAILED' }, { state, active: true }] },
+      { _id: change._id, $or: [{ state: 'FAILED' }, { state, active: true }] },
       { $set: { state, active: true }, $unset: { failedCode: 1, endedAt: 1 } },
       { session },
     );

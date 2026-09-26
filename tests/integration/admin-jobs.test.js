@@ -2,7 +2,8 @@ const request = require('supertest');
 const { testServer } = require('../helpers/testServer');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createUserFixture } = require('../fixtures/user');
-const { EmailChange, OutboxEntry } = require('../../models');
+const { EmailChange, OutboxEntry, User } = require('../../models');
+const { issueToken } = require('../../services/accountTokenService');
 const emailService = require('../../services/emailService');
 const { JobError } = require('../../services/jobs/jobError');
 const { inTransaction } = require('../../utils/transaction');
@@ -109,6 +110,66 @@ describe('Jobs API', () => {
     expect(blocked.status).toBe(409);
     expect(blocked.body.error.code).toBe('JOB_CANNOT_RETRY');
     expect((await OutboxEntry.findById(second._id)).state).toBe('FAILED');
+  });
+
+  // A change whose link email failed for good: anyone who knows the password can cause that (by
+  // capping the new address), so what the owner does next must keep a retry from reviving it.
+  describe('never revives an email change the account has moved past', () => {
+    const failedLinkChange = async () => {
+      vi.spyOn(emailService, 'sendEmailChangeNotice').mockResolvedValue(undefined);
+      const confirmation = vi.spyOn(emailService, 'sendEmailChangeConfirmation').mockRejectedValueOnce(JobError.of('REJECTED')).mockResolvedValue(undefined);
+      const { agent, password, user } = await createAuthenticatedAgent();
+      await unsafeRequest(agent, 'post', '/api/v1/users/profile/email').send({ newEmail: 'intruder@example.test', currentPassword: password });
+      await drainOutbox();
+      const failed = await OutboxEntry.findOne({ type: 'email_change_link', state: 'FAILED' });
+      expect(failed).not.toBeNull();
+      return { agent, password, user, failed, confirmation };
+    };
+    const expectRefused = async ({ failed, confirmation }) => {
+      const sentBefore = confirmation.mock.calls.length;
+      const response = await retry(failed._id);
+      expect(response.status).toBe(409);
+      expect(response.body.error.code).toBe('JOB_CANNOT_RETRY');
+      await drainOutbox();
+      expect(confirmation.mock.calls.slice(sentBefore).map(([args]) => args.to)).not.toContain('intruder@example.test');
+    };
+
+    it('after the owner changes the password', async () => {
+      const failed = await failedLinkChange();
+      vi.spyOn(emailService, 'sendPasswordChangedEmail').mockResolvedValue(undefined);
+      expect((await unsafeRequest(failed.agent, 'post', '/api/v1/users/profile/password').send({ currentPassword: failed.password, newPassword: 'Brand-new-pass' })).status).toBe(200);
+      await expectRefused(failed);
+    });
+
+    it('after a password reset', async () => {
+      const failed = await failedLinkChange();
+      vi.spyOn(emailService, 'sendPasswordChangedEmail').mockResolvedValue(undefined);
+      const token = await issueToken({ userId: failed.user._id, purpose: 'password_reset', requestedBy: failed.user._id });
+      expect((await unsafeRequest(request(testServer()), 'post', '/api/v1/auth/password/reset').send({ token, password: 'Brand-new-pass' })).status).toBe(200);
+      await expectRefused(failed);
+    });
+
+    it('after a suspension', async () => {
+      const failed = await failedLinkChange();
+      expect((await unsafeRequest(admin, 'patch', `/api/v1/users/${failed.user._id}`).send({ isActive: false, reason: 'Account under review' })).status).toBe(200);
+      await expectRefused(failed);
+    });
+
+    it('after a newer change was confirmed', async () => {
+      const failed = await failedLinkChange();
+      await unsafeRequest(failed.agent, 'post', '/api/v1/users/profile/email').send({ newEmail: 'newer@example.test', currentPassword: failed.password });
+      await drainOutbox();
+      const newerToken = failed.confirmation.mock.calls.at(-1)[0].token;
+      expect((await unsafeRequest(request(testServer()), 'post', '/api/v1/auth/email/confirm').send({ token: newerToken })).status).toBe(200);
+      await expectRefused(failed);
+      expect((await User.findById(failed.user._id)).email).toBe('newer@example.test');
+    });
+
+    it('when a newer change exists, even one that failed too', async () => {
+      const failed = await failedLinkChange();
+      await EmailChange.create({ user: failed.user._id, newEmail: 'newer@example.test', requestedBy: failed.user._id, state: 'FAILED', failedCode: 'REJECTED', endedAt: new Date() });
+      await expectRefused(failed);
+    });
   });
 
   it('sends a fresh link when retrying a link job that failed after sending', async () => {

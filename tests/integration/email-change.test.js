@@ -17,6 +17,11 @@ const ownChange = (agent, body) => unsafeRequest(agent, 'post', '/api/v1/users/p
 const adminChange = (agent, id, body) => unsafeRequest(agent, 'post', `/api/v1/users/${id}/email`).send(body);
 const confirm = (token) => unsafeRequest(api(), 'post', '/api/v1/auth/email/confirm').send({ token });
 const linkToken = () => emailService.sendEmailChangeConfirmation.mock.calls.at(-1)[0].token;
+const drainOutboxFor = async (changeId) => {
+  for (const type of ['email_change_notice', 'email_change_link']) {
+    await executeOne(await OutboxEntry.findOne({ type, 'refs.emailChangeId': changeId }));
+  }
+};
 const executeOne = (entry) => executeEntry(entry._id, { runKey: entry.runKey, attempt: entry.attempts + 1, maxAttempts: 1 });
 
 beforeEach(() => {
@@ -192,6 +197,30 @@ describe('email change requests', () => {
     const { agent, password } = await createAuthenticatedAgent();
     for (let i = 0; i < 5; i += 1) expect((await ownChange(agent, { newEmail: 'taken@example.test', currentPassword: password })).status).toBe(409);
     expect((await ownChange(agent, { newEmail: 'taken@example.test', currentPassword: password })).status).toBe(429);
+  });
+});
+
+describe('a link job that read its change just before a newer request replaced it', () => {
+  it('sends no link, and leaves the newer change\'s link alone', async () => {
+    const { agent, password } = await createAuthenticatedAgent({ email: 'old@example.test' });
+    await ownChange(agent, { newEmail: 'first@example.test', currentPassword: password });
+    const older = await EmailChange.findOne({ newEmail: 'first@example.test' });
+    await executeOne(await OutboxEntry.findOne({ type: 'email_change_notice', 'refs.emailChangeId': older.id }));
+    const olderLink = await OutboxEntry.findOne({ type: 'email_change_link', 'refs.emailChangeId': older.id });
+    const staleOlder = await EmailChange.findById(older.id);
+    expect(staleOlder).toMatchObject({ state: 'NOTICE_SENT', active: true });
+
+    await ownChange(agent, { newEmail: 'second@example.test', currentPassword: password });
+    const newer = await EmailChange.findOne({ newEmail: 'second@example.test' });
+    await drainOutboxFor(newer.id);
+    expect(await EmailChange.findById(newer.id)).toMatchObject({ state: 'LINK_SENT' });
+    const sent = emailService.sendEmailChangeConfirmation.mock.calls.length;
+
+    // The older job read its change while it was still under way.
+    vi.spyOn(EmailChange, 'findById').mockResolvedValueOnce(staleOlder);
+    await executeOne(olderLink);
+    expect(emailService.sendEmailChangeConfirmation.mock.calls.slice(sent).map(([args]) => args.to)).toEqual([]);
+    expect(await AccountToken.countDocuments({ emailChange: newer.id, usedAt: null })).toBe(1);
   });
 });
 

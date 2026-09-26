@@ -3,7 +3,7 @@ const { EmailChange, User } = require('../models');
 const { BadRequestError, ConflictError, ForbiddenError, NotFoundError } = require('../errors');
 const { googleAccount, sameEmail, invalidOrExpiredToken } = require('../errors/domainErrors');
 const { consumeToken, cancelTokens } = require('./accountTokenService');
-const { endActiveChanges } = require('./emailChangeState');
+const { endOpenChanges } = require('./emailChangeState');
 const { inTransaction } = require('../utils/transaction');
 const { enqueue } = require('./jobs/outbox');
 const { verifyCurrentPassword } = require('./currentPasswordService');
@@ -45,7 +45,7 @@ const requestEmailChange = async ({ targetUserId, actorUserId, newEmail, current
   await ensureAccountLifecycleGuard();
   return inTransaction(async (session) => {
     await touchAccountLifecycleGuard(session);
-    await endActiveChanges({ userId: target._id, state: 'SUPERSEDED', session });
+    await endOpenChanges({ userId: target._id, state: 'SUPERSEDED', session });
     await cancelTokens({ userId: target._id, purposes: ['email_change'], session });
     const [change] = await EmailChange.create([{
       user: target._id, newEmail, requestedBy: actor._id, byAdministrator: !self, state: 'NOTICE_PENDING', active: true,
@@ -80,6 +80,8 @@ const confirmEmailChange = async ({ token }) => {
       // Reset links went to the old address; none may outlive the change.
       await cancelTokens({ userId: user._id, session });
       await EmailChange.updateOne({ _id: change._id }, { $set: { state: 'CONFIRMED', endedAt: new Date() }, $unset: { active: 1 } }, { session });
+      // A failed older change was for the old address; a retry must not revive it.
+      await endOpenChanges({ userId: user._id, state: 'SUPERSEDED', session });
     });
   } catch (error) {
     if (error?.code === 11000) throw addressTaken();
