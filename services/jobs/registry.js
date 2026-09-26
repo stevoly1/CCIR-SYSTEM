@@ -1,3 +1,5 @@
+const JOB_TYPES = require('./jobTypes');
+
 // Job type -> { queue, run(entry), onFinalFailure?(entry, code), onRetry?(entry, session) }.
 const handlers = new Map();
 
@@ -12,6 +14,11 @@ const handlerFor = (type) => {
   return handler;
 };
 
-const queueOf = (type) => handlerFor(type).queue;
+// The fixed map first, so the API can enqueue without loading handlers; then test registrations.
+const queueOf = (type) => {
+  const queue = JOB_TYPES[type] ?? handlers.get(type)?.queue;
+  if (!queue) throw new Error(`Unknown job type ${type}`);
+  return queue;
+};
 
 module.exports = { registerHandler, handlerFor, queueOf };

@@ -1,3 +1,4 @@
+require('./handlers');
 const { OutboxEntry } = require('../../models');
 const registry = require('./registry');
 const { toJobError } = require('./jobError');

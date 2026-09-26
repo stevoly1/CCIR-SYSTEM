@@ -1,5 +1,6 @@
 const aiService = require('../../services/aiService');
 const emailService = require('../../services/emailService');
+const { drainOutbox } = require('../helpers/jobs');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createCategoryFixture } = require('../fixtures/category');
 
@@ -66,6 +67,7 @@ describe('citizen-visible complaint data', () => {
     assertOwnerSafe(withdrawn.body, secrets);
 
     // The reporter is emailed on each status change, only ever with the public note.
+    await drainOutbox();
     expect(email.mock.calls.map(([args]) => args.publicNote)).toEqual(['Inspecting soon', 'Crew dispatched']);
     email.mock.calls.forEach(([args]) => expect(JSON.stringify(args)).not.toContain('CONFIDENTIAL-INTERNAL'));
 

@@ -1,6 +1,7 @@
 const { Complaint } = require('../../models');
 const aiService = require('../../services/aiService');
 const emailService = require('../../services/emailService');
+const { drainOutbox } = require('../helpers/jobs');
 const locationService = require('../../services/locationService');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createCategoryFixture } = require('../fixtures/category');
@@ -26,6 +27,7 @@ describe('status notes and typed timeline', () => {
       publicNote: 'We are checking the site',
       internalNote: 'Crew B, confidential contractor note',
     });
+    await drainOutbox();
     expect(email).toHaveBeenCalledTimes(1);
     const [emailArgs] = email.mock.calls[0];
     expect(emailArgs.publicNote).toBe('We are checking the site');
@@ -40,8 +42,10 @@ describe('status notes and typed timeline', () => {
     await unsafeRequest(agent, 'patch', `/api/v1/complaints/${complaint.id}/status`)
       .send({ status: 'IN_REVIEW', internalNote: 'confidential only' });
 
+    await drainOutbox();
     const [emailArgs] = email.mock.calls[0];
-    expect(emailArgs.publicNote).toBeUndefined();
+    expect(emailArgs.publicNote).toBeNull();
+    expect(JSON.stringify(emailArgs)).not.toContain('confidential only');
     expect(JSON.stringify(emailArgs)).not.toContain('confidential');
   });
 
