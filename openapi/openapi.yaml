@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: CCIR API
-  version: 1.1.0
+  version: 2.0.0
   summary: Civic Complaint and Infrastructure Reporting backend.
   description: >
     Citizens file complaints about public infrastructure; agency staff and administrators triage,
@@ -38,6 +38,16 @@ info:
     **Breaking:** `PATCH /users/{id}` no longer accepts `email` (use `POST /users/{id}/email`), and
     `DELETE /users/profile` requires `password` (or `confirmEmail` for Google accounts). New passwords
     need 8 to 128 characters.
+
+
+    **Changes in 2.0.0.** Every email is now sent by a background worker, and links are created when
+    the email is sent. **Breaking:** the email-change requests answer 202 with `pendingEmailChange` and
+    no longer answer 503 `EMAIL_NOT_SENT` (the old address is told first, then the link goes to the new
+    one; a change whose emails cannot be sent ends `FAILED`); filing a report needs a verified email
+    address (403 `EMAIL_NOT_VERIFIED`); an unverified account cannot be given a staff role (409
+    `EMAIL_NOT_VERIFIED`). **New:** `POST /auth/email/verify`, `POST /users/profile/verification-email`,
+    the `/admin/jobs` operations, `emailVerified`, `emailVerifiedAt` and `pendingEmailChange` on users,
+    and `checks.background` in readiness.
   license:
     name: MIT
     identifier: MIT
