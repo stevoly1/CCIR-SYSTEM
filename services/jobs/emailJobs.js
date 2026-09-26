@@ -209,7 +209,12 @@ registerHandler('email_change_link', {
         userId: user._id, email: user.email, purpose: 'email_change', requestedBy: change.requestedBy, newEmail: change.newEmail, emailChange: change._id,
       });
       if (!link) {
-        await endChange(change._id, 'CANCELLED');
+        // The account can no longer have the link, or the change has moved on (a concurrent run of
+        // this job sent the link first). Only a change still waiting for its link is cancelled.
+        await EmailChange.updateOne(
+          { _id: change._id, state: 'NOTICE_SENT', active: true },
+          { $set: { state: 'CANCELLED', endedAt: new Date() }, $unset: { active: 1 } },
+        );
         return;
       }
       await emailService.sendEmailChangeConfirmation({ to: change.newEmail, name: user.name, token: link.token, idempotencyKey: `link-${link.record._id}` });

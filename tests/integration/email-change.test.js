@@ -8,6 +8,7 @@ const emailService = require('../../services/emailService');
 const { issueToken, consumeToken } = require('../../services/accountTokenService');
 const { retireAccount } = require('../../services/accountRetirementService');
 const { executeEntry } = require('../../services/jobs/execute');
+const registry = require('../../services/jobs/registry');
 const { JobError } = require('../../services/jobs/jobError');
 const { drainOutbox } = require('../helpers/jobs');
 const { captureLogs } = require('../helpers/captureLogs');
@@ -221,6 +222,25 @@ describe('a link job that read its change just before a newer request replaced i
     await executeOne(olderLink);
     expect(emailService.sendEmailChangeConfirmation.mock.calls.slice(sent).map(([args]) => args.to)).toEqual([]);
     expect(await AccountToken.countDocuments({ emailChange: newer.id, usedAt: null })).toBe(1);
+  });
+});
+
+describe('a second, concurrent run of the same link job', () => {
+  it('leaves the change the first run completed, and its link working', async () => {
+    const { agent, password } = await createAuthenticatedAgent({ email: 'old@example.test' });
+    await ownChange(agent, { newEmail: 'dup@example.test', currentPassword: password });
+    const change = await EmailChange.findOne({ newEmail: 'dup@example.test' });
+    await executeOne(await OutboxEntry.findOne({ type: 'email_change_notice' }));
+    const linkEntry = await OutboxEntry.findOne({ type: 'email_change_link' });
+    const staleChange = await EmailChange.findById(change._id);
+    await executeOne(linkEntry); // the first run: link sent, change LINK_SENT
+    const firstLink = linkToken();
+
+    // The duplicate read the entry and the change before the first run recorded anything.
+    vi.spyOn(EmailChange, 'findById').mockResolvedValueOnce(staleChange);
+    await registry.handlerFor('email_change_link').run(linkEntry);
+    expect(await EmailChange.findById(change._id)).toMatchObject({ state: 'LINK_SENT', active: true });
+    expect((await confirm(firstLink)).status).toBe(200);
   });
 });
 
