@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const { presentComplaint, presentComplaintSummary } = require('../../presenters/complaintPresenter');
+const authority = require('../../policies/complaintAuthorityPolicy');
 
 const id = () => new mongoose.Types.ObjectId();
 const reporterId = id();
@@ -35,6 +36,7 @@ const complaint = (overrides = {}) => ({
 
 const owner = { userId: String(reporterId), role: 'citizen' };
 const admin = { userId: String(adminId), role: 'admin' };
+const agency = { userId: String(agencyId), role: 'agency' };
 
 const collectKeys = (value, keys = new Set()) => {
   if (Array.isArray(value)) value.forEach((item) => collectKeys(item, keys));
@@ -48,6 +50,42 @@ const collectKeys = (value, keys = new Set()) => {
 };
 
 describe('complaint presenter', () => {
+  it('shows the classification status and category source to everyone, but disagreement only to staff', () => {
+    const report = complaint({ categorySource: 'PENDING', ai: { status: 'PENDING', requestSeq: 1, disagreement: { categoryId: id(), name: 'Roads', confidence: 0.9 } } });
+    expect(presentComplaintSummary(report, owner)).toMatchObject({ categorySource: 'PENDING', ai: { status: 'PENDING' } });
+    expect(presentComplaintSummary(report, owner).ai).not.toHaveProperty('disagreement');
+    expect(presentComplaintSummary(report, admin).ai.disagreement).toMatchObject({ name: 'Roads', confidence: 0.9 });
+  });
+
+  it('shows the owner their category choice and public AI summary without provider detail', () => {
+    const report = complaint({ categorySource: 'CITIZEN', citizenCategory: { categoryId: id(), name: 'Roads' }, ai: { status: 'DONE', summary: 'S', tags: ['t'], model: 'kimi-k2.6' } });
+    const detail = presentComplaint(report, owner);
+    expect(detail.citizenCategory).toMatchObject({ name: 'Roads' });
+    expect(detail.ai).toEqual({ status: 'DONE', summary: 'S', tags: ['t'] });
+  });
+
+  it('shows staff provenance and a typed failure', () => {
+    const detail = presentComplaint(complaint({ categorySource: 'FALLBACK', ai: { status: 'FAILED', requestSeq: 2, failureCode: 'TIMEOUT', provider: 'kimi', model: 'kimi-k2.6', promptVersion: 'classify-v1' } }), admin);
+    expect(detail.ai).toMatchObject({ status: 'FAILED', requestSeq: 2, failureCode: 'TIMEOUT', provider: 'kimi', model: 'kimi-k2.6', promptVersion: 'classify-v1', error: null, disagreement: null });
+    expect(detail).toHaveProperty('canRecategorise', true);
+    expect(detail).toHaveProperty('canReclassify');
+  });
+
+  it('offers reclassification only to administrators with configured AI and no pending request', () => {
+    expect(authority.canReclassify(admin, { status: 'PENDING', ai: { status: 'FAILED' } }, { aiConfigured: true })).toBe(true);
+    expect(authority.canReclassify(admin, { status: 'PENDING', ai: { status: 'PENDING' } }, { aiConfigured: true })).toBe(false);
+    expect(authority.canReclassify(admin, { status: 'WITHDRAWN', ai: { status: 'DONE' } }, { aiConfigured: true })).toBe(false);
+    expect(authority.canReclassify(admin, { status: 'PENDING', ai: { status: 'DONE' } }, { aiConfigured: false })).toBe(false);
+    expect(authority.canReclassify(agency, { status: 'PENDING', ai: { status: 'DONE' }, assignedTo: agencyId }, { aiConfigured: true })).toBe(false);
+  });
+
+  it('offers recategorisation to staff who can manage status except on withdrawn reports', () => {
+    expect(authority.canRecategorise(admin, { status: 'IN_REVIEW' })).toBe(true);
+    expect(authority.canRecategorise(agency, { status: 'IN_REVIEW', assignedTo: agencyId })).toBe(true);
+    expect(authority.canRecategorise(agency, { status: 'IN_REVIEW', assignedTo: id() })).toBe(false);
+    expect(authority.canRecategorise(admin, { status: 'WITHDRAWN' })).toBe(false);
+    expect(authority.canRecategorise(owner, { status: 'PENDING' })).toBe(false);
+  });
   it('gives the owner only allow-listed fields', () => {
     const view = presentComplaint(complaint(), owner);
     const keys = collectKeys(view);

@@ -1,6 +1,7 @@
 const { User } = require('../models');
 const { safeHistoricalIdentity } = require('../services/userSnapshotService');
 const authority = require('../policies/complaintAuthorityPolicy');
+const { getAiConfig } = require('../config/ai');
 
 // Every complaint response body is built here, by allow-list: a field reaches a
 // client only if it is named below, so new model fields stay private by default.
@@ -19,6 +20,12 @@ const SUMMARY_POPULATE = COMPLAINT_POPULATE.filter((entry) => entry.path !== 'st
 const asPopulated = (value) => (value && typeof value === 'object' && 'role' in value ? value : undefined);
 const idString = (value) => (value === null || value === undefined ? null : String(value._id ?? value));
 const plain = (value) => (value && typeof value.toObject === 'function' ? value.toObject() : value);
+const disagreementOf = (complaint) => {
+  const disagreement = complaint.ai?.disagreement;
+  return disagreement?.categoryId
+    ? { categoryId: idString(disagreement.categoryId), name: disagreement.name, confidence: disagreement.confidence }
+    : null;
+};
 
 const viewerFromRequest = (req) => ({ userId: String(req.user.userId), role: req.user.role });
 
@@ -77,6 +84,8 @@ const presentComplaintSummary = (complaint, viewer) => {
     priority: complaint.priority,
     description: complaint.description,
     category: presentCategory(complaint),
+    categorySource: complaint.categorySource ?? null,
+    ai: { status: complaint.ai?.status ?? null },
     address: complaint.location?.address ?? null,
     hasPrecisePosition: hasPrecisePosition(complaint),
     imageCount: images.length,
@@ -87,6 +96,7 @@ const presentComplaintSummary = (complaint, viewer) => {
   if (authority.isStaff(viewer)) {
     summary.reporter = presentReporter(complaint);
     summary.assignee = presentAssignee(complaint);
+    summary.ai.disagreement = disagreementOf(complaint);
   }
   return summary;
 };
@@ -132,7 +142,10 @@ const presentComplaint = (complaint, viewer, { identities = new Map() } = {}) =>
     reporter: presentReporter(complaint),
     version: complaint.__v,
     images: (complaint.images ?? []).map((image) => ({ url: image.url })),
-    ai: { summary: complaint.ai?.summary ?? '', tags: [...(complaint.ai?.tags ?? [])] },
+    citizenCategory: complaint.citizenCategory?.categoryId
+      ? { categoryId: idString(complaint.citizenCategory.categoryId), name: complaint.citizenCategory.name }
+      : null,
+    ai: { status: complaint.ai?.status ?? null, summary: complaint.ai?.summary ?? '', tags: [...(complaint.ai?.tags ?? [])] },
     timeline: sortedTimeline(complaint).map((entry) => presentTimelineEntry(plain(entry), viewer, staff)),
     responsibility: complaint.assignedTo ? 'ASSIGNED' : 'AWAITING_ASSIGNMENT',
     canEdit: authority.canEdit(viewer, complaint),
@@ -158,6 +171,14 @@ const presentComplaint = (complaint, viewer, { identities = new Map() } = {}) =>
       error: ai.error ?? null,
       inputMode: ai.inputMode ?? null,
       analysisCount: ai.analysisCount ?? null,
+      status: ai.status ?? null,
+      requestSeq: ai.requestSeq ?? null,
+      failureCode: ai.failureCode ?? null,
+      failedAt: ai.failedAt ?? null,
+      provider: ai.provider ?? null,
+      model: ai.model ?? null,
+      promptVersion: ai.promptVersion ?? null,
+      disagreement: disagreementOf(complaint),
     },
     assignee: presentAssignee(complaint),
     assignmentHistory: (complaint.assignmentHistory ?? []).map((raw) => {
@@ -185,6 +206,8 @@ const presentComplaint = (complaint, viewer, { identities = new Map() } = {}) =>
     allowedTransitions: authority.allowedTransitions(viewer, complaint),
     canChangePriority: authority.canChangePriority(viewer, complaint),
     canAssign: authority.canAssign(viewer, complaint),
+    canRecategorise: authority.canRecategorise(viewer, complaint),
+    canReclassify: authority.canReclassify(viewer, complaint, { aiConfigured: getAiConfig().configured }),
     canDelete: authority.canDelete(viewer, complaint),
     resolvedAt: complaint.resolvedAt ?? null,
     resolvedAtEstimated: Boolean(complaint.resolvedAtEstimated),

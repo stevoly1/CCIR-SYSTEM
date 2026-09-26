@@ -49,6 +49,10 @@ describe('citizen-visible complaint data', () => {
     const detail = await citizen.get(`/api/v1/complaints/${id}`);
     expect(detail.status).toBe(200);
     assertOwnerSafe(detail.body, secrets);
+    expect(detail.body.complaint.ai).toEqual({ status: 'DONE', summary: 'Pothole', tags: ['road'] });
+    for (const field of ['provider', 'model', 'promptVersion', 'confidence', 'failureCode', 'disagreement']) {
+      expect(JSON.stringify(detail.body), `owner response contains ${field}`).not.toContain(`"${field}"`);
+    }
     expect(detail.body.complaint.timeline.map((e) => e.actorLabel)).toEqual(['You', 'Agency staff', 'Agency staff', 'Administrator']);
     expect(detail.body.complaint.timeline.map((e) => e.publicNote)).toEqual(['Report submitted', 'Inspecting soon', undefined, 'Crew dispatched']);
     expect(detail.body.complaint.responsibility).toBe('ASSIGNED');
