@@ -14,12 +14,11 @@ const {
 } = require('../presenters/complaintPresenter');
 const { buildUserSnapshot } = require('../services/userSnapshotService');
 const { buildLocation } = require('../validators/locationValidator');
-const { chooseCategory } = require('../policies/complaintCategoryPolicy');
 const { categoryInactive, complaintWithdrawn, emailNotVerified } = require('../errors/domainErrors');
 const { versionFilter } = require('../services/complaintVersionGuard');
 const { notAssignedToYou, staleComplaint } = require('../errors/domainErrors');
 const referenceService = require('../services/complaintReferenceService');
-const aiService = require('../services/aiService');
+const { enqueueClassification } = require('../services/classificationRequests');
 const { inTransaction } = require('../utils/transaction');
 const { enqueue } = require('../services/jobs/outbox');
 const complaintImageService = require('../services/complaintImageService');
@@ -52,8 +51,7 @@ const createComplaint = async (req, res) => {
         if (!reporter) throw new CustomError.UnauthenticatedError('Not authenticated');
         if (reporter.authProvider === 'local' && !reporter.emailVerifiedAt) throw emailNotVerified();
 
-        // A client category hint must name an existing, active category; checked before
-        // any image work or provider call so a rejected hint costs nothing.
+        // The citizen's category must be active; check it before any image work.
         let hint = null;
         if (categoryId) {
             hint = await Category.findOne({ _id: categoryId, isActive: true });
@@ -66,28 +64,19 @@ const createComplaint = async (req, res) => {
         }
         imageFiles = await complaintImageService.prepareComplaintImages(req.files?.image);
 
-        const activeCategories = await Category.find({ isActive: true });
-        const fallbackCategory = activeCategories.find((category) => category.name === 'Other');
-        if (!fallbackCategory) {
-            throw new Error('Active Other category is not configured');
-        }
-
-        const ai = await aiService.classifyComplaint({
-            description,
-            imageTempFilePath: imageFiles[0]?.tempFilePath,
-            imageMimeType: imageFiles[0]?.mimeType,
-            categoryNames: activeCategories.map((c) => c.name),
-        });
-
-        const category = chooseCategory({ ai, activeCategories, hint });
+        // The worker needs Other even when the citizen chose a category: an unavailable AI
+        // category must still have a safe fallback.
+        const fallbackCategory = await Category.findOne({ name: 'Other', isActive: true });
+        if (!fallbackCategory) throw new Error('Active Other category is not configured');
+        const category = hint ?? fallbackCategory;
 
         const reporterSnapshot = buildUserSnapshot(reporter);
         const images = await complaintImageService.uploadComplaintImages(imageFiles);
 
         let complaint;
         try {
-            // A reference-code collision retries only this insert; uploads and AI are not repeated.
-            // The report and its filed email are written together, or neither is.
+            // A reference-code collision retries only this insert; uploads are not repeated.
+            // The report, its classification job and filed email are written together.
             complaint = await referenceService.createWithUniqueReference((referenceCode) => inTransaction(async (session) => {
                 const [created] = await Complaint.create([{
                     referenceCode,
@@ -96,18 +85,11 @@ const createComplaint = async (req, res) => {
                     location,
                     category: category._id,
                     categorySnapshot: { categoryId: category._id, name: category.name },
-                    priority: ai.error ? category.defaultPriority : ai.priority,
-                    prioritySource: ai.error ? 'CATEGORY_DEFAULT' : 'AI',
-                    ai: {
-                        suggestedCategory: ai.category,
-                        confidence: ai.confidence,
-                        summary: ai.summary,
-                        tags: ai.tags,
-                        classifiedAt: new Date(),
-                        error: ai.error,
-                        inputMode: imageFiles.length ? 'TEXT_AND_IMAGE' : 'TEXT_ONLY',
-                        analysisCount: 1,
-                    },
+                    categorySource: hint ? 'CITIZEN' : 'PENDING',
+                    ...(hint ? { citizenCategory: { categoryId: hint._id, name: hint.name } } : {}),
+                    priority: category.defaultPriority,
+                    prioritySource: 'CATEGORY_DEFAULT',
+                    ai: { status: 'PENDING', requestSeq: 1, analysisCount: 1 },
                     reporter: req.user.userId,
                     reporterSnapshot,
                     statusHistory: [{
@@ -118,6 +100,7 @@ const createComplaint = async (req, res) => {
                         changedBySnapshot: reporterSnapshot,
                     }],
                 }], { session });
+                await enqueueClassification(session, created);
                 await enqueue(session, { queue: 'email', type: 'report_filed', refs: { complaintId: String(created._id) } });
                 return created;
             }));

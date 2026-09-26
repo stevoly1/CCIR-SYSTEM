@@ -3,6 +3,8 @@ const aiService = require('../../services/aiService');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createCategoryFixture } = require('../fixtures/category');
 const { createComplaintFixture } = require('../fixtures/complaint');
+const { fakeClassification } = require('../helpers/ai');
+const { drainOutbox } = require('../helpers/jobs');
 
 const aiOk = (category, priority) => ({ category, priority, summary: `new ${category}`, tags: [category.toLowerCase()], confidence: 0.8, error: null });
 
@@ -197,10 +199,11 @@ describe('PATCH /api/v1/complaints/:id (pending edit)', () => {
   });
 
   it('records the new fields when a complaint is created', async () => {
-    vi.spyOn(aiService, 'classifyComplaint').mockResolvedValue(aiOk('Roads', 'HIGH'));
+    fakeClassification({ category: 'Roads', priority: 'HIGH' });
     await unsafeRequest(agent, 'post', '/api/v1/complaints').send({ description: 'Pothole damaging tyres on the bypass', address: '1 Bypass Road' });
+    await drainOutbox();
     const created = await Complaint.findOne({ description: 'Pothole damaging tyres on the bypass' });
-    expect(created).toMatchObject({ prioritySource: 'AI', ai: { inputMode: 'TEXT_ONLY', analysisCount: 1 } });
+    expect(created).toMatchObject({ categorySource: 'AI', prioritySource: 'AI', ai: { status: 'DONE', inputMode: 'TEXT_ONLY', analysisCount: 1 } });
     expect(created.editHistory).toHaveLength(0);
   });
 });

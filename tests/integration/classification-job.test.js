@@ -110,6 +110,16 @@ describe('classify_report', () => {
     expect(await entryFor(complaint)).toMatchObject({ state: 'FAILED', attempts: 1, lastErrorCode: 'REFUSED' });
   });
 
+  it.each(['TIMEOUT', 'PROVIDER_DOWN'])('keeps Other and its configured priority after final %s', async (code) => {
+    fakeClassification(AiError.of(code));
+    const complaint = await filed();
+    await drainOutbox({ maxAttempts: 1 });
+    expect(await reload(complaint)).toMatchObject({
+      category: other._id, categorySource: 'FALLBACK', priority: 'LOW', prioritySource: 'CATEGORY_DEFAULT',
+      ai: { status: 'FAILED', failureCode: code },
+    });
+  });
+
   it('does not turn a completed result into a failure from a duplicate delivery', async () => {
     const complaint = await filed();
     await Complaint.updateOne({ _id: complaint._id }, { $set: { 'ai.status': 'DONE', categorySource: 'AI', category: roads._id } });
