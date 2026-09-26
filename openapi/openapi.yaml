@@ -2660,7 +2660,7 @@ paths:
     get:
       tags: [complaints]
       summary: List complaints
-      description: Citizens see only their own complaints. Only staff may filter by assignee.
+      description: Citizens see only their own complaints. Only staff may filter by assignee or AI state.
       operationId: listComplaints
       parameters:
         - $ref: '#/components/parameters/Page'
@@ -2685,6 +2685,18 @@ paths:
               - $ref: '#/components/schemas/ObjectId'
               - type: string
                 enum: [none]
+        - name: aiStatus
+          in: query
+          description: Staff only; citizens receive 403. Select reports waiting for AI or whose classification failed.
+          schema:
+            type: string
+            enum: [PENDING, FAILED]
+        - name: disagreement
+          in: query
+          description: Staff only; citizens receive 403. Select reports where AI disagrees with the citizen category.
+          schema:
+            type: string
+            enum: ['true']
         - $ref: '#/components/parameters/Search'
         - name: sort
           in: query

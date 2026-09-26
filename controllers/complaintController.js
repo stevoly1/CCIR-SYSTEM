@@ -125,6 +125,9 @@ const getAllComplaints = async (req, res) => {
     if (req.query.assignedTo && !authority.isStaff(viewer)) {
         throw new CustomError.ForbiddenError('You do not have permission to filter by assignee');
     }
+    if ((req.query.aiStatus || req.query.disagreement) && !authority.isStaff(viewer)) {
+        throw new CustomError.ForbiddenError('You do not have permission to filter by AI state');
+    }
 
     const filter = {};
     if (!authority.isStaff(viewer)) {
@@ -134,6 +137,8 @@ const getAllComplaints = async (req, res) => {
     if (req.query.priority) filter.priority = req.query.priority;
     if (req.query.category) filter.category = req.query.category;
     if (req.query.assignedTo) filter.assignedTo = req.query.assignedTo === 'none' ? null : req.query.assignedTo;
+    if (req.query.aiStatus) filter['ai.status'] = req.query.aiStatus;
+    if (req.query.disagreement) filter['ai.disagreement.categoryId'] = { $exists: true, $ne: null };
     if (req.query.search) {
         const regex = new RegExp(escapeRegExp(req.query.search.trim()), 'i');
         filter.$or = [
