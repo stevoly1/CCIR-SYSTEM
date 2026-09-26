@@ -197,7 +197,7 @@ components:
 
     Job:
       type: object
-      description: One background job (an email to send), as administrators see it.
+      description: One background job, as administrators see it.
       additionalProperties: false
       required: [id, queue, type, state, attempts, lastErrorCode, lastErrorAt, createdAt, subject]
       properties:
@@ -205,12 +205,12 @@ components:
           $ref: '#/components/schemas/ObjectId'
         queue:
           type: string
-          enum: [email]
+          enum: [ai, email]
         type:
           type: string
           description: >
             report_filed, status_update, password_reset_request, password_changed, email_change_notice,
-            email_change_link or verify_email.
+            email_change_link, verify_email or classify_report.
         state:
           type: string
           enum: [PENDING, QUEUED, DONE, FAILED, DISMISSED]
@@ -220,8 +220,9 @@ components:
         lastErrorCode:
           type: [string, 'null']
           description: >
-            Why the last attempt failed: PROVIDER_DOWN, RATE_LIMITED, TIMEOUT, INTERNAL (retried
-            automatically), or NOT_CONFIGURED, REJECTED, RECIPIENT_CAPPED (not retried).
+            Why the last attempt failed. PROVIDER_DOWN, RATE_LIMITED, TIMEOUT and INTERNAL are retried
+            automatically; INVALID_OUTPUT is retried once. NOT_CONFIGURED, REJECTED, RECIPIENT_CAPPED,
+            AUTH, REFUSED and UNKNOWN_TYPE are final.
         lastErrorAt:
           type: [string, 'null']
           format: date-time
@@ -4001,13 +4002,13 @@ paths:
           in: query
           schema:
             type: string
-            enum: [PENDING, QUEUED, DONE, FAILED, DISMISSED]
+            enum: [FAILED]
             default: FAILED
         - name: queue
           in: query
           schema:
             type: string
-            enum: [email]
+            enum: [ai, email]
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -4266,7 +4267,7 @@ paths:
               properties:
                 queue:
                   type: string
-                  enum: [email]
+                  enum: [ai, email]
             example:
               queue: email
       responses:

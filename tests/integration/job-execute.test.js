@@ -164,6 +164,20 @@ describe('running one outbox entry', () => {
     expect(logs.lines.find((l) => l.event === 'job').err).toBeUndefined();
   });
 
+  it('records an unknown type as failed once with a stable code', async () => {
+    const entry = await OutboxEntry.create({ queue: 'email', type: 'from_a_newer_version', refs: { email: 'private@example.test' } });
+    const logs = captureLogs();
+    let error;
+    try { error = await executeEntry(entry._id, { runKey: 0, attempt: 1, maxAttempts: 8 }).catch((e) => e); } finally { logs.restore(); }
+    expect(error).toMatchObject({ name: 'JobError', code: 'UNKNOWN_TYPE', final: true });
+    const saved = await OutboxEntry.findById(entry._id);
+    expect(saved).toMatchObject({ state: 'FAILED', attempts: 1, lastErrorCode: 'UNKNOWN_TYPE' });
+    expect(saved.refs).not.toHaveProperty('email');
+    expect(logs.lines).toContainEqual(expect.objectContaining({ event: 'job_unknown_type', entryId: String(entry._id) }));
+    expect(logs.text()).not.toContain('private@example.test');
+    await expect(executeEntry(entry._id, { runKey: 0, attempt: 1, maxAttempts: 8 })).resolves.toBe('skipped');
+  });
+
   it('drains the outbox for tests, retrying up to maxAttempts', async () => {
     behaviour.run.mockRejectedValueOnce(JobError.of('TIMEOUT')).mockResolvedValue(undefined);
     await add();

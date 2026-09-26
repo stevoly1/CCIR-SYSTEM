@@ -28,7 +28,21 @@ const jobLogFields = (reported) => {
 const executeEntry = async (entryId, { runKey, attempt, maxAttempts, retryDelayMs = () => 0, onRateLimited }) => {
   const entry = await OutboxEntry.findById(entryId);
   if (!entry || FINISHED.has(entry.state) || entry.runKey !== runKey || entry.attempts + 1 !== attempt) return 'skipped';
-  const handler = registry.handlerFor(entry.type);
+  let handler;
+  try {
+    handler = registry.handlerFor(entry.type);
+  } catch {
+    // A worker from another version may receive this type. Record it for the Jobs page.
+    const moved = await OutboxEntry.updateOne({ _id: entry._id, runKey, attempts: attempt - 1, state: entry.state }, {
+      $set: { state: 'FAILED', attempts: attempt, lastErrorCode: 'UNKNOWN_TYPE', lastErrorAt: new Date() },
+      $unset: { 'refs.email': 1 },
+    });
+    if (moved.modifiedCount !== 1) return 'skipped';
+    getLogger().error({ event: 'job_unknown_type', queue: entry.queue, type: entry.type, entryId: String(entry._id) }, 'No handler for this job type');
+    const failure = JobError.of('UNKNOWN_TYPE');
+    failure.final = true;
+    throw failure;
+  }
   const started = Date.now();
   const log = { event: 'job', queue: entry.queue, type: entry.type, entryId: String(entry._id), attempt };
   let result;

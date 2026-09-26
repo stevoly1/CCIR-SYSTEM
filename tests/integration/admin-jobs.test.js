@@ -2,7 +2,12 @@ const request = require('supertest');
 const { testServer } = require('../helpers/testServer');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createUserFixture } = require('../fixtures/user');
-const { EmailChange, OutboxEntry, User } = require('../../models');
+const { Category, Complaint, EmailChange, OutboxEntry, User } = require('../../models');
+const { createComplaintFixture } = require('../fixtures/complaint');
+const { createCategoryFixture } = require('../fixtures/category');
+const { enqueueClassification } = require('../../services/classificationRequests');
+const { fakeClassification } = require('../helpers/ai');
+const { AiError } = require('../../services/ai/aiError');
 const { issueToken } = require('../../services/accountTokenService');
 const emailService = require('../../services/emailService');
 const { JobError } = require('../../services/jobs/jobError');
@@ -43,7 +48,6 @@ describe('Jobs API', () => {
     ]));
     expect(response.body.pagination).toMatchObject({ page: 1, total: 3 });
     expect(JSON.stringify(response.body)).not.toMatch(/secret@example\.test|pat@example\.test/);
-    expect((await admin.get('/api/v1/admin/jobs?state=DONE')).body.jobs).toEqual([]);
   });
 
   it('summarises the queues', async () => {
@@ -208,5 +212,54 @@ describe('Jobs API', () => {
     const all = await unsafeRequest(admin, 'post', '/api/v1/admin/jobs/retry-failed').send({ queue: 'email' });
     expect(all.status).toBe(200);
     expect(all.body).toEqual({ retried: 1, skipped: 1 });
+  });
+
+  describe('AI jobs', () => {
+    const failedClassification = async () => {
+      const category = await Category.findOne({ name: 'Other' }) ?? await createCategoryFixture({ name: 'Other' });
+      const complaint = await createComplaintFixture({ category, categorySource: 'PENDING', ai: { status: 'PENDING', requestSeq: 1 } });
+      await inTransaction((session) => enqueueClassification(session, complaint));
+      fakeClassification(AiError.of('AUTH'));
+      await drainOutbox();
+      vi.restoreAllMocks();
+      return { complaint, entry: await OutboxEntry.findOne({ type: 'classify_report', 'refs.complaintId': String(complaint._id) }) };
+    };
+
+    it('lists failed classifications by report reference', async () => {
+      const { complaint } = await failedClassification();
+      const response = await admin.get('/api/v1/admin/jobs?state=FAILED&queue=ai');
+      expect(response.status).toBe(200);
+      expect(response.body.jobs).toEqual([expect.objectContaining({ queue: 'ai', type: 'classify_report', lastErrorCode: 'AUTH', subject: { kind: 'report', id: String(complaint._id), label: complaint.referenceCode } })]);
+    });
+
+    it('retries a classification under the next request sequence', async () => {
+      const { complaint, entry } = await failedClassification();
+      expect((await retry(entry._id)).status).toBe(200);
+      expect(await OutboxEntry.findById(entry._id)).toMatchObject({ state: 'PENDING', runKey: 1, refs: { requestSeq: 2 } });
+      fakeClassification({ category: 'Other', confidence: 0.5 });
+      await drainOutbox();
+      expect((await Complaint.findById(complaint._id)).ai).toMatchObject({ status: 'DONE', requestSeq: 2 });
+    });
+
+    it('refuses a classification retry replaced by a newer request', async () => {
+      const { complaint, entry } = await failedClassification();
+      await Complaint.updateOne({ _id: complaint._id }, { $inc: { 'ai.requestSeq': 1 } });
+      const response = await retry(entry._id);
+      expect(response.status).toBe(409);
+      expect(response.body.error.code).toBe('JOB_CANNOT_RETRY');
+    });
+
+    it('retries all failed AI classifications', async () => {
+      await failedClassification();
+      await failedClassification();
+      const response = await unsafeRequest(admin, 'post', '/api/v1/admin/jobs/retry-failed').send({ queue: 'ai' });
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ retried: 2, skipped: 0 });
+    });
+
+    it('accepts only FAILED state in the list', async () => {
+      expect((await admin.get('/api/v1/admin/jobs?state=DONE')).status).toBe(400);
+      expect((await admin.get('/api/v1/admin/jobs')).status).toBe(200);
+    });
   });
 });
