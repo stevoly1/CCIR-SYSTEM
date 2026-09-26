@@ -6,6 +6,16 @@ const { getLogger } = require('../../utils/logger');
 
 const FINISHED = new Set(['DONE', 'FAILED', 'DISMISSED']);
 
+// A handler supplies provenance and the stale-result marker, never arbitrary report or provider text.
+const jobLogFields = (reported) => {
+  if (!reported || typeof reported !== 'object') return {};
+  const fields = {};
+  if (typeof reported.provider === 'string' && /^[A-Za-z0-9._-]{1,40}$/.test(reported.provider)) fields.provider = reported.provider;
+  if (typeof reported.model === 'string' && /^[A-Za-z0-9._-]{1,80}$/.test(reported.model)) fields.model = reported.model;
+  if (reported.stale === true) fields.stale = true;
+  return fields;
+};
+
 // Runs one entry's handler and records what happened. Handlers are written to be safe to repeat,
 // because a queue can deliver a job twice. A job for an older runKey (before an administrator's
 // retry), or for an attempt already recorded, is skipped.
@@ -21,8 +31,9 @@ const executeEntry = async (entryId, { runKey, attempt, maxAttempts, retryDelayM
   const handler = registry.handlerFor(entry.type);
   const started = Date.now();
   const log = { event: 'job', queue: entry.queue, type: entry.type, entryId: String(entry._id), attempt };
+  let result;
   try {
-    await handler.run(entry);
+    result = await handler.run(entry);
   } catch (error) {
     const jobError = toJobError(error);
     jobError.final = !jobError.retryable || attempt >= maxAttempts;
@@ -50,14 +61,14 @@ const executeEntry = async (entryId, { runKey, attempt, maxAttempts, retryDelayM
     const outcome = jobError.final ? 'failed' : 'retrying';
     // An unexpected error (a bug, a database timeout) carries what it was; expected failures have their code.
     const detail = error instanceof JobError ? {} : { err: error };
-    getLogger()[jobError.final ? 'warn' : 'info']({ ...log, outcome, failureCode: jobError.code, ...detail, durationMs: Date.now() - started }, 'Job did not succeed');
+    getLogger()[jobError.final ? 'warn' : 'info']({ ...log, ...jobLogFields(error?.log), outcome, failureCode: jobError.code, ...detail, durationMs: Date.now() - started }, 'Job did not succeed');
     throw jobError;
   }
   await OutboxEntry.updateOne({ _id: entry._id, runKey }, {
     $set: { state: 'DONE', doneAt: new Date(), attempts: attempt },
     $unset: { 'refs.email': 1, notBefore: 1 },
   });
-  getLogger().info({ ...log, outcome: 'done', durationMs: Date.now() - started }, 'Job done');
+  getLogger().info({ ...log, ...jobLogFields(result?.log), outcome: 'done', durationMs: Date.now() - started }, 'Job done');
   return 'done';
 };
 

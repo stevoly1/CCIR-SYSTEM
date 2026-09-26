@@ -1,5 +1,6 @@
 const { parseQueueConfig, requireRedisUrl, producerConnection, workerConnection } = require('../../config/queue');
-const { createQueues, DEFAULT_POLICY } = require('./queues');
+const { createQueues, buildPolicy } = require('./queues');
+const { getAiConfig } = require('../../config/ai');
 const { createRelay } = require('./relay');
 const { createWorkers, IDLE_SETTINGS } = require('./workers');
 const { startHeartbeat } = require('./heartbeat');
@@ -7,7 +8,7 @@ const { getLogger } = require('../../utils/logger');
 
 // The relay, the workers and the heartbeat, for the worker process or for the API with
 // WORKERS_IN_PROCESS=true. stop() finishes the jobs in hand before closing connections.
-const startBackgroundWork = async ({ env = process.env, policy = DEFAULT_POLICY, idle = IDLE_SETTINGS, relayIntervalMs, heartbeatMs } = {}) => {
+const startBackgroundWork = async ({ env = process.env, policy = buildPolicy(getAiConfig()), idle = IDLE_SETTINGS, relayIntervalMs, heartbeatMs } = {}) => {
   const config = parseQueueConfig(env);
   const url = requireRedisUrl(config);
   const producer = producerConnection(url);

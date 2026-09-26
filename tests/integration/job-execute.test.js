@@ -21,6 +21,28 @@ describe('running one outbox entry', () => {
     behaviour.onFinalFailure.mockReset();
   });
 
+  it('adds what the handler reports to its job line without letting it override the outcome', async () => {
+    behaviour.run.mockResolvedValue({ log: { provider: 'kimi', model: 'kimi-test', outcome: 'false', event: 'forged', entryId: 'forged', reportText: 'private text' } });
+    const entry = await add();
+    const logs = captureLogs();
+    try { await executeEntry(entry._id, { runKey: 0, attempt: 1, maxAttempts: 1 }); } finally { logs.restore(); }
+    const line = logs.lines.find((item) => item.event === 'job');
+    expect(line).toMatchObject({ outcome: 'done', entryId: String(entry._id), provider: 'kimi', model: 'kimi-test' });
+    expect(line).not.toHaveProperty('reportText');
+  });
+
+  it('adds what a failure reports to its job line without letting it override the failure code', async () => {
+    const failure = JobError.of('AUTH');
+    failure.log = { provider: 'kimi', model: 'kimi-test', failureCode: 'false', event: 'forged', entryId: 'forged', reportText: 'private text' };
+    behaviour.run.mockRejectedValue(failure);
+    const entry = await add();
+    const logs = captureLogs();
+    try { await executeEntry(entry._id, { runKey: 0, attempt: 1, maxAttempts: 3 }).catch(() => {}); } finally { logs.restore(); }
+    const line = logs.lines.find((item) => item.event === 'job');
+    expect(line).toMatchObject({ outcome: 'failed', entryId: String(entry._id), failureCode: 'AUTH', provider: 'kimi', model: 'kimi-test' });
+    expect(line).not.toHaveProperty('reportText');
+  });
+
   it('marks a successful entry done and forgets a stored address', async () => {
     behaviour.run.mockResolvedValue(undefined);
     const entry = await add({ email: 'someone@example.test', userId: 'u1' });

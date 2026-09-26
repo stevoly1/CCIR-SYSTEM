@@ -1,5 +1,6 @@
 // Every job type and its queue. The API reads this to enqueue without loading any handler.
 module.exports = Object.freeze({
+  classify_report: 'ai',
   report_filed: 'email',
   status_update: 'email',
   password_reset_request: 'email',

@@ -19,7 +19,7 @@ describe('what the API process loads for background jobs', () => {
     `);
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
-    expect(JSON.parse(result.stdout)).toEqual({ types: 7, loaded: 0 });
+    expect(JSON.parse(result.stdout)).toEqual({ types: 8, loaded: 0 });
   });
 
   it('serves every route without loading the queue library', () => {

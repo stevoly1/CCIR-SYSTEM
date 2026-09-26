@@ -17,8 +17,9 @@ const backoffFor = ({ backoffBaseMs, backoffCapMs }) => (attempt) => Math.min(ba
 // executeEntry, so the BullMQ job itself always completes, except when recording fails: then it
 // fails, is removed, and the relay re-offers the entry later.
 const createWorkers = ({ connection, queues, policy = DEFAULT_POLICY, idle = IDLE_SETTINGS, lockDuration }) => {
+  const policies = { ...DEFAULT_POLICY, ...policy };
   const workers = QUEUE_NAMES.map((name) => {
-    const settings = policy[name];
+    const settings = policies[name];
     const retryDelayMs = backoffFor(settings);
     const worker = new Worker(name, async (job) => {
       try {

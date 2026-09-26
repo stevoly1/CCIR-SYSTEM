@@ -211,6 +211,17 @@ const complaintSchema = new mongoose.Schema(
             type: String,
             enum: ['AI', 'CATEGORY_DEFAULT', 'STAFF'],
         },
+        // Who set the current category. PENDING: "Other" until the AI answers;
+        // FALLBACK: the AI failed; STAFF: never changed by the AI again.
+        categorySource: {
+            type: String,
+            enum: ['PENDING', 'CITIZEN', 'AI', 'FALLBACK', 'STAFF'],
+        },
+        // What the citizen chose at filing, kept after staff change the category.
+        citizenCategory: {
+            categoryId: { type: mongoose.Schema.Types.ObjectId },
+            name: { type: String, trim: true },
+        },
         ai: {
             suggestedCategory: { type: String },
             confidence: { type: Number, min: 0, max: 1 },
@@ -220,6 +231,19 @@ const complaintSchema = new mongoose.Schema(
             error: { type: String },
             inputMode: { type: String, enum: ['TEXT_AND_IMAGE', 'TEXT_ONLY'] },
             analysisCount: { type: Number, min: 1 },
+            // A result is kept only while its requestSeq is still current.
+            status: { type: String, enum: ['PENDING', 'DONE', 'FAILED'] },
+            requestSeq: { type: Number, min: 0 },
+            provider: { type: String, maxlength: 40 },
+            model: { type: String, maxlength: 80 },
+            promptVersion: { type: String, maxlength: 40 },
+            failureCode: { type: String, maxlength: 40 },
+            failedAt: { type: Date },
+            disagreement: {
+                categoryId: { type: mongoose.Schema.Types.ObjectId },
+                name: { type: String, trim: true },
+                confidence: { type: Number, min: 0, max: 1 },
+            },
         },
         reporter: {
             type: mongoose.Schema.Types.ObjectId,
@@ -262,6 +286,12 @@ complaintSchema.index({ status: 1, priority: 1 }); // staff list filtered by sta
 complaintSchema.index({ createdAt: -1 }); // staff list with no filter, newest first
 complaintSchema.index({ assignedTo: 1, createdAt: -1 }); // "Assigned to me"
 complaintSchema.index({ category: 1 }); // category filter, and the category-in-use check before deletion
+complaintSchema.index({ 'ai.status': 1, createdAt: -1 }); // staff list filtered to "Classifying" or "AI failed"
+complaintSchema.index({ 'ai.status': 1, 'ai.failedAt': 1 }); // daily sweep of failed classifications
+complaintSchema.index( // staff list filtered to "AI disagrees"
+    { 'ai.disagreement.categoryId': 1, createdAt: -1 },
+    { partialFilterExpression: { 'ai.disagreement.categoryId': { $exists: true } } },
+);
 
 module.exports = mongoose.model('Complaint', complaintSchema);
 module.exports.STATUSES = STATUSES;

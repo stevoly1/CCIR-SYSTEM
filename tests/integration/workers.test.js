@@ -4,7 +4,7 @@ const { JobError } = require('../../services/jobs/jobError');
 const { inTransaction } = require('../../utils/transaction');
 const { enqueue } = require('../../services/jobs/outbox');
 const { producerConnection, workerConnection } = require('../../config/queue');
-const { createQueues } = require('../../services/jobs/queues');
+const { createQueues, buildPolicy, QUEUE_NAMES } = require('../../services/jobs/queues');
 const { createRelay } = require('../../services/jobs/relay');
 const { createWorkers, backoffFor } = require('../../services/jobs/workers');
 const { startRedis } = require('../setup/memoryRedis.cjs');
@@ -32,12 +32,12 @@ afterEach(async () => {
   await workers?.close();
   consumer?.disconnect();
   workers = null;
-  await queues.email.obliterate({ force: true });
+  await Promise.all(Object.values(queues).map((queue) => queue.obliterate({ force: true })));
   behaviour.run.mockReset();
 });
 afterAll(async () => {
   await relay.stop();
-  await queues.email.close();
+  await Promise.all(Object.values(queues).map((queue) => queue.close()));
   producer.disconnect();
   await redis.stop();
 });
@@ -46,6 +46,33 @@ const add = () => inTransaction((session) => enqueue(session, { queue: 'email', 
 const settle = (entryId, state) => vi.waitFor(async () => expect((await OutboxEntry.findById(entryId)).state).toBe(state), { timeout: 10000, interval: 50 });
 
 describe('workers', () => {
+  it('sets an independent ai queue with its own attempt, backoff, concurrency and rate limits', () => {
+    expect(buildPolicy({ ratePerMinute: 12 }).ai).toEqual({
+      attempts: 6, backoffBaseMs: 30000, backoffCapMs: 30 * 60 * 1000,
+      concurrency: 2, limiter: { max: 12, duration: 60000 },
+    });
+    expect(QUEUE_NAMES).toEqual(['ai', 'email']);
+  });
+
+  it('runs ai jobs on their own queue, so a slow classification never holds up an email', async () => {
+    let release;
+    registry.registerHandler('test_slow_ai', { queue: 'ai', run: () => new Promise((resolve) => { release = resolve; }) });
+    registry.registerHandler('test_quick_email', { queue: 'email', run: async () => {} });
+    await setUp();
+    try {
+      const slow = await inTransaction((session) => enqueue(session, { queue: 'ai', type: 'test_slow_ai', refs: {} }));
+      const quick = await inTransaction((session) => enqueue(session, { queue: 'email', type: 'test_quick_email', refs: {} }));
+      await relay.runOnce();
+      await vi.waitFor(() => expect(release).toBeTypeOf('function'), { timeout: 10000, interval: 50 });
+      await settle(quick._id, 'DONE');
+      expect((await OutboxEntry.findById(slow._id)).state).not.toBe('DONE');
+      release();
+      await settle(slow._id, 'DONE');
+    } finally {
+      release?.();
+    }
+  });
+
   it('backs off exponentially, up to the cap', () => {
     const delay = backoffFor({ backoffBaseMs: 60000, backoffCapMs: 7200000 });
     expect([1, 2, 3, 4, 8].map((n) => delay(n))).toEqual([60000, 120000, 240000, 480000, 7200000]);
