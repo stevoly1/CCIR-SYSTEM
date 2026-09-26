@@ -1,4 +1,5 @@
 const { captureLogs } = require('../helpers/captureLogs');
+const { JobError } = require('../../services/jobs/jobError');
 
 const ORIGINAL_API_KEY = process.env.RESEND_API_KEY;
 const ORIGINAL_EMAIL_FROM = process.env.EMAIL_FROM;
@@ -38,64 +39,15 @@ describe('email service', () => {
     else process.env.EMAIL_FROM = ORIGINAL_EMAIL_FROM;
   });
 
-  it.each([
-    ['sendComplaintFiledEmail', filedMessage, 'report_filed'],
-    ['sendStatusUpdateEmail', statusMessage, 'status_update'],
-  ])('%s reports a provider error returned without throwing as a failed send', async (fn, message, kind) => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(422, {
-      name: 'validation_error', message: 'Invalid `from` field.', statusCode: 422,
-    })));
-    const email = loadService();
-
-    await expect(email[fn](message)).resolves.toBe(false);
-    expect(logs.lines).toEqual([expect.objectContaining({
-      level: 40, msg: 'Email not sent', provider: 'resend', kind, reason: 'validation_error', statusCode: 422,
-    })]);
-    expect(logs.text()).not.toContain('citizen@example.test');
-    expect(logs.text()).not.toContain('Ada');
-  });
-
-  it.each([
-    ['sendComplaintFiledEmail', filedMessage],
-    ['sendStatusUpdateEmail', statusMessage],
-  ])('%s reports a network failure as a failed send', async (fn, message) => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed')));
-    const email = loadService();
-
-    await expect(email[fn](message)).resolves.toBe(false);
-    expect(logs.lines.map((line) => line.msg)).toEqual(['Email not sent']);
-    expect(logs.text()).not.toContain('citizen@example.test');
-  });
-
-  it('reports a successful send and sends to the reporter', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { id: 'email-1' }));
-    vi.stubGlobal('fetch', fetchMock);
-    const email = loadService();
-
-    await expect(email.sendComplaintFiledEmail(filedMessage)).resolves.toBe(true);
-    const [url, options] = fetchMock.mock.calls[0];
-    expect(url).toMatch(/\/emails$/);
-    expect(JSON.parse(options.body)).toMatchObject({ to: 'citizen@example.test', from: 'CCIR <noreply@example.test>' });
-  });
-
   it('labels a withdrawn report in words', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, { id: 'email-2' }));
     vi.stubGlobal('fetch', fetchMock);
     const email = loadService();
 
-    await expect(email.sendStatusUpdateEmail(statusMessage)).resolves.toBe(true);
+    await expect(email.sendStatusUpdateEmail(statusMessage)).resolves.toBeUndefined();
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).html).toContain('<strong>Withdrawn</strong>');
   });
 
-  it('reports no send when email is not configured', async () => {
-    delete process.env.RESEND_API_KEY;
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-    const email = loadService();
-
-    await expect(email.sendComplaintFiledEmail(filedMessage)).resolves.toBe(false);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
 });
 
 describe('account emails', () => {
@@ -126,13 +78,22 @@ describe('account emails', () => {
   it.each([
     ['sendPasswordResetEmail', { to: 'ada@example.test', name: 'Ada', token: 'T0k3n_-x' }, '/reset-password#token=T0k3n_-x'],
     ['sendEmailChangeConfirmation', { to: 'new@example.test', name: 'Ada', token: 'T0k3n_-y' }, '/confirm-email#token=T0k3n_-y'],
+    ['sendVerificationEmail', { to: 'ada@example.test', name: 'Ada', token: 'T0k3n_-z' }, '/verify-email#token=T0k3n_-z'],
   ])('%s links to the client page with the token after #', async (sender, args, pathAndFragment) => {
     const email = loadService();
-    await expect(email[sender](args)).resolves.toBe(true);
+    await expect(email[sender](args)).resolves.toBeUndefined();
     const [message] = sent;
     expect(recipients(message)).toEqual([args.to]);
     expect(message.html).toContain(`${process.env.ALLOWED_ORIGIN || ''}${pathAndFragment}`);
     expect(message.html).not.toMatch(/\?token=/);
+  });
+
+  it('asks a new account to verify its address', async () => {
+    const email = loadService();
+    await email.sendVerificationEmail({ to: 'ada@example.test', name: '<i>Ada</i>', token: 'abc' });
+    expect(sent[0].subject).toBe('Verify your CCIR email address');
+    expect(sent[0].html).toContain('&lt;i&gt;Ada&lt;/i&gt;');
+    expect(sent[0].html).toContain('expires in 24 hours');
   });
 
   it('escapes the name', async () => {
@@ -170,22 +131,6 @@ describe('account emails', () => {
     expect(email.maskEmail('x@example.com')).toBe('x•••@example.com');
   });
 
-  it('reports a provider failure as a failed send without the recipient or the link in the log', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(422, { name: 'validation_error', message: 'bad', statusCode: 422 })));
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    const email = loadService();
-    await expect(email.sendPasswordResetEmail({ to: 'ada@example.test', name: 'Ada', token: 'SECRET_TOKEN_1' })).resolves.toBe(false);
-    const text = logs.text();
-    expect(text).toContain('password_reset');
-    expect(text).not.toContain('ada@example.test');
-    expect(text).not.toContain('SECRET_TOKEN_1');
-  });
-
-  it('says it did not send when no provider is configured', async () => {
-    delete process.env.RESEND_API_KEY;
-    const email = loadService();
-    await expect(email.sendEmailChangeConfirmation({ to: 'new@example.test', name: 'Ada', token: 't' })).resolves.toBe(false);
-  });
 });
 
 describe('test outbox', () => {
@@ -211,7 +156,7 @@ describe('test outbox', () => {
     vi.stubGlobal('fetch', fetchMock);
     try {
       const email = loadService();
-      expect(await email.sendPasswordResetEmail({ to: 'ada@example.test', name: 'Ada', token: 'abc' })).toBe(true);
+      expect(await email.sendPasswordResetEmail({ to: 'ada@example.test', name: 'Ada', token: 'abc' })).toBeUndefined();
       const [file] = fs.readdirSync(dir);
       const message = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
       expect(message).toMatchObject({ kind: 'password_reset', to: 'ada@example.test' });
@@ -223,5 +168,121 @@ describe('test outbox', () => {
       delete require.cache[modulePath];
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('email transport', () => {
+  let logs;
+  beforeEach(() => {
+    process.env.RESEND_API_KEY = 're_unit_fake_key';
+    process.env.EMAIL_FROM = 'CCIR <noreply@example.test>';
+    logs = captureLogs();
+    // The SDK itself prints provider errors to the console outside production.
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    logs.restore();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    if (ORIGINAL_API_KEY === undefined) delete process.env.RESEND_API_KEY;
+    else process.env.RESEND_API_KEY = ORIGINAL_API_KEY;
+    if (ORIGINAL_EMAIL_FROM === undefined) delete process.env.EMAIL_FROM;
+    else process.env.EMAIL_FROM = ORIGINAL_EMAIL_FROM;
+  });
+
+  const failWith = (status, body, headers = {}) => vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(body), {
+    status, headers: { 'Content-Type': 'application/json', ...headers },
+  })));
+  const failureOf = (email) => email.sendStatusUpdateEmail(statusMessage).then(() => null, (error) => error);
+
+  it('passes the idempotency key to Resend and resolves on acceptance', async () => {
+    const fetch = vi.fn().mockResolvedValue(jsonResponse(200, { id: 'email-1' }));
+    vi.stubGlobal('fetch', fetch);
+    const email = loadService();
+    await expect(email.sendComplaintFiledEmail({ ...filedMessage, idempotencyKey: 'email-abc-0' })).resolves.toBeUndefined();
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toMatch(/\/emails$/);
+    expect(new Headers(init.headers).get('Idempotency-Key')).toBe('email-abc-0');
+    expect(JSON.parse(init.body)).toMatchObject({ to: 'citizen@example.test', from: 'CCIR <noreply@example.test>', subject: 'Your report CCIR-00000001 has been filed' });
+  });
+
+  it.each([
+    [429, 'rate_limit_exceeded', 'RATE_LIMITED', true],
+    [500, 'internal_server_error', 'PROVIDER_DOWN', true],
+    [503, 'application_error', 'PROVIDER_DOWN', true],
+    [409, 'concurrent_idempotent_requests', 'PROVIDER_DOWN', true],
+    [409, 'invalid_idempotent_request', 'REJECTED', false],
+    [422, 'validation_error', 'REJECTED', false],
+    [403, 'validation_error', 'REJECTED', false],
+    [401, 'missing_api_key', 'REJECTED', false],
+  ])('turns a provider %s %s into %s', async (status, name, code, retryable) => {
+    failWith(status, { name, message: 'provider text with citizen@example.test', statusCode: status });
+    const failure = await failureOf(loadService());
+    expect(failure).toBeInstanceOf(JobError);
+    expect(failure).toMatchObject({ code, retryable, message: code });
+    expect(logs.text()).not.toContain('citizen@example.test');
+  });
+
+  it('waits as long as Resend asks after a rate limit', async () => {
+    failWith(429, { name: 'rate_limit_exceeded', message: 'Too many requests', statusCode: 429 }, { 'retry-after': '2' });
+    expect(await failureOf(loadService())).toMatchObject({ code: 'RATE_LIMITED', retryAfterMs: 2000 });
+  });
+
+  it('holds the queue for an hour when the daily or monthly sending quota is used up, and says so', async () => {
+    failWith(429, { name: 'daily_quota_exceeded', message: 'You have reached your daily email sending quota.', statusCode: 429 });
+    expect(await failureOf(loadService())).toMatchObject({ code: 'RATE_LIMITED', retryAfterMs: 60 * 60 * 1000 });
+    expect(logs.lines).toContainEqual(expect.objectContaining({ event: 'email_quota_exceeded', quota: 'daily_quota_exceeded' }));
+  });
+
+  it('treats a network error, including one the SDK reports without throwing, or a hang as the provider being down', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed')));
+    await expect(loadService().sendPasswordChangedEmail({ to: 'a@example.test', name: 'A' })).rejects.toMatchObject({ code: 'PROVIDER_DOWN' });
+
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
+    const settled = loadService().sendPasswordChangedEmail({ to: 'a@example.test', name: 'A' }).catch((error) => error);
+    await vi.advanceTimersByTimeAsync(15000);
+    expect(await settled).toMatchObject({ code: 'PROVIDER_DOWN' });
+  });
+
+  it('says NOT_CONFIGURED without a key, without calling out, and logs that once', async () => {
+    delete process.env.RESEND_API_KEY;
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const email = loadService();
+    await expect(email.sendPasswordChangedEmail({ to: 'a@example.test', name: 'A' })).rejects.toMatchObject({ code: 'NOT_CONFIGURED', retryable: false });
+    await expect(email.sendComplaintFiledEmail(filedMessage)).rejects.toMatchObject({ code: 'NOT_CONFIGURED' });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(logs.lines.filter((line) => line.event === 'email_not_configured')).toHaveLength(1);
+    expect(logs.text()).not.toContain('a@example.test');
+  });
+
+  it('writes every kind to the test outbox, with its links and key', async () => {
+    const fs = require('node:fs');
+    const os = require('node:os');
+    const path = require('node:path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccir-mail-'));
+    vi.stubEnv('EMAIL_OUTBOX_DIR', dir);
+    try {
+      const email = loadService();
+      await email.sendComplaintFiledEmail({ ...filedMessage, idempotencyKey: 'k1' });
+      const [file] = fs.readdirSync(dir);
+      expect(JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'))).toEqual({
+        kind: 'report_filed', to: 'citizen@example.test', subject: 'Your report CCIR-00000001 has been filed',
+        links: [expect.stringMatching(/\/dashboard\/reports\/c1$/)], idempotencyKey: 'k1',
+      });
+    } finally {
+      vi.unstubAllEnvs();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('lets the transport be replaced (the journey server does)', async () => {
+    const email = loadService();
+    const send = vi.spyOn(email.emailTransport, 'send').mockResolvedValue(undefined);
+    await email.sendPasswordChangedEmail({ to: 'a@example.test', name: 'A', idempotencyKey: 'k2' });
+    await email.sendStatusUpdateEmail({ ...statusMessage, idempotencyKey: 'k3' });
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ kind: 'password_changed', to: 'a@example.test', idempotencyKey: 'k2' }));
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ kind: 'status_update', idempotencyKey: 'k3', links: [expect.stringMatching(/\/dashboard\/reports\/c1$/)] }));
   });
 });

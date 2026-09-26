@@ -64,6 +64,7 @@ app.use('/api/v1/users', UserRouter);
 app.use('/api/v1/categories', CategoryRouter);
 app.use('/api/v1/complaints', ComplaintRouter);
 app.use('/api/v1/location', LocationRouter);
+app.use('/api/v1/admin', require('./routes/adminRoute'));
 
 app.use('/api/v1/health', require('./routes/healthRoute'));
 

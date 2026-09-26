@@ -28,6 +28,7 @@ The AI classification feature uses a pretrained, general-purpose multimodal mode
 - MongoDB 4.4 or later, **running as a replica set** (the API uses transactions). Hosted clusters such as MongoDB Atlas already are. A self-managed server, even a single one, must be started with `--replSet rs0` and initiated once with `rs.initiate()` in `mongosh`
 - A [Google AI Studio](https://aistudio.google.com/) API key (for AI classification — optional but recommended). A free-tier key allows only a few requests a minute per model (5 for `gemini-3.6-flash` in September 2026; see [rate limits](https://ai.google.dev/gemini-api/docs/rate-limits)). Each new report, and each edit that changes the description, is one request; beyond the limit reports fall back to `Other`/`MEDIUM` until the minute resets. Use a billing-enabled key for real use. Every fallback is logged (`AI classification failed; using the fallback`) with its code and, for a refusal, the provider's HTTP status (`providerStatus` 429 means the quota was reached)
 - A [Cloudinary](https://cloudinary.com/) account (only required if citizens will attach photos to complaints — a text-only complaint never calls Cloudinary. Unlike the AI and email services, image upload has no fallback: a complaint submitted *with* a photo will fail without valid Cloudinary credentials)
+- Redis 6.2 or later for the background worker that sends every email (a free [Upstash](https://upstash.com/) database works; see [Background work](#background-work)). The tests start their own throwaway `redis-server`, so it must be installed locally (`brew install redis` on macOS, `sudo apt-get install redis-server` on Ubuntu)
 - Optionally: a [Resend](https://resend.com/) API key (email notifications) and Google OAuth credentials (Google sign-in)
 
 ## Setup
@@ -49,6 +50,19 @@ The API will be running at `http://localhost:8080/api/v1`. `GET /api/v1/health/r
 In production (`NODE_ENV=production`) the API, the migrations and `set-role` never build database indexes themselves. Build them once on a new database, before the first start, with `npm run db:indexes -- --apply`, which also seeds the default categories (see [Operations](#operations)).
 
 See [`.env.example`](./.env.example) for the full list of environment variables and what each one is for.
+
+### Background work
+
+Every email (report filed, status changes, password and email-address links, verification) is sent by a background worker, never during a request. The change and its email are saved together in MongoDB (an outbox); a relay moves each saved email into a Redis queue, and a worker sends it through Resend. So an answer never waits on the email provider, and nothing is lost while it is down: failures are retried with growing waits (from a minute, up to two hours apart, 8 tries), and the waiting happens in MongoDB, not in Redis.
+
+- `REDIS_URL`: the Redis the queue uses. Upstash and other hosted Redis use `rediss://` (TLS). Only the process that runs the worker needs it.
+- Run the worker in one of two ways:
+  - as its own service, `npm run worker`, next to the API (both need the same `.env`); or
+  - inside the API, with `WORKERS_IN_PROCESS=true`, for hosting a single service.
+- `RELAY_INTERVAL_MS` (default `1000`): how often saved emails are moved into Redis. The relay reads MongoDB and touches Redis only when there is something to move.
+- Redis must not evict keys: BullMQ needs `maxmemory-policy noeviction`. On Upstash, check the database's eviction setting is off.
+- **Cost on Upstash's free tier (500,000 commands a month).** Measured with the test suite's budget test: an idle worker, even with a failed email waiting to retry, uses at most about 131,000 commands a month; each email costs about 45 commands. That leaves room for roughly 8,000 emails a month. Resend's own free plan has lower daily and monthly sending limits, so it is usually the tighter one; a used-up Resend quota holds the queue for an hour at a time.
+- Where failures show: the administrators' **Jobs** page lists failed emails (by report reference or account name, never by address), with retry and dismiss; `GET /api/v1/health/ready` reports `checks.background` (`NO_WORKER`, `WORKER_SILENT`, `BACKLOG_OLD`).
 
 ### Creating the first admin account
 
@@ -89,9 +103,10 @@ The full contract, with every request and response schema, error code and exampl
 ### Accounts
 
 People manage their own accounts from the Profile page:
+- **Verify email address:** a new account gets a link (valid 24 hours). It can sign in before using it, but cannot file reports, and report emails wait, until the address is verified. The dashboard offers a new link (3 an hour). Google accounts are verified by Google. Existing email-and-password accounts verify the same way before their next report.
 - **Forgot password:** a single-use link, valid for 30 minutes, emailed to the account. The answer is the same whether or not the address has an account.
 - **Change password:** needs the current password and signs out the other devices.
-- **Change email address:** needs the current password; the change applies only when the link sent to the new address is opened (valid 24 hours). The old address is always told; if that email cannot be sent, the request is refused.
+- **Change email address:** needs the current password; the change applies only when the link sent to the new address is opened (valid 24 hours). The old address is always told first, and only then is the link sent; Profile shows the progress. If either email cannot be sent after several tries, the change ends as failed, no link is kept, and nothing changes.
 - **Delete account:** needs the password (Google accounts type their email address). A citizen's name is removed from every stored snapshot of them on reports; the reports stay. Staff names stay in the handling history, because who handled a report is the agency's record. Administrators cannot delete their own account; another administrator retires it.
 
 Administrators correct a user's email address from the Users page. It goes through the same confirmation, the old address is told that an administrator asked, and the log records which administrator: `POST /users/{id}/email`. Since contract 1.1.0, `PATCH /users/{id}` no longer accepts `email`.
@@ -100,17 +115,19 @@ Passwords set from now on need 8 to 128 characters and may not be the account's 
 
 A Google sign-in started from a dashboard page (for example a report link opened while signed out) returns to that page (`GET /auth/google?returnTo=`); anything that is not a `/dashboard` path on this site is ignored.
 
-These flows send email through Resend (`RESEND_API_KEY`, `EMAIL_FROM`). Without a key, reset requests are still answered, but no email goes out, and email changes answer 503 `EMAIL_NOT_SENT`. Resend's test sender delivers only to the Resend account owner's own address, so a real deployment needs a verified sending domain.
+These flows send email through Resend (`RESEND_API_KEY`, `EMAIL_FROM`) from the background worker. Without a key, requests are still answered, but the emails fail and show on the Jobs page. Resend's test sender delivers only to the Resend account owner's own address, so a real deployment needs a verified sending domain. At most three link emails an hour go to any one address, whoever asks.
 
 ### Upgrading an existing database
 
-Deployments with data from earlier versions run each migration they have not yet applied, in order (`migrate:phase1`, then `migrate:phase2`), after deploying the code. Each script supports `--dry-run`, `--apply --backup-reference=<label>` (take and label a backup first), and `--verify`:
+Deployments with data from earlier versions run each migration they have not yet applied, in order (`migrate:phase1`, then `migrate:phase2`, then `migrate:phase4c`), after deploying the code and running `npm run db:indexes -- --apply`. Each script supports `--dry-run`, `--apply --backup-reference=<label>` (take and label a backup first), and `--verify`:
 
 ```bash
 npm run migrate:phase2 -- --dry-run
 npm run migrate:phase2 -- --apply --backup-reference=<your-backup-label>
 npm run migrate:phase2 -- --verify
 ```
+
+`migrate:phase4c` marks Google accounts verified and removes email-change links from before this release that were never used (those people ask again); email-and-password accounts verify themselves.
 
 Each script prints a single JSON report, and `--verify` exits with code 2 while any invariant fails. Case-duplicate category names and category names outside 2–60 characters are reported for manual correction, never changed automatically. Rolling back after `--apply` means restoring the backup together with the previous code; older code cannot read the migrated data.
 
@@ -125,7 +142,7 @@ Logs are JSON lines on standard output, one line per request plus one per notabl
 | Endpoint | Answers | Status codes |
 |---|---|---|
 | `GET /api/v1/health/live` | the process is running (never checks the database) | 200 |
-| `GET /api/v1/health/ready` | `ready`, `degraded` (an optional service — AI, uploads, email, Google sign-in — is not configured, or a TTL index is missing) or `unavailable` | 200 when ready or degraded; 503 when unavailable |
+| `GET /api/v1/health/ready` | `ready`, `degraded` (an optional service — AI, uploads, email, Google sign-in — is not configured, a TTL index is missing, no background worker has written a heartbeat in two minutes, or a job has waited over five) or `unavailable` | 200 when ready or degraded; 503 when unavailable |
 
 When unavailable, `checks.database.reason` is one of `DATABASE_DISCONNECTED`, `DATABASE_TIMEOUT`, `TRANSACTIONS_UNSUPPORTED` (not a replica set), `INDEXES_MISSING` (run `db:indexes -- --apply`) or `DATABASE_ERROR`. When degraded because `checks.database.reason` is `TTL_INDEXES_MISSING`, sessions and sign-in throttles would stop expiring: run `db:indexes -- --apply`. Readiness needs the database user to be allowed `listIndexes` (the `readWrite` role is). Neither endpoint is rate-limited, and neither reveals a setting value or connection detail; readiness does show which optional services are configured and the MongoDB server version. Because readiness is public, its database check is shared: concurrent probes wait for one check, and the result is reused for `READINESS_CACHE_MS` milliseconds (default `1000`; `0` checks on every call).
 
@@ -174,7 +191,7 @@ npm --prefix client run test:e2e     # browser journeys on the production build,
                                      # extra arguments (a spec file, --grep) reach both browsers
 ```
 
-Tests use in-memory databases and fake providers; they never contact a real database, AI, email, storage or geocoding service. The first run downloads the MongoDB server binary for the in-memory database. The journeys use your installed Google Chrome and Playwright's WebKit (Safari's engine), which is downloaded once with `npm --prefix client exec playwright install webkit` (about 85 MB).
+Tests use in-memory databases, a throwaway local `redis-server` and fake providers; they never contact a real database, Redis, AI, email, storage or geocoding service. The Redis budget test takes about two minutes. The first run downloads the MongoDB server binary for the in-memory database. The journeys use your installed Google Chrome and Playwright's WebKit (Safari's engine), which is downloaded once with `npm --prefix client exec playwright install webkit` (about 85 MB).
 
 Browser journeys read emails from a test-only outbox (`EMAIL_OUTBOX_DIR`); the API refuses to start with it unless `NODE_ENV=test`.
 

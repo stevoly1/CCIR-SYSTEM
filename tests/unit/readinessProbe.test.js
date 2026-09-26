@@ -1,4 +1,5 @@
-const { createDatabaseProbe } = require('../../services/readinessService');
+const fs = require('node:fs');
+const { createDatabaseProbe, createCachedProbe } = require('../../services/readinessService');
 
 const deferred = () => {
   let resolve;
@@ -58,5 +59,17 @@ describe('createDatabaseProbe', () => {
     clock += 500;
     await probe();
     expect(check).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('readiness and Redis', () => {
+  // Probes arrive every few seconds; on a per-command Redis plan each ping would be billed.
+  it('never touches Redis', () => {
+    const source = fs.readFileSync(require.resolve('../../services/readinessService'), 'utf8');
+    expect(source).not.toMatch(/ioredis|bullmq|config\/queue|services\/jobs/);
+  });
+
+  it('caches any check, not only the database one', () => {
+    expect(createDatabaseProbe).toBe(createCachedProbe);
   });
 });

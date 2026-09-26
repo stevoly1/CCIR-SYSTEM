@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router';
 import toast from 'react-hot-toast';
 import { ImagePlus, X } from 'lucide-react';
 import Topbar from '../../components/Topbar';
+import VerifyEmailBanner from '../../components/account/VerifyEmailBanner';
 import LocationField from '../../components/LocationField';
 import { EMPTY_LOCATION, locationToFormData } from '../../components/locationValue';
 import { createComplaint, resetCreateStatus } from '../../slices/complaintSlice';
@@ -17,6 +18,7 @@ const ReportIssuePage = () => {
     const dispatch = useDispatch();
     const navigate = useNavigate();
     const { createStatus, error } = useSelector((state) => state.complaints);
+    const user = useSelector((state) => state.auth.user);
 
     const [description, setDescription] = useState('');
     const [location, setLocation] = useState(EMPTY_LOCATION);
@@ -87,6 +89,16 @@ const ReportIssuePage = () => {
             toast.error(result.payload || 'Something went wrong');
         }
     };
+
+    // Filing needs a verified address; the server refuses it otherwise.
+    if (user?.emailVerified === false) {
+        return (
+            <div>
+                <Topbar title="Report an Issue" subtitle="Verify your email address first." />
+                <VerifyEmailBanner variant="panel" />
+            </div>
+        );
+    }
 
     return (
         <div>

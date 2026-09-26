@@ -744,3 +744,49 @@
     margin: 0 0 14px;
     font-size: 1rem;
 }
+
+/* Email verification: across the dashboard, or where reporting waits for it */
+.verify-banner,
+.verify-panel {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    border: 1px solid var(--color-border);
+    border-left: 4px solid var(--color-status-progress);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+}
+.verify-panel { max-width: 560px; }
+.verify-banner p,
+.verify-panel p { margin: 0; }
+
+/* Jobs (administrators): background work at a glance */
+.jobs-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+.jobs-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 140px;
+    padding: 12px 16px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+}
+.jobs-stat span { font-size: 13px; color: var(--color-text-muted); }
+.jobs-stat strong { font-size: 20px; }
+.jobs-worker { flex-basis: 100%; margin: 0; }
+.jobs-actions { margin-bottom: 12px; }
+.jobs-table-wrap { overflow-x: auto; }
+.jobs-table { width: 100%; border-collapse: collapse; background: var(--color-surface); }
+.jobs-table th,
+.jobs-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--color-border); vertical-align: middle; }
+.jobs-row-actions { display: flex; gap: 8px; justify-content: flex-end; }

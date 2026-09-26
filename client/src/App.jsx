@@ -16,6 +16,7 @@ import SignupPage from './pages/auth/SignupPage';
 import ForgotPasswordPage from './pages/auth/ForgotPasswordPage';
 import ResetPasswordPage from './pages/auth/ResetPasswordPage';
 import ConfirmEmailPage from './pages/auth/ConfirmEmailPage';
+import VerifyEmailPage from './pages/auth/VerifyEmailPage';
 import AccountDeletedPage from './pages/auth/AccountDeletedPage';
 import DashboardHome from './pages/dashboard/DashboardHome';
 import ReportIssuePage from './pages/dashboard/ReportIssuePage';
@@ -24,6 +25,7 @@ import ReportDetailPage from './pages/dashboard/ReportDetailPage';
 import ProfilePage from './pages/dashboard/ProfilePage';
 import UsersPage from './pages/dashboard/UsersPage';
 import CategoriesPage from './pages/dashboard/CategoriesPage';
+import JobsPage from './pages/dashboard/JobsPage';
 
 const App = () => {
     const dispatch = useDispatch();
@@ -53,11 +55,13 @@ const App = () => {
                         <Route element={<RoleRoute roles={['admin']} />}>
                             <Route path="users" element={<UsersPage />} />
                             <Route path="categories" element={<CategoriesPage />} />
+                            <Route path="jobs" element={<JobsPage />} />
                         </Route>
                     </Route>
                 </Route>
 
                 <Route path="/confirm-email" element={<ConfirmEmailPage />} />
+                <Route path="/verify-email" element={<VerifyEmailPage />} />
                 <Route path="/account-deleted" element={<AccountDeletedPage />} />
 
                 <Route path="/" element={<Navigate to="/dashboard" replace />} />

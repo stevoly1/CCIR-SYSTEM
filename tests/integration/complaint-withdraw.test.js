@@ -1,5 +1,6 @@
 const { Complaint } = require('../../models');
 const emailService = require('../../services/emailService');
+const { drainOutbox } = require('../helpers/jobs');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createComplaintFixture } = require('../fixtures/complaint');
 const { createUserFixture } = require('../fixtures/user');
@@ -24,6 +25,7 @@ describe('POST /api/v1/complaints/:id/withdraw', () => {
     expect(stored.statusHistory.at(-1)).toMatchObject({ type: 'WITHDRAWN', status: 'WITHDRAWN', publicNote: 'Withdrawn by reporter' });
     expect(String(stored.statusHistory.at(-1).changedBy)).toBe(user.id);
     expect(stored.__v).toBe(complaint.__v + 1);
+    await drainOutbox();
     expect(email).not.toHaveBeenCalled();
   });
 

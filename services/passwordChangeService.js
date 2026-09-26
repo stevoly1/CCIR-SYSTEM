@@ -5,6 +5,8 @@ const { googleAccount, samePassword } = require('../errors/domainErrors');
 const { verifyCurrentPassword } = require('./currentPasswordService');
 const { endSessions } = require('./sessionService');
 const { cancelTokens } = require('./accountTokenService');
+const { enqueue } = require('./jobs/outbox');
+const { endOpenChanges } = require('./emailChangeState');
 const { ensureAccountLifecycleGuard, touchAccountLifecycleGuard } = require('./accountLifecycleGuard');
 const { assertPasswordAllowed } = require('../validators/passwordPolicy');
 
@@ -27,6 +29,8 @@ const changePassword = async ({ userId, sessionId, currentPassword, newPassword 
       await fresh.save({ session });
       await endSessions({ userId, exceptSessionId: sessionId, session });
       await cancelTokens({ userId, session });
+      await endOpenChanges({ userId, state: 'CANCELLED', session });
+      await enqueue(session, { queue: 'email', type: 'password_changed', refs: { userId: String(userId) } });
     });
   } finally {
     await session.endSession();

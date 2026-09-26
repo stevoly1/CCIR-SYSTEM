@@ -9,7 +9,7 @@ const {
     deleteUser,
     logout
 } = require("../controllers/userController");
-const { changePassword, requestOwnEmailChange, requestUserEmailChange } = require('../controllers/accountController');
+const { changePassword, requestOwnEmailChange, requestUserEmailChange, resendVerificationEmail } = require('../controllers/accountController');
 const { changePasswordSchema, requestOwnEmailChangeSchema, requestEmailChangeSchema, deleteProfileSchema } = require('../validators/accountValidator');
 const UserRouter = express.Router();
 const { authentication } = require('../middleware/auth')
@@ -27,6 +27,7 @@ UserRouter.route("/profile").get(authentication, validate({ query: emptyQuerySch
 UserRouter.route("/profile/password").post(authentication, validate({ body: changePasswordSchema, query: emptyQuerySchema }), changePassword);
 // Before "/:id/email": Express matches in order, and "profile" would otherwise be taken for an id.
 UserRouter.route("/profile/email").post(authentication, validate({ body: requestOwnEmailChangeSchema, query: emptyQuerySchema }), requestOwnEmailChange);
+UserRouter.route("/profile/verification-email").post(authentication, validate({ body: emptyQuerySchema, query: emptyQuerySchema }), resendVerificationEmail);
 UserRouter.route("/logout").post(authentication, validate({ body: emptyQuerySchema, query: emptyQuerySchema }), logout);
 UserRouter.route("/:id/email").post(authentication, restrictTo('admin'), validate({ params: idParamsSchema, body: requestEmailChangeSchema, query: emptyQuerySchema }), requestUserEmailChange);
 UserRouter.route("/:id")

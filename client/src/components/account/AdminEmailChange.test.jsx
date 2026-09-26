@@ -10,38 +10,60 @@ vi.mock('../../api/axiosClient', () => ({
   extractErrorMessage: (error) => error?.response?.data?.error?.message || 'Something went wrong',
 }));
 
-const citizen = { _id: 'u-cit', email: 'typo@exmaple.test', authProvider: 'local' };
+const citizen = { _id: 'u-cit', email: 'typo@exmaple.test', authProvider: 'local', pendingEmailChange: null };
+const accepted = { data: { pendingEmailChange: { newEmail: 'right@example.test', state: 'NOTICE_PENDING' } } };
 
 describe('AdminEmailChange', () => {
   beforeEach(() => { axiosClient.post.mockReset(); toast.success.mockReset(); toast.error.mockReset(); });
 
-  it('sends exactly newEmail to the user\'s email endpoint', async () => {
-    axiosClient.post.mockResolvedValue({ data: {} });
+  const open = async (user) => user.click(screen.getByRole('button', { name: 'Change email' }));
+
+  it('focuses the address, sends exactly newEmail, then shows and focuses the progress', async () => {
+    axiosClient.post.mockResolvedValue(accepted);
     const user = userEvent.setup();
     render(<AdminEmailChange user={citizen} isSelf={false} />);
-    await user.click(screen.getByRole('button', { name: 'Change email' }));
+    await open(user);
+    expect(screen.getByLabelText('New email address')).toHaveFocus();
     await user.type(screen.getByLabelText('New email address'), 'right@example.test');
     await user.click(screen.getByRole('button', { name: 'Send confirmation' }));
     expect(axiosClient.post).toHaveBeenCalledWith('/users/u-cit/email', { newEmail: 'right@example.test' });
-    expect(toast.success).toHaveBeenCalledWith('Confirmation sent to right@example.test. The address changes when the user confirms it.');
+    const progress = await screen.findByRole('status');
+    expect(progress).toHaveTextContent("Sending: first a notice to the user's current address, then a confirmation link to right@example.test.");
+    expect(progress).toHaveFocus();
+    expect(screen.queryByLabelText('New email address')).toBeNull();
   });
 
-  it('shows the server reason', async () => {
+  it('shows the user\'s change in progress', () => {
+    render(<AdminEmailChange user={{ ...citizen, pendingEmailChange: { newEmail: 'right@example.test', state: 'LINK_SENT' } }} isSelf={false} />);
+    expect(screen.getByRole('status')).toHaveTextContent("Check the user's new inbox at right@example.test. The address changes when the user opens the link; it expires in 24 hours.");
+  });
+
+  it('shows the server reason inside the dialog, not as a toast', async () => {
     axiosClient.post.mockRejectedValue({ response: { data: { error: { message: 'An account with this email already exists' } } } });
     const user = userEvent.setup();
     render(<AdminEmailChange user={citizen} isSelf={false} />);
-    await user.click(screen.getByRole('button', { name: 'Change email' }));
+    await open(user);
     await user.type(screen.getByLabelText('New email address'), 'taken@example.test');
     await user.click(screen.getByRole('button', { name: 'Send confirmation' }));
-    expect(toast.error).toHaveBeenCalledWith('An account with this email already exists');
+    expect(await screen.findByRole('alert')).toHaveTextContent('An account with this email already exists');
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('cancels, returning focus to the button that opened it', async () => {
+    const user = userEvent.setup();
+    render(<AdminEmailChange user={citizen} isSelf={false} />);
+    await open(user);
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByLabelText('New email address')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Change email' })).toHaveFocus();
   });
 
   it('sends on Enter without submitting the edit form around it', async () => {
-    axiosClient.post.mockResolvedValue({ data: {} });
+    axiosClient.post.mockResolvedValue(accepted);
     const onSubmit = vi.fn((e) => e.preventDefault());
     const user = userEvent.setup();
     render(<form onSubmit={onSubmit}><AdminEmailChange user={citizen} isSelf={false} /></form>);
-    await user.click(screen.getByRole('button', { name: 'Change email' }));
+    await open(user);
     await user.type(screen.getByLabelText('New email address'), 'right@example.test{Enter}');
     expect(axiosClient.post).toHaveBeenCalledWith('/users/u-cit/email', { newEmail: 'right@example.test' });
     expect(onSubmit).not.toHaveBeenCalled();

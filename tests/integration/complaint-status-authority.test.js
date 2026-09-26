@@ -1,5 +1,6 @@
-const { Complaint } = require('../../models');
+const { Complaint, OutboxEntry } = require('../../models');
 const emailService = require('../../services/emailService');
+const { drainOutbox } = require('../helpers/jobs');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createComplaintFixture } = require('../fixtures/complaint');
 const { createUserFixture } = require('../fixtures/user');
@@ -59,6 +60,7 @@ describe('status authority', () => {
     expect(stored).toMatchObject({ status: 'IN_REVIEW', priority: 'CRITICAL', prioritySource: 'STAFF' });
     expect(stored.statusHistory.at(-1)).toMatchObject({ type: 'PRIORITY_CHANGED', status: 'IN_REVIEW', internalNote: 'Near a school' });
     expect(stored.statusHistory.at(-1).priorityChange).toMatchObject({ from: 'LOW', to: 'CRITICAL' });
+    await drainOutbox();
     expect(email).not.toHaveBeenCalled();
   });
 
@@ -103,7 +105,7 @@ describe('status authority', () => {
     expect(mine.body.complaint).toMatchObject({ allowedTransitions: ['IN_REVIEW', 'REJECTED'], canChangePriority: true, canAssign: false });
   });
 
-  it('still records the status change when the email provider fails, and logs the failure without the recipient', async () => {
+  it('still records the status change when the email provider fails, and the job records the failure without the recipient', async () => {
     // A fresh copy of the real email service with a provider key, so the Resend SDK itself runs.
     const servicePath = require.resolve('../../services/emailService');
     const cached = require.cache[servicePath];
@@ -126,9 +128,11 @@ describe('status authority', () => {
 
       expect(response.status).toBe(200);
       expect((await Complaint.findById(complaint.id)).status).toBe('IN_REVIEW');
-      await vi.waitFor(() => expect(logs.lines.some((line) => line.msg === 'Email not sent')).toBe(true));
+      expect(providerCall).not.toHaveBeenCalled();
+      await drainOutbox();
       expect(providerCall).toHaveBeenCalledTimes(1);
-      expect(logs.lines.find((line) => line.msg === 'Email not sent')).toMatchObject({ kind: 'status_update', reason: 'application_error', statusCode: 500 });
+      expect(await OutboxEntry.findOne({ type: 'status_update' })).toMatchObject({ state: 'FAILED', lastErrorCode: 'PROVIDER_DOWN' });
+      expect(logs.lines.find((line) => line.event === 'job')).toMatchObject({ type: 'status_update', outcome: 'failed', failureCode: 'PROVIDER_DOWN' });
       expect(logs.text()).not.toContain('status.reporter@example.test');
     } finally {
       logs.restore();

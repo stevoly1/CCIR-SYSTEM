@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const { StatusCodes } = require('http-status-codes');
 const { Complaint, Category, User } = require('../models');
 const CustomError = require('../errors');
@@ -14,12 +15,13 @@ const {
 const { buildUserSnapshot } = require('../services/userSnapshotService');
 const { buildLocation } = require('../validators/locationValidator');
 const { chooseCategory } = require('../policies/complaintCategoryPolicy');
-const { categoryInactive, complaintWithdrawn } = require('../errors/domainErrors');
+const { categoryInactive, complaintWithdrawn, emailNotVerified } = require('../errors/domainErrors');
 const { versionFilter } = require('../services/complaintVersionGuard');
 const { notAssignedToYou, staleComplaint } = require('../errors/domainErrors');
 const referenceService = require('../services/complaintReferenceService');
 const aiService = require('../services/aiService');
-const emailService = require('../services/emailService');
+const { inTransaction } = require('../utils/transaction');
+const { enqueue } = require('../services/jobs/outbox');
 const complaintImageService = require('../services/complaintImageService');
 // Module-object access keeps the edit service replaceable in tests.
 const complaintEditService = require('../services/complaintEditService');
@@ -45,6 +47,11 @@ const createComplaint = async (req, res) => {
 
     let imageFiles = [];
     try {
+        // First, so an unverified account costs no image work or provider call.
+        const reporter = await User.findById(req.user.userId);
+        if (!reporter) throw new CustomError.UnauthenticatedError('Not authenticated');
+        if (reporter.authProvider === 'local' && !reporter.emailVerifiedAt) throw emailNotVerified();
+
         // A client category hint must name an existing, active category; checked before
         // any image work or provider call so a rejected hint costs nothing.
         let hint = null;
@@ -74,54 +81,50 @@ const createComplaint = async (req, res) => {
 
         const category = chooseCategory({ ai, activeCategories, hint });
 
-        const reporter = await User.findById(req.user.userId);
-        if (!reporter) throw new CustomError.UnauthenticatedError('Not authenticated');
         const reporterSnapshot = buildUserSnapshot(reporter);
         const images = await complaintImageService.uploadComplaintImages(imageFiles);
 
         let complaint;
         try {
             // A reference-code collision retries only this insert; uploads and AI are not repeated.
-            complaint = await referenceService.createWithUniqueReference((referenceCode) => Complaint.create({
-                referenceCode,
-                description,
-                images,
-                location,
-                category: category._id,
-                categorySnapshot: { categoryId: category._id, name: category.name },
-                priority: ai.error ? category.defaultPriority : ai.priority,
-                prioritySource: ai.error ? 'CATEGORY_DEFAULT' : 'AI',
-                ai: {
-                    suggestedCategory: ai.category,
-                    confidence: ai.confidence,
-                    summary: ai.summary,
-                    tags: ai.tags,
-                    classifiedAt: new Date(),
-                    error: ai.error,
-                    inputMode: imageFiles.length ? 'TEXT_AND_IMAGE' : 'TEXT_ONLY',
-                    analysisCount: 1,
-                },
-                reporter: req.user.userId,
-                reporterSnapshot,
-                statusHistory: [{
-                    type: 'CREATED',
-                    status: 'PENDING',
-                    publicNote: 'Report submitted',
-                    changedBy: req.user.userId,
-                    changedBySnapshot: reporterSnapshot,
-                }],
+            // The report and its filed email are written together, or neither is.
+            complaint = await referenceService.createWithUniqueReference((referenceCode) => inTransaction(async (session) => {
+                const [created] = await Complaint.create([{
+                    referenceCode,
+                    description,
+                    images,
+                    location,
+                    category: category._id,
+                    categorySnapshot: { categoryId: category._id, name: category.name },
+                    priority: ai.error ? category.defaultPriority : ai.priority,
+                    prioritySource: ai.error ? 'CATEGORY_DEFAULT' : 'AI',
+                    ai: {
+                        suggestedCategory: ai.category,
+                        confidence: ai.confidence,
+                        summary: ai.summary,
+                        tags: ai.tags,
+                        classifiedAt: new Date(),
+                        error: ai.error,
+                        inputMode: imageFiles.length ? 'TEXT_AND_IMAGE' : 'TEXT_ONLY',
+                        analysisCount: 1,
+                    },
+                    reporter: req.user.userId,
+                    reporterSnapshot,
+                    statusHistory: [{
+                        type: 'CREATED',
+                        status: 'PENDING',
+                        publicNote: 'Report submitted',
+                        changedBy: req.user.userId,
+                        changedBySnapshot: reporterSnapshot,
+                    }],
+                }], { session });
+                await enqueue(session, { queue: 'email', type: 'report_filed', refs: { complaintId: String(created._id) } });
+                return created;
             }));
         } catch (error) {
             await complaintImageService.cleanupCloudImages(images);
             throw error;
         }
-
-        emailService.sendComplaintFiledEmail({
-            to: reporter.email,
-            name: reporter.name,
-            referenceCode: complaint.referenceCode,
-            complaintId: complaint._id,
-        });
 
         await respondWithComplaint(res, StatusCodes.CREATED, complaint._id, viewerFromRequest(req));
     } finally {
@@ -232,10 +235,12 @@ const updateComplaintStatus = async (req, res) => {
             now,
         });
 
+    const historyEntryId = new mongoose.Types.ObjectId();
     const update = {
         $set: {},
         $push: {
             statusHistory: {
+                _id: historyEntryId,
                 ...decision.historyEntry,
                 changedBy: actor._id,
                 changedBySnapshot: buildUserSnapshot(actor),
@@ -259,25 +264,20 @@ const updateComplaintStatus = async (req, res) => {
 
     const filter = { _id: complaint._id, status: complaint.status, __v: matchVersion };
     if (viewer.role === 'agency') filter.assignedTo = complaint.assignedTo;
-    const updated = await Complaint.findOneAndUpdate(filter, update, { returnDocument: 'after', runValidators: true })
-        .populate({ path: 'reporter', select: 'name email' });
+    // The change and its email to the reporter are written together. Only status changes notify
+    // the reporter, and the email only ever carries the public note.
+    const updated = await inTransaction(async (session) => {
+        const result = await Complaint.findOneAndUpdate(filter, update, { returnDocument: 'after', runValidators: true, session });
+        if (result && decision.status !== undefined && result.reporter) {
+            await enqueue(session, { queue: 'email', type: 'status_update', refs: { complaintId: String(result._id), historyEntryId: String(historyEntryId) } });
+        }
+        return result;
+    });
 
     if (!updated) {
         const current = await Complaint.findById(complaint._id).select('assignedTo');
         if (viewer.role === 'agency' && String(current?.assignedTo) !== viewer.userId) throw notAssignedToYou();
         throw staleComplaint();
-    }
-
-    // Only status changes notify the reporter, and only ever with the public note.
-    if (decision.status !== undefined && updated.reporter) {
-        emailService.sendStatusUpdateEmail({
-            to: updated.reporter.email,
-            name: updated.reporter.name,
-            referenceCode: updated.referenceCode,
-            status: updated.status,
-            publicNote: decision.historyEntry.publicNote,
-            complaintId: updated._id,
-        });
     }
 
     await respondWithComplaint(res, StatusCodes.OK, updated._id, viewer);

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router';
 import Sidebar from '../components/Sidebar';
 import MobileHeader from '../components/MobileHeader';
+import VerifyEmailBanner from '../components/account/VerifyEmailBanner';
 
 const DashboardLayout = () => {
     const [menuOpen, setMenuOpen] = useState(false);
@@ -26,6 +27,7 @@ const DashboardLayout = () => {
             <Sidebar open={menuOpen} onClose={() => setMenuOpen(false)} />
             {menuOpen && <div className="sidebar-backdrop" onClick={() => setMenuOpen(false)} />}
             <main className="main-content">
+                <VerifyEmailBanner />
                 <Outlet />
             </main>
         </div>

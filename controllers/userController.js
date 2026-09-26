@@ -8,11 +8,19 @@ const {
     retireAccount,
 } = require('../services/accountRetirementService');
 const { verifyCurrentPassword } = require('../services/currentPasswordService');
+const { pendingEmailChanges } = require('../services/emailChangeService');
+
+// Adds each user's email change in progress (or failed), so the person and administrators can see it.
+const withPendingEmailChange = async (users) => {
+    const pending = await pendingEmailChanges(users.map((user) => user._id));
+    return users.map((user) => ({ ...user.toJSON(), pendingEmailChange: pending.get(String(user._id)) ?? null }));
+};
 
 const getProfile = async (req, res) => {
     const user = await User.findById(req.user.userId);
     if (!user) throw new CustomError.NotFoundError('User not found');
-    res.status(StatusCodes.OK).json({ user });
+    const [shown] = await withPendingEmailChange([user]);
+    res.status(StatusCodes.OK).json({ user: shown });
 };
 
 const updateProfile = async (req, res) => {
@@ -70,7 +78,7 @@ const listAllUsers = async (req, res) => {
     ]);
 
     res.status(StatusCodes.OK).json({
-        users,
+        users: await withPendingEmailChange(users),
         pagination: { page, limit, total, pages: Math.ceil(total / limit) },
     });
 };

@@ -66,15 +66,46 @@ const checkDatabase = async ({ connection, models, timeoutMs }) => {
   }
 };
 
-// /health/ready is public and never rate limited (a probe must not be locked out), so the database
-// check behind it is shared: concurrent calls wait for one check, and its result, unavailable
-// included, is reused for READINESS_CACHE_MS (default 1000; 0 checks on every call).
+const WORKER_SILENT_MS = 2 * 60 * 1000;
+const BACKLOG_OLD_MS = 5 * 60 * 1000;
+const WAITING = ['PENDING', 'QUEUED'];
+const BACKGROUND_UNKNOWN = { status: 'degraded', reason: 'CHECK_FAILED', pending: 0, workerLastSeenSeconds: null, oldestPendingSeconds: null };
+const secondsSince = (now, date) => Math.max(0, Math.floor((now - date) / 1000));
+
+// Background work as the database sees it: the newest worker heartbeat and the oldest waiting job.
+// Deliberately not a Redis ping: probes arrive every few seconds, and a per-command Redis plan
+// would pay for each one. Degraded, never unavailable: the API still serves traffic, and jobs wait.
+const checkBackground = async ({ models = mongoose.models, now = new Date(), timeoutMs = 2000 } = {}) => {
+  const { OutboxEntry, WorkerHeartbeat } = models;
+  try {
+    const [beat, oldest, pending] = await withTimeout(Promise.all([
+      WorkerHeartbeat.findOne().sort({ lastSeenAt: -1 }).select('lastSeenAt').lean(),
+      OutboxEntry.findOne({ state: { $in: WAITING } }).sort({ createdAt: 1 }).select('createdAt').lean(),
+      OutboxEntry.countDocuments({ state: { $in: WAITING } }),
+    ]), timeoutMs);
+    const facts = {
+      pending,
+      workerLastSeenSeconds: beat ? secondsSince(now, beat.lastSeenAt) : null,
+      oldestPendingSeconds: oldest ? secondsSince(now, oldest.createdAt) : null,
+    };
+    if (!beat) return { status: 'degraded', reason: 'NO_WORKER', ...facts };
+    if (now - beat.lastSeenAt > WORKER_SILENT_MS) return { status: 'degraded', reason: 'WORKER_SILENT', ...facts };
+    if (oldest && now - oldest.createdAt > BACKLOG_OLD_MS) return { status: 'degraded', reason: 'BACKLOG_OLD', ...facts };
+    return { status: 'ok', ...facts };
+  } catch {
+    return BACKGROUND_UNKNOWN;
+  }
+};
+
+// /health/ready is public and never rate limited (a probe must not be locked out), so each check
+// behind it (database, background work) is shared: concurrent calls wait for one check, and its
+// result, unavailable included, is reused for READINESS_CACHE_MS (default 1000; 0 checks on every call).
 const DEFAULT_CACHE_MS = 1000;
 const cacheMsFrom = (env) => {
   const value = Number(env.READINESS_CACHE_MS ?? DEFAULT_CACHE_MS);
   return Number.isFinite(value) && value >= 0 ? value : DEFAULT_CACHE_MS;
 };
-const createDatabaseProbe = ({ check = () => checkDatabase({ connection: mongoose.connection, models: mongoose.models, timeoutMs: 2000 }), env = process.env, now = Date.now } = {}) => {
+const createCachedProbe = ({ check = () => checkDatabase({ connection: mongoose.connection, models: mongoose.models, timeoutMs: 2000 }), env = process.env, now = Date.now } = {}) => {
   let last = null;
   let inFlight = null;
   return () => {
@@ -87,12 +118,16 @@ const createDatabaseProbe = ({ check = () => checkDatabase({ connection: mongoos
     return inFlight;
   };
 };
+const createDatabaseProbe = createCachedProbe;
 
 const checkReadiness = async ({
   connection = mongoose.connection, models = mongoose.models, env = process.env, timeoutMs = 2000,
   database = () => checkDatabase({ connection, models, timeoutMs }),
+  background = () => checkBackground({ models, timeoutMs }),
 } = {}) => {
   const checks = { database: await database() };
+  // With the database down, background work cannot be read either; the answer is already 503.
+  checks.background = checks.database.status === 'unavailable' ? BACKGROUND_UNKNOWN : await background();
   for (const [service, names] of Object.entries(SERVICE_SETTINGS)) {
     checks[service] = names.every((name) => Boolean(env[name])) ? { status: 'ok' } : { status: 'not_configured' };
   }
@@ -104,4 +139,4 @@ const checkReadiness = async ({
   return { httpStatus: 200, body: { status: degraded ? 'degraded' : 'ready', checks } };
 };
 
-module.exports = { checkReadiness, createDatabaseProbe, missingUniqueIndexes, missingTtlIndexes };
+module.exports = { checkReadiness, checkBackground, createCachedProbe, createDatabaseProbe, missingUniqueIndexes, missingTtlIndexes };

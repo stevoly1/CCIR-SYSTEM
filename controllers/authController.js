@@ -11,6 +11,8 @@ const { safeReturnPath } = require('../policies/returnPathPolicy');
 const { establishGoogleIdentitySession } = require('../services/googleIdentityService');
 const { safeStateEqual } = require('../policies/googleIdentityPolicy');
 const { getLogger } = require('../utils/logger');
+const { inTransaction } = require('../utils/transaction');
+const { queueVerification } = require('../services/emailVerificationService');
 const { getBrowserSecurityConfig } = require('../config/browserSecurity');
 const { assertPasswordAllowed } = require('../validators/passwordPolicy');
 const { createThrottleService, secondsUntil } = require('../services/authThrottleService');
@@ -50,7 +52,19 @@ const signup = async (req, res) => {
     }
 
     // role is intentionally never taken from the client — every signup is a citizen account.
-    const user = await User.create({ email, password, name, phone });
+    // The account and its verification email are written together.
+    let user;
+    try {
+        user = await inTransaction(async (session) => {
+            const [created] = await User.create([{ email, password, name, phone }], { session });
+            await queueVerification(session, created._id);
+            return created;
+        });
+    } catch (error) {
+        // Another sign-up took the address between the check above and this write.
+        if (error?.code === 11000) throw new CustomError.ConflictError('An account with this email already exists');
+        throw error;
+    }
 
     const refreshToken = await createNewRefreshToken({ userId: user._id.toString() });
     attachCookiesToResponse({ res, user, refreshToken });

@@ -12,10 +12,12 @@
         "check:audit": "npm audit --omit=dev --audit-level=high && npm --prefix client audit --omit=dev --audit-level=high",
         "preinstall": "node scripts/checkRuntime.js",
         "start": "node server.js",
+        "worker": "node worker.js",
         "dev": "nodemon server.js",
         "set-role": "node scripts/setUserRole.js",
         "migrate:phase1": "node scripts/migratePhase1.js",
         "migrate:phase2": "node scripts/migratePhase2.js",
+        "migrate:phase4c": "node scripts/migratePhase4c.js",
         "pretest": "node scripts/checkRuntime.js",
         "test": "npm run test:unit && npm run test:integration",
         "pretest:unit": "node scripts/checkRuntime.js",
@@ -40,6 +42,7 @@
     },
     "dependencies": {
         "bcryptjs": "^3.0.3",
+        "bullmq": "^6.3.9",
         "busboy": "^1.6.0",
         "cloudinary": "^2.11.0",
         "compression": "^1.8.2",
@@ -50,6 +53,7 @@
         "express-rate-limit": "^8.7.0",
         "helmet": "^8.3.0",
         "http-status-codes": "^2.3.0",
+        "ioredis": "^6.0.0",
         "jsonwebtoken": "^9.0.3",
         "mongoose": "^9.10.2",
         "pino": "^10.3.1",
@@ -75,6 +79,7 @@
     "allowScripts": {
         "fsevents": false,
         "mongodb-memory-server": false,
-        "@scarf/scarf": false
+        "@scarf/scarf": false,
+        "msgpackr-extract": false
     }
 }

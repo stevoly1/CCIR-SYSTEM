@@ -1,10 +1,11 @@
 const { StatusCodes } = require('http-status-codes');
-const emailService = require('../services/emailService');
 const passwordResetService = require('../services/passwordResetService');
 const passwordChangeService = require('../services/passwordChangeService');
 const emailChangeService = require('../services/emailChangeService');
+const emailVerificationService = require('../services/emailVerificationService');
 const { accountThrottle, AUTH_WINDOW_MS } = require('../services/accountThrottle');
-const { afterResponse } = require('../utils/afterResponse');
+const { inTransaction } = require('../utils/transaction');
+const { enqueue } = require('../services/jobs/outbox');
 const { clearAttachedCookies } = require('../handlers/authHandler');
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -15,7 +16,8 @@ const forgotPassword = async (req, res) => {
     await accountThrottle().consume('reset-ip', req.ip, { limit: 10, windowMs: AUTH_WINDOW_MS });
     // Counted for every address, so the limit itself reveals nothing.
     await accountThrottle().consume('reset-email', email, { limit: 3, windowMs: HOUR_MS });
-    afterResponse(res, () => passwordResetService.sendPasswordResetFor(email));
+    // One entry for every address: the request does the same work whether or not an account exists.
+    await inTransaction((session) => enqueue(session, { queue: 'email', type: 'password_reset_request', refs: { email } }));
     res.status(StatusCodes.ACCEPTED).json({ msg: FORGOT_MESSAGE });
 };
 
@@ -23,7 +25,6 @@ const resetPassword = async (req, res) => {
     await accountThrottle().consume('token-ip', req.ip, { limit: 20, windowMs: AUTH_WINDOW_MS });
     const user = await passwordResetService.resetPassword(req.body);
     await accountThrottle().clear('login-account', user.email);
-    afterResponse(res, () => emailService.sendPasswordChangedEmail({ to: user.email, name: user.name }));
     clearAttachedCookies(res);
     res.status(StatusCodes.OK).json({ msg: 'Password reset. Sign in with your new password.' });
 };
@@ -35,31 +36,34 @@ const changePassword = async (req, res) => {
         currentPassword: req.body.currentPassword,
         newPassword: req.body.newPassword,
     });
-    afterResponse(res, () => emailService.sendPasswordChangedEmail({ to: user.email, name: user.name }));
     res.status(StatusCodes.OK).json({ msg: 'Password changed' });
 };
 
-const CONFIRMATION_SENT = 'We have sent a confirmation link to the new address';
+const CHANGE_ACCEPTED = 'We will tell your current address, then send a confirmation link to the new one';
+const accepted = (res, change) => res.status(StatusCodes.ACCEPTED).json({
+    msg: CHANGE_ACCEPTED,
+    pendingEmailChange: { newEmail: change.newEmail, state: change.state },
+});
 
 const requestOwnEmailChange = async (req, res) => {
-    await emailChangeService.requestEmailChange({
+    const change = await emailChangeService.requestEmailChange({
         targetUserId: req.user.userId,
         actorUserId: req.user.userId,
         newEmail: req.body.newEmail,
         currentPassword: req.body.currentPassword,
         self: true,
     });
-    res.status(StatusCodes.ACCEPTED).json({ msg: CONFIRMATION_SENT });
+    accepted(res, change);
 };
 
 const requestUserEmailChange = async (req, res) => {
-    await emailChangeService.requestEmailChange({
+    const change = await emailChangeService.requestEmailChange({
         targetUserId: req.params.id,
         actorUserId: req.user.userId,
         newEmail: req.body.newEmail,
         self: false,
     });
-    res.status(StatusCodes.ACCEPTED).json({ msg: CONFIRMATION_SENT });
+    accepted(res, change);
 };
 
 const confirmEmailChange = async (req, res) => {
@@ -68,4 +72,17 @@ const confirmEmailChange = async (req, res) => {
     res.status(StatusCodes.OK).json({ msg: 'Email address changed' });
 };
 
-module.exports = { forgotPassword, resetPassword, changePassword, requestOwnEmailChange, requestUserEmailChange, confirmEmailChange };
+const verifyEmail = async (req, res) => {
+    await accountThrottle().consume('token-ip', req.ip, { limit: 20, windowMs: AUTH_WINDOW_MS });
+    await emailVerificationService.verifyEmail(req.body.token);
+    res.status(StatusCodes.OK).json({ msg: 'Email verified' });
+};
+
+const resendVerificationEmail = async (req, res) => {
+    await emailVerificationService.resendVerification(req.user.userId);
+    res.status(StatusCodes.ACCEPTED).json({ msg: 'We sent a new verification link' });
+};
+
+module.exports = {
+    forgotPassword, resetPassword, changePassword, requestOwnEmailChange, requestUserEmailChange, confirmEmailChange, verifyEmail, resendVerificationEmail,
+};

@@ -30,6 +30,16 @@ describe('Sidebar', () => {
         expect(screen.queryByRole('link', { name: /Categories/ })).not.toBeInTheDocument();
     });
 
+    it('links administrators to the Jobs page', () => {
+        renderAs('admin');
+        expect(screen.getByRole('link', { name: /Jobs/ })).toHaveAttribute('href', '/dashboard/jobs');
+    });
+
+    it.each(['agency', 'citizen'])('shows no Jobs link to %s users', (role) => {
+        renderAs(role);
+        expect(screen.queryByRole('link', { name: /Jobs/ })).not.toBeInTheDocument();
+    });
+
     it('logs out, closes the menu, and returns to the login page', async () => {
         const onClose = vi.fn();
         const user = userEvent.setup();

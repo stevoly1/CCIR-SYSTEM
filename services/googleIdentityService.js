@@ -34,12 +34,17 @@ const resolveGoogleIdentity = async (profile, session) => {
 
   if (subjectOwner) {
     requireActiveIdentity(subjectOwner);
+    // Google has proved the address; accounts from before verification existed are marked now.
+    const unverified = !subjectOwner.emailVerifiedAt;
+    if (unverified) subjectOwner.emailVerifiedAt = new Date();
     if (subjectOwner.email !== profile.email) {
       const emailOwner = await User.findOne({ email: profile.email }).session(session);
       if (emailOwner && String(emailOwner._id) !== String(subjectOwner._id)) {
         throw new GoogleIdentityError('IDENTITY_CONFLICT');
       }
       subjectOwner.email = profile.email;
+      await saveOrConflict(subjectOwner, session);
+    } else if (unverified) {
       await saveOrConflict(subjectOwner, session);
     }
     return subjectOwner;
@@ -55,6 +60,7 @@ const resolveGoogleIdentity = async (profile, session) => {
     googleId: profile.googleId,
     authProvider: 'google',
     avatarUrl: profile.avatarUrl,
+    emailVerifiedAt: new Date(),
   });
   return saveOrConflict(user, session);
 };

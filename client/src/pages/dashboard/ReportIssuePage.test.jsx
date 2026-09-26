@@ -3,10 +3,12 @@ import userEvent from '@testing-library/user-event';
 import toast from 'react-hot-toast';
 import ReportIssuePage from './ReportIssuePage';
 
+const state = { complaints: { createStatus: 'idle', error: null }, auth: { user: { email: 'ada@example.test', emailVerified: true } } };
 vi.mock('react-redux', () => ({
     useDispatch: () => vi.fn(),
-    useSelector: () => ({ createStatus: 'idle', error: null }),
+    useSelector: (select) => select(state),
 }));
+vi.mock('../../components/account/VerifyEmailBanner', () => ({ default: () => <p>verify panel stub</p> }));
 vi.mock('react-router', () => ({ useNavigate: () => vi.fn() }));
 vi.mock('react-hot-toast', () => ({
     default: { error: vi.fn(), success: vi.fn() },
@@ -99,5 +101,22 @@ describe('ReportIssuePage image selection', () => {
         expect(input).toHaveClass('visually-hidden');
         input.focus();
         expect(input).toHaveFocus();
+    });
+});
+
+describe('ReportIssuePage and email verification', () => {
+    afterEach(() => { state.auth = { user: { email: 'ada@example.test', emailVerified: true } }; });
+
+    it('asks an unverified account to verify instead of showing the form', () => {
+        state.auth = { user: { email: 'ada@example.test', emailVerified: false } };
+        render(<ReportIssuePage />);
+        expect(screen.getByText('verify panel stub')).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Submit Report' })).toBeNull();
+    });
+
+    it('shows the form to a verified account', () => {
+        render(<ReportIssuePage />);
+        expect(screen.queryByText('verify panel stub')).toBeNull();
+        expect(screen.getByRole('button', { name: 'Submit Report' })).toBeInTheDocument();
     });
 });
