@@ -538,11 +538,21 @@ components:
           type: [string, 'null']
         type:
           type: string
-          enum: [CREATED, STATUS_CHANGED, PRIORITY_CHANGED, WITHDRAWN]
+          enum: [CREATED, STATUS_CHANGED, PRIORITY_CHANGED, CATEGORY_CHANGED, WITHDRAWN]
         status:
           $ref: '#/components/schemas/Status'
         priorityChange:
           $ref: '#/components/schemas/PriorityChange'
+        categoryChange:
+          description: Staff only. The category before and after the change.
+          type: object
+          additionalProperties: false
+          required: [from, to]
+          properties:
+            from:
+              $ref: '#/components/schemas/CategoryChangeSide'
+            to:
+              $ref: '#/components/schemas/CategoryChangeSide'
         publicNote:
           type: string
         internalNote:
@@ -567,6 +577,16 @@ components:
           $ref: '#/components/schemas/Priority'
         to:
           $ref: '#/components/schemas/Priority'
+
+    CategoryChangeSide:
+      type: object
+      additionalProperties: false
+      required: [categoryId, name]
+      properties:
+        categoryId:
+          type: [string, 'null']
+        name:
+          type: string
 
     ComplaintSummary:
       type: object
@@ -3189,6 +3209,154 @@ paths:
           $ref: '#/components/responses/Conflict'
         '429':
           $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /complaints/{id}/category:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [complaints]
+      summary: Change a report's category with a staff-only reason
+      description: >
+        Administrators and the assigned agency member can set the category. The citizen's original
+        choice and the report priority remain unchanged. The reason appears only in staff history.
+        Choosing the current category is allowed when resolving an AI disagreement.
+      operationId: recategoriseComplaint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [categoryId, reason]
+              properties:
+                categoryId:
+                  $ref: '#/components/schemas/ObjectId'
+                reason:
+                  type: string
+                  minLength: 3
+                  maxLength: 500
+                expectedVersion:
+                  type: integer
+                  minimum: 0
+            example:
+              categoryId: 66f1a0c0a1b2c3d4e5f60012
+              reason: The photo shows a blocked drain
+              expectedVersion: 0
+      responses:
+        '200':
+          description: The updated staff view.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [complaint]
+                properties:
+                  complaint:
+                    $ref: '#/components/schemas/ComplaintStaffView'
+              example:
+                complaint:
+                  _id: 66f1a0c0a1b2c3d4e5f60020
+                  referenceCode: CCIR-EXAMPLE1
+                  status: PENDING
+                  priority: LOW
+                  description: Blocked drain beside the market gate
+                  category:
+                    _id: 66f1a0c0a1b2c3d4e5f60012
+                    name: Drainage
+                    recordedName: Drainage
+                    isActive: true
+                    deleted: false
+                  categorySource: STAFF
+                  address: 12 Market Road, Ikeja
+                  hasPrecisePosition: false
+                  imageCount: 0
+                  thumbnailUrl: null
+                  createdAt: '2026-09-24T09:20:00.000Z'
+                  updatedAt: '2026-09-24T09:40:00.000Z'
+                  reporter:
+                    userId: 66f1a0c0a1b2c3d4e5f60001
+                    displayName: Ada Citizen
+                    role: citizen
+                  assignee: null
+                  version: 1
+                  images: []
+                  citizenCategory: null
+                  ai:
+                    suggestedCategory: null
+                    confidence: null
+                    summary: ''
+                    tags: []
+                    classifiedAt: null
+                    error: null
+                    inputMode: null
+                    analysisCount: 1
+                    status: PENDING
+                    requestSeq: 1
+                    failureCode: null
+                    failedAt: null
+                    provider: null
+                    model: null
+                    promptVersion: null
+                    disagreement: null
+                  timeline:
+                    - _id: 66f1a0c0a1b2c3d4e5f60024
+                      type: CATEGORY_CHANGED
+                      status: PENDING
+                      internalNote: The photo shows a blocked drain
+                      categoryChange:
+                        from:
+                          categoryId: 66f1a0c0a1b2c3d4e5f60010
+                          name: Roads
+                        to:
+                          categoryId: 66f1a0c0a1b2c3d4e5f60012
+                          name: Drainage
+                      actorLabel: You
+                      actor:
+                        userId: 66f1a0c0a1b2c3d4e5f60004
+                        displayName: Chi Admin
+                        role: admin
+                      createdAt: '2026-09-24T09:40:00.000Z'
+                  responsibility: AWAITING_ASSIGNMENT
+                  canEdit: false
+                  canWithdraw: false
+                  location:
+                    address: 12 Market Road, Ikeja
+                    latitude: null
+                    longitude: null
+                    coordinateSource: null
+                  assignmentHistory: []
+                  editHistory: []
+                  allowedTransitions: [IN_REVIEW, REJECTED]
+                  canChangePriority: true
+                  canAssign: true
+                  canRecategorise: true
+                  canReclassify: false
+                  canDelete: true
+                  resolvedAt: null
+                  resolvedAtEstimated: false
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: COMPLAINT_WITHDRAWN, CATEGORY_INACTIVE, CATEGORY_UNCHANGED, or STALE_COMPLAINT.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: CATEGORY_UNCHANGED
+                  message: The report already has this category
+                msg: The report already has this category
         '500':
           $ref: '#/components/responses/ServerError'
 

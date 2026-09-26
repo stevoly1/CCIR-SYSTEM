@@ -11,7 +11,7 @@ const EXPECTED_OPERATIONS = [
   'GET /users', 'GET /users/assignable', 'GET /users/profile', 'PATCH /users/profile', 'DELETE /users/profile', 'POST /users/profile/password', 'POST /users/profile/email', 'POST /users/profile/verification-email', 'POST /users/{id}/email', 'POST /users/logout', 'PATCH /users/{id}', 'DELETE /users/{id}',
   'GET /categories', 'POST /categories', 'GET /categories/{id}', 'PATCH /categories/{id}', 'DELETE /categories/{id}',
   'GET /complaints', 'POST /complaints', 'GET /complaints/{id}', 'PATCH /complaints/{id}', 'DELETE /complaints/{id}',
-  'PATCH /complaints/{id}/status', 'PATCH /complaints/{id}/assign', 'POST /complaints/{id}/withdraw', 'POST /complaints/{id}/reclassify',
+  'PATCH /complaints/{id}/status', 'PATCH /complaints/{id}/assign', 'POST /complaints/{id}/withdraw', 'POST /complaints/{id}/reclassify', 'PATCH /complaints/{id}/category',
   'GET /admin/jobs', 'GET /admin/jobs/summary', 'POST /admin/jobs/{id}/retry', 'POST /admin/jobs/{id}/dismiss', 'POST /admin/jobs/retry-failed',
   'GET /location/autocomplete', 'GET /location/geocode', 'GET /health', 'GET /health/live', 'GET /health/ready', 'GET /openapi.json',
 ];

@@ -126,7 +126,15 @@ const presentTimelineEntry = (entry, viewer, staff) => {
     createdAt: entry.createdAt,
   };
   if (!staff) return base;
-  return { ...base, ...(entry.internalNote ? { internalNote: entry.internalNote } : {}), actor };
+  return {
+    ...base,
+    ...(entry.internalNote ? { internalNote: entry.internalNote } : {}),
+    ...(entry.categoryChange ? { categoryChange: {
+      from: { categoryId: idString(entry.categoryChange.from?.categoryId), name: entry.categoryChange.from?.name ?? 'Unavailable category' },
+      to: { categoryId: idString(entry.categoryChange.to?.categoryId), name: entry.categoryChange.to?.name ?? 'Unavailable category' },
+    } } : {}),
+    actor,
+  };
 };
 
 const sortedTimeline = (complaint) => (complaint.statusHistory ?? [])
@@ -146,7 +154,9 @@ const presentComplaint = (complaint, viewer, { identities = new Map() } = {}) =>
       ? { categoryId: idString(complaint.citizenCategory.categoryId), name: complaint.citizenCategory.name }
       : null,
     ai: { status: complaint.ai?.status ?? null, summary: complaint.ai?.summary ?? '', tags: [...(complaint.ai?.tags ?? [])] },
-    timeline: sortedTimeline(complaint).map((entry) => presentTimelineEntry(plain(entry), viewer, staff)),
+    timeline: sortedTimeline(complaint)
+      .filter((entry) => staff || entry.type !== 'CATEGORY_CHANGED')
+      .map((entry) => presentTimelineEntry(plain(entry), viewer, staff)),
     responsibility: complaint.assignedTo ? 'ASSIGNED' : 'AWAITING_ASSIGNMENT',
     canEdit: authority.canEdit(viewer, complaint),
     canWithdraw: authority.canWithdraw(viewer, complaint),

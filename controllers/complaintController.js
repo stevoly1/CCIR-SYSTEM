@@ -27,6 +27,7 @@ const complaintImageService = require('../services/complaintImageService');
 // Module-object access keeps the edit service replaceable in tests.
 const complaintEditService = require('../services/complaintEditService');
 const { assignComplaintTransaction } = require('../services/complaintAssignmentService');
+const { recategorise } = require('../services/complaintRecategoriseService');
 const { deleteComplaintPermanently } = require('../services/complaintDeletionService');
 
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -310,6 +311,12 @@ const reclassifyComplaint = async (req, res) => {
     await respondWithComplaint(res, StatusCodes.ACCEPTED, complaint._id, viewer);
 };
 
+const recategoriseComplaint = async (req, res) => {
+    const viewer = viewerFromRequest(req);
+    const updated = await recategorise({ complaintId: req.params.id, viewer, ...req.body });
+    await respondWithComplaint(res, StatusCodes.OK, updated._id, viewer);
+};
+
 // Administrator-only (route-restricted); citizens withdraw instead.
 const deleteComplaint = async (req, res) => {
     await deleteComplaintPermanently({
@@ -330,5 +337,6 @@ module.exports = {
     assignComplaint,
     withdrawComplaint,
     reclassifyComplaint,
+    recategoriseComplaint,
     deleteComplaint,
 };

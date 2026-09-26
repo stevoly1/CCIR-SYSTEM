@@ -11,6 +11,7 @@ const {
     withdrawComplaintSchema,
     deleteComplaintSchema,
     complaintListQuerySchema,
+    recategoriseSchema,
 } = require('../validators/complaintValidator');
 const { emptyQuerySchema, idParamsSchema } = require('../validators/commonValidator');
 const {
@@ -22,6 +23,7 @@ const {
     assignComplaint,
     withdrawComplaint,
     reclassifyComplaint,
+    recategoriseComplaint,
     deleteComplaint,
 } = require('../controllers/complaintController');
 
@@ -45,5 +47,8 @@ ComplaintRouter.route('/:id/withdraw')
 
 ComplaintRouter.route('/:id/reclassify')
     .post(authentication, restrictTo('admin'), validate({ params: idParamsSchema, body: emptyQuerySchema, query: emptyQuerySchema }), reclassifyComplaint);
+
+ComplaintRouter.route('/:id/category')
+    .patch(authentication, restrictTo('admin', 'agency'), validate({ params: idParamsSchema, body: recategoriseSchema, query: emptyQuerySchema }), recategoriseComplaint);
 
 module.exports = ComplaintRouter;

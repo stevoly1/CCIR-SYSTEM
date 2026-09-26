@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const { PRIORITIES } = require('./Category');
 
 const STATUSES = ['PENDING', 'IN_REVIEW', 'IN_PROGRESS', 'RESOLVED', 'REJECTED', 'WITHDRAWN'];
-const TIMELINE_TYPES = ['CREATED', 'STATUS_CHANGED', 'PRIORITY_CHANGED', 'WITHDRAWN'];
+const TIMELINE_TYPES = ['CREATED', 'STATUS_CHANGED', 'PRIORITY_CHANGED', 'CATEGORY_CHANGED', 'WITHDRAWN'];
 const ASSIGNMENT_EVENT_TYPES = [
     'ASSIGNED',
     'REASSIGNED',
@@ -130,6 +130,13 @@ const statusHistorySchema = new mongoose.Schema(
         },
         priorityChange: {
             type: priorityChangeSchema,
+            default: undefined,
+        },
+        categoryChange: {
+            type: new mongoose.Schema({
+                from: { categoryId: { type: mongoose.Schema.Types.ObjectId }, name: { type: String, trim: true } },
+                to: { categoryId: { type: mongoose.Schema.Types.ObjectId }, name: { type: String, trim: true } },
+            }, { _id: false }),
             default: undefined,
         },
         publicNote: {

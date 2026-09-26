@@ -12,6 +12,7 @@ module.exports = {
   noChange: make(409, 'NO_CHANGE', 'The update does not change the report'),
   editLimitReached: make(409, 'EDIT_LIMIT_REACHED', 'This report has reached its edit limit'),
   categoryInactive: make(409, 'CATEGORY_INACTIVE', 'The selected category is not available'),
+  categoryUnchanged: make(409, 'CATEGORY_UNCHANGED', 'The report already has this category'),
   categoryNameConflict: make(409, 'CATEGORY_NAME_CONFLICT', 'A category with this name already exists'),
   categoryInUse: make(409, 'CATEGORY_IN_USE', 'Only an inactive category with no reports can be deleted'),
   categoryProtected: make(409, 'CATEGORY_PROTECTED', 'Other is the required active fallback category'),

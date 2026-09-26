@@ -44,7 +44,10 @@ describe('Phase 1 legacy migration', () => {
     const resolvedFromHistory = await createComplaintFixture({
       reporter,
       status: 'RESOLVED',
-      statusHistory: [{ status: 'RESOLVED', createdAt: recordedResolution, changedBy: reporter._id }],
+      statusHistory: [
+        { type: 'STATUS_CHANGED', status: 'RESOLVED', createdAt: recordedResolution, changedBy: reporter._id },
+        { type: 'CATEGORY_CHANGED', status: 'RESOLVED', createdAt: new Date('2026-03-02T00:00:00.000Z'), changedBy: reporter._id },
+      ],
     });
     const estimatedTime = new Date('2026-04-01T00:00:00.000Z');
     const estimatedResolution = await createComplaintFixture({ reporter, status: 'RESOLVED', statusHistory: [] });

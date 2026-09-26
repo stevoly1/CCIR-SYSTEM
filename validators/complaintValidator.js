@@ -61,6 +61,12 @@ const assignComplaintSchema = z.strictObject({
     expectedVersion: expectedVersionSchema,
 });
 
+const recategoriseSchema = z.strictObject({
+    categoryId: objectIdSchema,
+    reason: z.string().trim().min(3).max(500),
+    expectedVersion: expectedVersionSchema,
+});
+
 const complaintListQuerySchema = z.strictObject({
     page: pageSchema,
     limit: limitSchema,
@@ -81,5 +87,6 @@ module.exports = {
     updateComplaintSchema,
     updateStatusSchema,
     assignComplaintSchema,
+    recategoriseSchema,
     complaintListQuerySchema,
 };
