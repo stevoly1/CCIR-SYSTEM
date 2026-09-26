@@ -15,7 +15,7 @@ const {
 const { buildUserSnapshot } = require('../services/userSnapshotService');
 const { buildLocation } = require('../validators/locationValidator');
 const { chooseCategory } = require('../policies/complaintCategoryPolicy');
-const { categoryInactive, complaintWithdrawn } = require('../errors/domainErrors');
+const { categoryInactive, complaintWithdrawn, emailNotVerified } = require('../errors/domainErrors');
 const { versionFilter } = require('../services/complaintVersionGuard');
 const { notAssignedToYou, staleComplaint } = require('../errors/domainErrors');
 const referenceService = require('../services/complaintReferenceService');
@@ -47,6 +47,11 @@ const createComplaint = async (req, res) => {
 
     let imageFiles = [];
     try {
+        // First, so an unverified account costs no image work or provider call.
+        const reporter = await User.findById(req.user.userId);
+        if (!reporter) throw new CustomError.UnauthenticatedError('Not authenticated');
+        if (reporter.authProvider === 'local' && !reporter.emailVerifiedAt) throw emailNotVerified();
+
         // A client category hint must name an existing, active category; checked before
         // any image work or provider call so a rejected hint costs nothing.
         let hint = null;
@@ -76,8 +81,6 @@ const createComplaint = async (req, res) => {
 
         const category = chooseCategory({ ai, activeCategories, hint });
 
-        const reporter = await User.findById(req.user.userId);
-        if (!reporter) throw new CustomError.UnauthenticatedError('Not authenticated');
         const reporterSnapshot = buildUserSnapshot(reporter);
         const images = await complaintImageService.uploadComplaintImages(imageFiles);
 

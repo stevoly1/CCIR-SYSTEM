@@ -4,6 +4,7 @@ const { AccountToken } = require('../models');
 const TOKEN_TTL_MS = Object.freeze({
   password_reset: 30 * 60 * 1000,
   email_change: 24 * 60 * 60 * 1000,
+  email_verify: 24 * 60 * 60 * 1000,
 });
 
 const newToken = () => crypto.randomBytes(32).toString('base64url');

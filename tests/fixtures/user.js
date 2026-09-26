@@ -11,6 +11,7 @@ const createUserFixture = (overrides = {}) => {
     phone: `+234000${String(sequence).padStart(6, '0')}`,
     role: 'citizen',
     isActive: true,
+    emailVerifiedAt: new Date(),
     ...overrides,
   });
 };

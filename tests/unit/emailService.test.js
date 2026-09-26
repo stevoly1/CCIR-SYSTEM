@@ -78,6 +78,7 @@ describe('account emails', () => {
   it.each([
     ['sendPasswordResetEmail', { to: 'ada@example.test', name: 'Ada', token: 'T0k3n_-x' }, '/reset-password#token=T0k3n_-x'],
     ['sendEmailChangeConfirmation', { to: 'new@example.test', name: 'Ada', token: 'T0k3n_-y' }, '/confirm-email#token=T0k3n_-y'],
+    ['sendVerificationEmail', { to: 'ada@example.test', name: 'Ada', token: 'T0k3n_-z' }, '/verify-email#token=T0k3n_-z'],
   ])('%s links to the client page with the token after #', async (sender, args, pathAndFragment) => {
     const email = loadService();
     await expect(email[sender](args)).resolves.toBeUndefined();
@@ -85,6 +86,14 @@ describe('account emails', () => {
     expect(recipients(message)).toEqual([args.to]);
     expect(message.html).toContain(`${process.env.ALLOWED_ORIGIN || ''}${pathAndFragment}`);
     expect(message.html).not.toMatch(/\?token=/);
+  });
+
+  it('asks a new account to verify its address', async () => {
+    const email = loadService();
+    await email.sendVerificationEmail({ to: 'ada@example.test', name: '<i>Ada</i>', token: 'abc' });
+    expect(sent[0].subject).toBe('Verify your CCIR email address');
+    expect(sent[0].html).toContain('&lt;i&gt;Ada&lt;/i&gt;');
+    expect(sent[0].html).toContain('expires in 24 hours');
   });
 
   it('escapes the name', async () => {

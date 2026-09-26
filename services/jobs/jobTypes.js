@@ -6,4 +6,5 @@ module.exports = Object.freeze({
   password_changed: 'email',
   email_change_notice: 'email',
   email_change_link: 'email',
+  verify_email: 'email',
 });

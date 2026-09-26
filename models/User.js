@@ -48,6 +48,11 @@ const userSchema = new mongoose.Schema(
         retiredAt: {
             type: Date,
         },
+        // When the account holder proved the address (a link, a confirmed email change, or Google).
+        emailVerifiedAt: {
+            type: Date,
+            default: null,
+        },
         retiredBy: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User',
@@ -100,6 +105,7 @@ userSchema.methods.comparePassword = function comparePassword(plainPassword) {
 userSchema.set('toJSON', {
     transform: (_doc, ret) => {
         delete ret.password;
+        ret.emailVerified = Boolean(ret.emailVerifiedAt) || ret.authProvider === 'google';
         return ret;
     },
 });

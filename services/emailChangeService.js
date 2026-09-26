@@ -74,6 +74,8 @@ const confirmEmailChange = async ({ token }) => {
       if (user.authProvider !== 'local') throw googleAccount();
       if (await User.exists({ _id: { $ne: user._id }, email: change.newEmail }).session(session)) throw addressTaken();
       user.email = change.newEmail;
+      // Using the link proves the new address.
+      user.emailVerifiedAt = new Date();
       await user.save({ session });
       // Reset links went to the old address; none may outlive the change.
       await cancelTokens({ userId: user._id, session });

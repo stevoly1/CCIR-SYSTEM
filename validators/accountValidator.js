@@ -12,6 +12,7 @@ const changePasswordSchema = z.strictObject({ currentPassword: currentPasswordSc
 const requestOwnEmailChangeSchema = z.strictObject({ newEmail: emailSchema, currentPassword: currentPasswordSchema });
 const requestEmailChangeSchema = z.strictObject({ newEmail: emailSchema });
 const confirmEmailSchema = z.strictObject({ token: tokenSchema });
+const verifyEmailSchema = z.strictObject({ token: tokenSchema });
 const deleteProfileSchema = z.strictObject({
   password: z.string().min(1).max(128).optional(),
   confirmEmail: z.string().trim().toLowerCase().max(254).optional(),
@@ -29,6 +30,7 @@ module.exports = {
   requestOwnEmailChangeSchema,
   requestEmailChangeSchema,
   confirmEmailSchema,
+  verifyEmailSchema,
   deleteProfileSchema,
   googleRedirectQuerySchema,
 };

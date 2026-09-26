@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 // One-time links for password resets and email changes. Only the SHA-256 of the token is stored,
 // so a copy of the database cannot be used to take over accounts.
 const accountTokenSchema = new mongoose.Schema({
-    purpose: { type: String, enum: ['password_reset', 'email_change'], required: true },
+    purpose: { type: String, enum: ['password_reset', 'email_change', 'email_verify'], required: true },
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     tokenHash: { type: String, required: true, unique: true, match: /^[0-9a-f]{64}$/ },
     newEmail: { type: String, lowercase: true, trim: true },

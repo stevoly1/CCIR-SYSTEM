@@ -8,6 +8,7 @@ const {
 const { BadRequestError, ConflictError, ForbiddenError, NotFoundError } = require('../errors');
 const { cancelTokens } = require('./accountTokenService');
 const { endActiveChanges } = require('./emailChangeState');
+const { emailNotVerifiedForRole } = require('../errors/domainErrors');
 
 const TERMINAL_STATUSES = new Set(['RESOLVED', 'REJECTED', 'WITHDRAWN']);
 const RETIRED_NAME = 'Retired account';
@@ -168,6 +169,9 @@ const mutateAdministrator = async ({ targetUserId, actorUserId, changes, reason 
       if (!target) throw new NotFoundError('User not found');
       requireActiveAdministrator(actor);
       if (target.retiredAt) throw new ConflictError('Retired accounts cannot be changed');
+      // Staff accounts receive work by email, so their address must be proved first.
+      const becomesStaff = ['admin', 'agency'].includes(changes.role) && changes.role !== target.role;
+      if (becomesStaff && target.authProvider === 'local' && !target.emailVerifiedAt) throw emailNotVerifiedForRole();
 
       const removesAdministrator = target.role === 'admin'
         && (changes.role && changes.role !== 'admin' || changes.isActive === false);

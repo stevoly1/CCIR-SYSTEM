@@ -18,5 +18,8 @@ module.exports = {
   wrongPassword: make(401, 'WRONG_PASSWORD', 'The current password is incorrect'),
   samePassword: make(400, 'SAME_PASSWORD', 'The new password must differ from the current one'),
   sameEmail: make(400, 'SAME_EMAIL', 'This is already the account\'s email address'),
+  emailNotVerified: make(403, 'EMAIL_NOT_VERIFIED', 'Verify your email address to report issues; we sent you a link'),
+  emailNotVerifiedForRole: make(409, 'EMAIL_NOT_VERIFIED', "Verify this account's email address before giving it a staff role"),
+  alreadyVerified: make(409, 'ALREADY_VERIFIED', 'This email address is already verified'),
   locationProviderUnavailable: make(503, 'LOCATION_PROVIDER_UNAVAILABLE', 'Location lookup is temporarily unavailable; type the address instead'),
 };

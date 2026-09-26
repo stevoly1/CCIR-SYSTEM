@@ -29,7 +29,8 @@ const sendOnce = async (entry, send) => {
   return true;
 };
 
-const canReceiveReportEmails = (user) => Boolean(user && !user.retiredAt);
+// Report emails go only to an address the account holder has proved.
+const canReceiveReportEmails = (user) => Boolean(user && !user.retiredAt && (user.emailVerifiedAt || user.authProvider === 'google'));
 
 const reportAndReporter = async (complaintId, fields) => {
   const complaint = await Complaint.findById(complaintId).select(`referenceCode reporter ${fields}`.trim());
@@ -203,6 +204,21 @@ registerHandler('email_change_link', {
   },
   onFinalFailure: (entry, code) => failChange(entry.refs.emailChangeId, code),
   onRetry: reopenChange('NOTICE_SENT'),
+});
+
+// The link names the address it was sent to, and verifies only while the account still uses it.
+registerHandler('verify_email', {
+  queue: 'email',
+  run: async (entry) => {
+    if (entry.deliveredAt) return;
+    const user = await User.findById(entry.refs.userId);
+    if (!user || user.retiredAt || user.isActive !== true || user.authProvider !== 'local' || user.emailVerifiedAt) return;
+    if (!(await withinRecipientCap(entry, user.email))) return;
+    const link = await issueLinkFor({ userId: user._id, email: user.email, purpose: 'email_verify', newEmail: user.email });
+    if (!link) return;
+    await emailService.sendVerificationEmail({ to: user.email, name: user.name, token: link.token, idempotencyKey: `link-${link.record._id}` });
+    await markDelivered(entry);
+  },
 });
 
 module.exports = { keyFor, sendOnce, markDelivered, canReceiveReportEmails, withinRecipientCap, issueLinkFor };

@@ -2,6 +2,7 @@ const { StatusCodes } = require('http-status-codes');
 const passwordResetService = require('../services/passwordResetService');
 const passwordChangeService = require('../services/passwordChangeService');
 const emailChangeService = require('../services/emailChangeService');
+const emailVerificationService = require('../services/emailVerificationService');
 const { accountThrottle, AUTH_WINDOW_MS } = require('../services/accountThrottle');
 const { inTransaction } = require('../utils/transaction');
 const { enqueue } = require('../services/jobs/outbox');
@@ -71,4 +72,17 @@ const confirmEmailChange = async (req, res) => {
     res.status(StatusCodes.OK).json({ msg: 'Email address changed' });
 };
 
-module.exports = { forgotPassword, resetPassword, changePassword, requestOwnEmailChange, requestUserEmailChange, confirmEmailChange };
+const verifyEmail = async (req, res) => {
+    await accountThrottle().consume('token-ip', req.ip, { limit: 20, windowMs: AUTH_WINDOW_MS });
+    await emailVerificationService.verifyEmail(req.body.token);
+    res.status(StatusCodes.OK).json({ msg: 'Email verified' });
+};
+
+const resendVerificationEmail = async (req, res) => {
+    await emailVerificationService.resendVerification(req.user.userId);
+    res.status(StatusCodes.ACCEPTED).json({ msg: 'We sent a new verification link' });
+};
+
+module.exports = {
+    forgotPassword, resetPassword, changePassword, requestOwnEmailChange, requestUserEmailChange, confirmEmailChange, verifyEmail, resendVerificationEmail,
+};

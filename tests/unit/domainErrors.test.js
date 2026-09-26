@@ -19,6 +19,9 @@ const EXPECTED = {
   wrongPassword: [401, 'WRONG_PASSWORD'],
   samePassword: [400, 'SAME_PASSWORD'],
   sameEmail: [400, 'SAME_EMAIL'],
+  emailNotVerified: [403, 'EMAIL_NOT_VERIFIED'],
+  emailNotVerifiedForRole: [409, 'EMAIL_NOT_VERIFIED'],
+  alreadyVerified: [409, 'ALREADY_VERIFIED'],
 };
 
 const respond = (error) => {

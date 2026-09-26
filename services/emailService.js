@@ -154,6 +154,28 @@ const sendStatusUpdateEmail = ({ to, name, referenceCode, status, publicNote, co
     });
 };
 
+// The token travels after #, which browsers never send to a server, so it cannot reach a log.
+const sendVerificationEmail = ({ to, name, token, idempotencyKey }) => {
+    const link = clientUrl(`/verify-email#token=${token}`);
+    return deliver({
+        kind: 'verify_email',
+        to,
+        links: [link],
+        idempotencyKey,
+        subject: 'Verify your CCIR email address',
+        html: wrapEmail({
+            heading: 'Verify your email address',
+            lines: [
+                `Hi ${escapeHtml(name)},`,
+                'Confirm that this is your address to start reporting issues. The link works once and expires in 24 hours.',
+                'If you did not create a CCIR account, ignore this email.',
+            ],
+            linkUrl: link,
+            linkLabel: 'Verify my email address',
+        }),
+    });
+};
+
 // Enough to recognise an address without handing it to whoever reads the old inbox.
 const maskEmail = (email) => {
     const [local, domain] = String(email).split('@');
@@ -258,6 +280,7 @@ module.exports = {
     sendPasswordChangedEmail,
     sendEmailChangeConfirmation,
     sendEmailChangeNotice,
+    sendVerificationEmail,
     maskEmail,
     emailTransport,
 };
