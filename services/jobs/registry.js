@@ -1,6 +1,8 @@
 const JOB_TYPES = require('./jobTypes');
 
 // Job type -> { queue, run(entry), onFinalFailure?(entry, code), onRetry?(entry, session) }.
+// onRetry prepares an administrator's retry inside its transaction; it throws a domain error
+// (JOB_CANNOT_RETRY) when the work can no longer be done.
 const handlers = new Map();
 
 const registerHandler = (type, handler) => {

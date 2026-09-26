@@ -54,6 +54,8 @@ tags:
     description: Filing, reading and managing complaints.
   - name: location
     description: Address suggestions and geocoding.
+  - name: admin
+    description: Administrators' tools, such as background jobs.
   - name: health
     description: Liveness and readiness probes.
   - name: contract
@@ -167,6 +169,96 @@ components:
       properties:
         msg:
           type: string
+
+    JobSubject:
+      type: object
+      description: What a job is about, by reference or name only; never an email address.
+      additionalProperties: false
+      required: [kind, label]
+      properties:
+        kind:
+          type: string
+          enum: [report, account]
+        id:
+          $ref: '#/components/schemas/ObjectId'
+        label:
+          type: string
+          description: A report's reference code, an account's name, or "Password reset request".
+
+    Job:
+      type: object
+      description: One background job (an email to send), as administrators see it.
+      additionalProperties: false
+      required: [id, queue, type, state, attempts, lastErrorCode, lastErrorAt, createdAt, subject]
+      properties:
+        id:
+          $ref: '#/components/schemas/ObjectId'
+        queue:
+          type: string
+          enum: [email]
+        type:
+          type: string
+          description: >
+            report_filed, status_update, password_reset_request, password_changed, email_change_notice,
+            email_change_link or verify_email.
+        state:
+          type: string
+          enum: [PENDING, QUEUED, DONE, FAILED, DISMISSED]
+        attempts:
+          type: integer
+          minimum: 0
+        lastErrorCode:
+          type: [string, 'null']
+          description: >
+            Why the last attempt failed: PROVIDER_DOWN, RATE_LIMITED, TIMEOUT, INTERNAL (retried
+            automatically), or NOT_CONFIGURED, REJECTED, RECIPIENT_CAPPED (not retried).
+        lastErrorAt:
+          type: [string, 'null']
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        subject:
+          $ref: '#/components/schemas/JobSubject'
+
+    JobsSummary:
+      type: object
+      additionalProperties: false
+      required: [queues, oldestPendingSeconds, workerLastSeenSeconds]
+      properties:
+        queues:
+          type: object
+          additionalProperties: false
+          required: [email]
+          properties:
+            email:
+              type: object
+              additionalProperties: false
+              required: [PENDING, QUEUED, FAILED, DONE, DISMISSED]
+              properties:
+                PENDING:
+                  type: integer
+                  minimum: 0
+                QUEUED:
+                  type: integer
+                  minimum: 0
+                FAILED:
+                  type: integer
+                  minimum: 0
+                DONE:
+                  type: integer
+                  minimum: 0
+                  description: Finished in the last seven days (older ones are removed).
+                DISMISSED:
+                  type: integer
+                  minimum: 0
+        oldestPendingSeconds:
+          type: [integer, 'null']
+          minimum: 0
+        workerLastSeenSeconds:
+          type: [integer, 'null']
+          minimum: 0
+          description: Seconds since a worker last wrote its heartbeat; null when none is running.
 
     Pagination:
       type: object
@@ -3426,6 +3518,311 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
+  /admin/jobs:
+    get:
+      tags: [admin]
+      summary: List background jobs (administrators)
+      description: >
+        Failed jobs by default (`state`), most recent failure first. Each job names what it is about by
+        report reference or account name, never by email address.
+      operationId: listJobs
+      parameters:
+        - name: state
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, QUEUED, DONE, FAILED, DISMISSED]
+            default: FAILED
+        - name: queue
+          in: query
+          schema:
+            type: string
+            enum: [email]
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Jobs in the given state.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [jobs, pagination]
+                properties:
+                  jobs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Job'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+              example:
+                jobs:
+                  - id: 66f1a0c0a1b2c3d4e5f60101
+                    queue: email
+                    type: status_update
+                    state: FAILED
+                    attempts: 8
+                    lastErrorCode: PROVIDER_DOWN
+                    lastErrorAt: '2026-09-25T10:00:00.000Z'
+                    createdAt: '2026-09-25T06:00:00.000Z'
+                    subject:
+                      kind: report
+                      id: 66f1a0c0a1b2c3d4e5f60201
+                      label: CCIR-7Q2M4K9D
+                pagination:
+                  page: 1
+                  limit: 20
+                  total: 1
+                  pages: 1
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /admin/jobs/summary:
+    get:
+      tags: [admin]
+      summary: Background jobs at a glance (administrators)
+      description: >
+        Counts per queue and state, the age of the oldest unfinished job, and how long ago a worker last
+        wrote its heartbeat. Read from the database, never from Redis.
+      operationId: jobsSummary
+      responses:
+        '200':
+          description: The summary.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobsSummary'
+              example:
+                queues:
+                  email:
+                    PENDING: 0
+                    QUEUED: 1
+                    FAILED: 2
+                    DONE: 140
+                    DISMISSED: 1
+                oldestPendingSeconds: 4
+                workerLastSeenSeconds: 12
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /admin/jobs/{id}/retry:
+    post:
+      tags: [admin]
+      summary: Retry a failed job (administrators)
+      description: >
+        Runs the job again from its first attempt. An email change it belonged to is reopened; if a newer
+        change replaced it, or a password reset request's address was already forgotten, the answer is
+        409 `JOB_CANNOT_RETRY`. Only a failed job can be retried (409 `JOB_NOT_FAILED`).
+      operationId: retryJob
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+            example: {}
+      responses:
+        '200':
+          description: The job, waiting to run again.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [job]
+                properties:
+                  job:
+                    $ref: '#/components/schemas/Job'
+              example:
+                job:
+                    id: 66f1a0c0a1b2c3d4e5f60101
+                    queue: email
+                    type: status_update
+                    state: PENDING
+                    attempts: 0
+                    lastErrorCode: null
+                    lastErrorAt: null
+                    createdAt: '2026-09-25T06:00:00.000Z'
+                    subject:
+                      kind: report
+                      id: 66f1a0c0a1b2c3d4e5f60201
+                      label: CCIR-7Q2M4K9D
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The job is not failed (`JOB_NOT_FAILED`), or can no longer be retried (`JOB_CANNOT_RETRY`).
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: JOB_NOT_FAILED
+                  message: Only a failed job can be retried or dismissed
+                msg: Only a failed job can be retried or dismissed
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /admin/jobs/{id}/dismiss:
+    post:
+      tags: [admin]
+      summary: Dismiss a failed job (administrators)
+      description: >
+        Marks a failed job as dealt with, with a reason (3 to 500 characters). Dismissed jobs are removed
+        after 30 days. Only a failed job can be dismissed (409 `JOB_NOT_FAILED`).
+      operationId: dismissJob
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  minLength: 3
+                  maxLength: 500
+            example:
+              reason: The reporter's address no longer exists
+      responses:
+        '200':
+          description: The dismissed job.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [job]
+                properties:
+                  job:
+                    $ref: '#/components/schemas/Job'
+              example:
+                job:
+                    id: 66f1a0c0a1b2c3d4e5f60101
+                    queue: email
+                    type: status_update
+                    state: DISMISSED
+                    attempts: 8
+                    lastErrorCode: PROVIDER_DOWN
+                    lastErrorAt: '2026-09-25T10:00:00.000Z'
+                    createdAt: '2026-09-25T06:00:00.000Z'
+                    subject:
+                      kind: report
+                      id: 66f1a0c0a1b2c3d4e5f60201
+                      label: CCIR-7Q2M4K9D
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The job is not failed (`JOB_NOT_FAILED`), or can no longer be retried (`JOB_CANNOT_RETRY`).
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: JOB_NOT_FAILED
+                  message: Only a failed job can be retried or dismissed
+                msg: Only a failed job can be retried or dismissed
+        '500':
+          $ref: '#/components/responses/ServerError'
+  /admin/jobs/retry-failed:
+    post:
+      tags: [admin]
+      summary: Retry every failed job of a queue (administrators)
+      description: >
+        Retries up to 100 failed jobs, oldest failure first. Jobs that can no longer be retried are
+        counted in `skipped`.
+      operationId: retryFailedJobs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [queue]
+              properties:
+                queue:
+                  type: string
+                  enum: [email]
+            example:
+              queue: email
+      responses:
+        '200':
+          description: How many were retried and skipped.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [retried, skipped]
+                properties:
+                  retried:
+                    type: integer
+                    minimum: 0
+                  skipped:
+                    type: integer
+                    minimum: 0
+              example:
+                retried: 2
+                skipped: 0
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
   /health:
     get:
       tags: [health]

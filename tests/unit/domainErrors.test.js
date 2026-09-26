@@ -22,6 +22,8 @@ const EXPECTED = {
   emailNotVerified: [403, 'EMAIL_NOT_VERIFIED'],
   emailNotVerifiedForRole: [409, 'EMAIL_NOT_VERIFIED'],
   alreadyVerified: [409, 'ALREADY_VERIFIED'],
+  jobNotFailed: [409, 'JOB_NOT_FAILED'],
+  jobCannotRetry: [409, 'JOB_CANNOT_RETRY'],
 };
 
 const respond = (error) => {

@@ -9,6 +9,7 @@ const { ensureAccountLifecycleGuard, touchAccountLifecycleGuard } = require('../
 const { getLogger } = require('../../utils/logger');
 const { JobError } = require('./jobError');
 const { enqueue } = require('./outbox');
+const { jobCannotRetry } = require('../../errors/domainErrors');
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -108,6 +109,10 @@ registerHandler('password_reset_request', {
     await emailService.sendPasswordResetEmail({ to: email, name: user.name, token: link.token, idempotencyKey: `link-${link.record._id}` });
     await markDelivered(entry);
   },
+  // A failed request forgets its address; the person asks again instead.
+  onRetry: async (entry) => {
+    if (!entry.refs.email) throw jobCannotRetry();
+  },
 });
 
 registerHandler('password_changed', {
@@ -147,7 +152,7 @@ const reopenChange = (state) => async (entry, session) => {
     if (error?.code !== 11000) throw error;
     reopened = { matchedCount: 0 };
   }
-  if (reopened.matchedCount !== 1) throw new Error('This email change can no longer be retried');
+  if (reopened.matchedCount !== 1) throw jobCannotRetry();
 };
 
 const changeAndUser = async (entry, expectedState) => {
@@ -203,7 +208,12 @@ registerHandler('email_change_link', {
     await EmailChange.updateOne({ _id: change._id, state: 'NOTICE_SENT', active: true }, { $set: { state: 'LINK_SENT' } });
   },
   onFinalFailure: (entry, code) => failChange(entry.refs.emailChangeId, code),
-  onRetry: reopenChange('NOTICE_SENT'),
+  // The failed change's link was removed, so a retry makes and sends a fresh one even if the
+  // earlier link email went out.
+  onRetry: async (entry, session) => {
+    await reopenChange('NOTICE_SENT')(entry, session);
+    await OutboxEntry.updateOne({ _id: entry._id }, { $unset: { deliveredAt: 1 } }, { session });
+  },
 });
 
 // The link names the address it was sent to, and verifies only while the account still uses it.

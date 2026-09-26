@@ -21,5 +21,7 @@ module.exports = {
   emailNotVerified: make(403, 'EMAIL_NOT_VERIFIED', 'Verify your email address to report issues; we sent you a link'),
   emailNotVerifiedForRole: make(409, 'EMAIL_NOT_VERIFIED', "Verify this account's email address before giving it a staff role"),
   alreadyVerified: make(409, 'ALREADY_VERIFIED', 'This email address is already verified'),
+  jobNotFailed: make(409, 'JOB_NOT_FAILED', 'Only a failed job can be retried or dismissed'),
+  jobCannotRetry: make(409, 'JOB_CANNOT_RETRY', 'This job can no longer be retried; a newer request replaced it, or its details are gone'),
   locationProviderUnavailable: make(503, 'LOCATION_PROVIDER_UNAVAILABLE', 'Location lookup is temporarily unavailable; type the address instead'),
 };

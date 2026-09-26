@@ -12,6 +12,7 @@ const EXPECTED_OPERATIONS = [
   'GET /categories', 'POST /categories', 'GET /categories/{id}', 'PATCH /categories/{id}', 'DELETE /categories/{id}',
   'GET /complaints', 'POST /complaints', 'GET /complaints/{id}', 'PATCH /complaints/{id}', 'DELETE /complaints/{id}',
   'PATCH /complaints/{id}/status', 'PATCH /complaints/{id}/assign', 'POST /complaints/{id}/withdraw',
+  'GET /admin/jobs', 'GET /admin/jobs/summary', 'POST /admin/jobs/{id}/retry', 'POST /admin/jobs/{id}/dismiss', 'POST /admin/jobs/retry-failed',
   'GET /location/autocomplete', 'GET /location/geocode', 'GET /health', 'GET /health/live', 'GET /health/ready', 'GET /openapi.json',
 ];
 
