@@ -3,6 +3,7 @@ const { QUEUE_NAMES, DEFAULT_POLICY } = require('./queues');
 const { executeEntry } = require('./execute');
 const { JobError } = require('./jobError');
 const { getLogger } = require('../../utils/logger');
+const { logErrorsOnce } = require('./redisEvents');
 
 // Idle cost on a per-command Redis (Upstash): a worker long-polls an empty queue for drainDelay
 // seconds (a new job wakes it at once), and checks for stalled jobs every stalledInterval. These
@@ -49,9 +50,9 @@ const createWorkers = ({ connection, queues, policy = DEFAULT_POLICY, idle = IDL
       stalledInterval: idle.stalledInterval,
       ...(lockDuration ? { lockDuration } : {}),
     });
-    worker.on('error', (err) => getLogger().warn({ event: 'worker_error', queue: name, err }, 'Queue worker error'));
     return worker;
   });
+  logErrorsOnce(Object.fromEntries(QUEUE_NAMES.map((name, i) => [name, workers[i]])), 'worker_error', 'Queue worker error');
   return { workers, close: (force = false) => Promise.all(workers.map((worker) => worker.close(force))).then(() => undefined) };
 };
 
