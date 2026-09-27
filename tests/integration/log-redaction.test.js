@@ -5,7 +5,8 @@ const { captureLogs } = require('../helpers/captureLogs');
 const { unsafeRequest, createAuthenticatedAgent } = require('../helpers/auth');
 const { createCategoryFixture } = require('../fixtures/category');
 const Category = require('../../models/Category');
-const aiService = require('../../services/aiService');
+const { fakeClassification } = require('../helpers/ai');
+const { drainOutbox } = require('../helpers/jobs');
 const uploadService = require('../../services/uploadService');
 
 // Distinctive values: if any of them reaches a log line, the test names it.
@@ -52,11 +53,13 @@ describe('log redaction across sensitive flows', () => {
   });
 
   it('keeps a provider key in a failing AI request URL out of the logs', async () => {
-    vi.stubEnv('GOOGLE_API_KEY', SECRETS.apiKey);
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error(`request to https://generativelanguage.googleapis.com/x?key=${SECRETS.apiKey} failed`));
-    await aiService.classifyComplaint({ description: 'Broken streetlight on the corner', categoryNames: ['Other'] });
-    expect(logs.lines.some((line) => line.msg === 'AI classification failed; using the fallback')).toBe(true);
-    assertNoSecrets();
+    await createCategoryFixture({ name: 'Other' });
+    fakeClassification(new Error(`request to https://api.moonshot.ai/v1?key=${SECRETS.apiKey} failed for Broken streetlight on the corner`));
+    const { agent } = await createAuthenticatedAgent();
+    expect((await unsafeRequest(agent, 'post', '/api/v1/complaints').send({ description: 'Broken streetlight on the corner', address: '1 Test Street' })).status).toBe(201);
+    await drainOutbox();
+    expect(logs.lines.some((line) => line.event === 'job' && line.type === 'classify_report' && line.failureCode === 'INTERNAL')).toBe(true);
+    assertNoSecrets(['Broken streetlight on the corner']);
   });
 
   it('keeps secrets in an unexpected error message out of the logs', async () => {
@@ -73,9 +76,6 @@ describe('log redaction across sensitive flows', () => {
   it('keeps the reporter and the stored image identifiers out of a photo submission', async () => {
     const { agent, user } = await createAuthenticatedAgent({ email: 'photo.reporter@example.test' });
     await createCategoryFixture({ name: 'Other' });
-    vi.spyOn(aiService, 'classifyComplaint').mockResolvedValue({
-      category: 'Other', priority: 'MEDIUM', summary: 'Road damage', tags: ['road'], confidence: 0.8, error: null,
-    });
     vi.spyOn(uploadService, 'uploadComplaintImage').mockResolvedValue({
       url: `https://res.cloudinary.com/demo/image/upload/${SECRETS.publicId}.jpg`, publicId: SECRETS.publicId,
     });

@@ -1,10 +1,10 @@
-const { Category, Complaint } = require('../../models');
-const aiService = require('../../services/aiService');
+const { Category, Complaint, OutboxEntry } = require('../../models');
 const complaintImageService = require('../../services/complaintImageService');
+const { AiError } = require('../../services/ai/aiError');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createCategoryFixture } = require('../fixtures/category');
-
-const ai = (category) => ({ category, priority: 'HIGH', summary: 's', tags: [], confidence: 0.9, error: null });
+const { fakeClassification } = require('../helpers/ai');
+const { drainOutbox } = require('../helpers/jobs');
 
 describe('complaint category identity', () => {
   let agent;
@@ -22,34 +22,37 @@ describe('complaint category identity', () => {
 
   it('rejects an inactive hint before image preparation, AI, or persistence', async () => {
     const inactive = await createCategoryFixture({ name: 'Old Roads', isActive: false });
-    const classify = vi.spyOn(aiService, 'classifyComplaint').mockResolvedValue(ai('Roads'));
     const prepare = vi.spyOn(complaintImageService, 'prepareComplaintImages');
     const response = await file({ categoryId: inactive.id });
     expect(response.status).toBe(409);
     expect(response.body.error.code).toBe('CATEGORY_INACTIVE');
-    expect(classify).not.toHaveBeenCalled();
+    expect(await OutboxEntry.countDocuments({ type: 'classify_report' })).toBe(0);
     expect(prepare).not.toHaveBeenCalled();
     expect(await Complaint.countDocuments()).toBe(0);
   });
 
   it('rejects an unknown hint the same way', async () => {
-    const classify = vi.spyOn(aiService, 'classifyComplaint').mockResolvedValue(ai('Roads'));
     const response = await file({ categoryId: '0123456789abcdef01234567' });
     expect(response.status).toBe(409);
     expect(response.body.error.code).toBe('CATEGORY_INACTIVE');
-    expect(classify).not.toHaveBeenCalled();
+    expect(await OutboxEntry.countDocuments({ type: 'classify_report' })).toBe(0);
   });
 
-  it('uses a valid active hint when AI succeeds', async () => {
-    vi.spyOn(aiService, 'classifyComplaint').mockResolvedValue(ai('Other'));
+  it('keeps a valid citizen choice even when the AI names Other', async () => {
+    fakeClassification({ category: 'Other' });
     await file({ categoryId: roads.id });
-    expect(String((await Complaint.findOne()).category)).toBe(roads.id);
+    await drainOutbox();
+    const stored = await Complaint.findOne();
+    expect(String(stored.category)).toBe(roads.id);
+    expect(stored.categorySource).toBe('CITIZEN');
+    expect(String(stored.citizenCategory.categoryId)).toBe(roads.id);
   });
 
   it('stores a snapshot and keeps the filed name after a rename', async () => {
-    vi.spyOn(aiService, 'classifyComplaint').mockResolvedValue(ai('Roads'));
+    fakeClassification({ category: 'Roads' });
     const created = await file();
     expect(created.status).toBe(201);
+    await drainOutbox();
     const stored = await Complaint.findOne();
     expect(stored.categorySnapshot.toObject()).toEqual({ categoryId: roads._id, name: 'Roads' });
 
@@ -59,20 +62,23 @@ describe('complaint category identity', () => {
   });
 
   it('stays readable when the category document is gone', async () => {
-    vi.spyOn(aiService, 'classifyComplaint').mockResolvedValue(ai('Roads'));
+    fakeClassification({ category: 'Roads' });
     await file();
+    await drainOutbox();
     await Category.deleteOne({ _id: roads._id });
     const stored = await Complaint.findOne();
     const read = await agent.get(`/api/v1/complaints/${stored.id}`);
     expect(read.body.complaint.category).toMatchObject({ name: 'Roads', recordedName: 'Roads', deleted: true, isActive: false });
   });
 
-  it('uses Other on AI failure and snapshots it', async () => {
-    vi.spyOn(aiService, 'classifyComplaint').mockResolvedValue({ ...ai('Other'), error: 'TIMEOUT' });
+  it("keeps the citizen's category and snapshot on AI failure", async () => {
+    fakeClassification(AiError.of('TIMEOUT'));
     await file({ categoryId: roads.id });
+    await drainOutbox();
     const stored = await Complaint.findOne();
-    expect(stored.categorySnapshot.name).toBe('Other');
-    expect(String(stored.category)).toBe(other.id);
+    expect(stored.categorySnapshot.name).toBe('Roads');
+    expect(String(stored.category)).toBe(roads.id);
+    expect(stored).toMatchObject({ categorySource: 'CITIZEN', ai: { status: 'FAILED', failureCode: 'TIMEOUT' } });
   });
 
   it('normalises names and derives a unique key on save', async () => {

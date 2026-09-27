@@ -1,9 +1,9 @@
 const { z } = require('zod');
 const { pageSchema, limitSchema } = require('./commonValidator');
 
-const queueSchema = z.enum(['email']);
+const queueSchema = z.enum(['ai', 'email']);
 const listJobsQuerySchema = z.strictObject({
-  state: z.enum(['PENDING', 'QUEUED', 'DONE', 'FAILED', 'DISMISSED']).default('FAILED'),
+  state: z.literal('FAILED').default('FAILED'),
   queue: queueSchema.optional(),
   page: pageSchema,
   limit: limitSchema,

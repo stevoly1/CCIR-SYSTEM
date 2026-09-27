@@ -19,6 +19,14 @@ process.env.BROWSER_ORIGIN ||= 'http://localhost:3000';
 process.env.TRUST_PROXY_HOPS ||= '0';
 process.env.AUTH_THROTTLE_HMAC_SECRET ||= 'integration-auth-throttle-secret';
 process.env.NODE_ENV = 'test';
+// Unfaked classification must fail against a local address, never contact a hosted provider.
+for (const name of ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET', 'GOOGLE_API_KEY', 'GEMINI_MODEL']) {
+  delete process.env[name];
+}
+process.env.AI_PROVIDER = 'kimi';
+process.env.KIMI_API_KEY = 'integration-not-a-real-key';
+process.env.KIMI_BASE_URL = 'http://127.0.0.1:9/v1';
+process.env.KIMI_MODEL = 'kimi-test';
 
 beforeAll(async () => {
   mongoServer = await startWithPortRetry(() => new MongoMemoryReplSet({

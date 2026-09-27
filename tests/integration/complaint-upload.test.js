@@ -2,8 +2,7 @@ const fs = require('fs/promises');
 const nodeFs = require('fs');
 const os = require('os');
 const path = require('path');
-const { Complaint } = require('../../models');
-const aiService = require('../../services/aiService');
+const { Complaint, OutboxEntry } = require('../../models');
 const complaintImageService = require('../../services/complaintImageService');
 const uploadService = require('../../services/uploadService');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
@@ -11,15 +10,6 @@ const { createCategoryFixture } = require('../fixtures/category');
 const { postMultipartAllowingEarlyResponse } = require('../helpers/earlyResponseRequest');
 
 const fixture = path.join(__dirname, '..', 'fixtures', 'images', 'valid.jpg');
-const aiResult = {
-  category: 'Other',
-  priority: 'MEDIUM',
-  summary: 'Road damage',
-  tags: ['road'],
-  confidence: 0.8,
-  error: null,
-};
-
 describe('complaint upload ordering and compensation', () => {
   let agent;
   let credentials;
@@ -31,7 +21,6 @@ describe('complaint upload ordering and compensation', () => {
     ({ agent, user, password } = await createAuthenticatedAgent({ role: 'citizen' }));
     credentials = { email: user.email, password };
     await createCategoryFixture({ name: 'Other' });
-    vi.spyOn(aiService, 'classifyComplaint').mockResolvedValue(aiResult);
     temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'ccir-upload-test-'));
   });
 
@@ -52,7 +41,7 @@ describe('complaint upload ordering and compensation', () => {
     const response = await request;
 
     expect(response.status).toBe(413);
-    expect(aiService.classifyComplaint).not.toHaveBeenCalled();
+    expect(await OutboxEntry.countDocuments({ type: 'classify_report' })).toBe(0);
     expect(upload).not.toHaveBeenCalled();
     expect(cleanup).not.toHaveBeenCalled();
   });
@@ -84,7 +73,7 @@ describe('complaint upload ordering and compensation', () => {
     });
 
     expect(response.status).toBe(413);
-    expect(aiService.classifyComplaint).not.toHaveBeenCalled();
+    expect(await OutboxEntry.countDocuments({ type: 'classify_report' })).toBe(0);
     expect(upload).not.toHaveBeenCalled();
     expect(cleanup).not.toHaveBeenCalled();
     expect(bytesWritten.reduce((sum, size) => sum + size, 0)).toBeLessThanOrEqual(25 * 1024 * 1024);
@@ -104,7 +93,7 @@ describe('complaint upload ordering and compensation', () => {
 
     expect(response.status).toBe(413);
     expect(response.body.error.code).toBe('PAYLOAD_TOO_LARGE');
-    expect(aiService.classifyComplaint).not.toHaveBeenCalled();
+    expect(await OutboxEntry.countDocuments({ type: 'classify_report' })).toBe(0);
     expect(upload).not.toHaveBeenCalled();
     expect(await Complaint.countDocuments()).toBe(0);
   });
@@ -122,15 +111,14 @@ describe('complaint upload ordering and compensation', () => {
     const upload = vi.spyOn(uploadService, 'uploadComplaintImage');
     const unexpected = await complaintRequest().attach('avatar', fixture);
     expect(unexpected.status).toBe(415);
-    expect(aiService.classifyComplaint).not.toHaveBeenCalled();
+    expect(await OutboxEntry.countDocuments({ type: 'classify_report' })).toBe(0);
     expect(upload).not.toHaveBeenCalled();
 
-    vi.mocked(aiService.classifyComplaint).mockClear();
     const invalidPath = path.join(temporaryDirectory, 'invalid.jpg');
     await fs.writeFile(invalidPath, 'not an image');
     const invalid = await complaintRequest().attach('image', invalidPath, { contentType: 'image/jpeg' });
     expect(invalid.status).toBe(415);
-    expect(aiService.classifyComplaint).not.toHaveBeenCalled();
+    expect(await OutboxEntry.countDocuments({ type: 'classify_report' })).toBe(0);
     expect(upload).not.toHaveBeenCalled();
   });
 

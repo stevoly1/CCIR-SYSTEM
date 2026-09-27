@@ -40,6 +40,12 @@ const { startRedis } = require('../setup/memoryRedis.cjs');
 const redis = await startRedis();
 process.env.REDIS_URL = redis.url;
 
+// Exercise the real Kimi adapter against a local provider; no journey calls Moonshot.
+const { startFakeKimi } = require('../helpers/fakeKimi.cjs');
+const kimi = await startFakeKimi(require('./fakeKimiRules.cjs').createRules());
+Object.assign(process.env, { AI_PROVIDER: 'kimi', KIMI_API_KEY: 'e2e-not-a-real-key', KIMI_BASE_URL: kimi.url, KIMI_MODEL: 'kimi-e2e', AI_TIMEOUT_MS: '10000' });
+for (const name of ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET']) delete process.env[name];
+
 const { startWithPortRetry } = require('../setup/memoryMongo.cjs');
 const replSet = await startWithPortRetry(() => new MongoMemoryReplSet({
   binary: { version: require('../setup/mongoVersion.cjs').MONGODB_TEST_VERSION },
@@ -55,7 +61,10 @@ await require('./seed.cjs').seed();
 // relay interval and long poll keep journeys quick.
 const { startBackgroundWork } = require('../../services/jobs/background');
 const background = await startBackgroundWork({
-  policy: { email: { attempts: 1, backoffBaseMs: 100, backoffCapMs: 100, concurrency: 4, limiter: null } },
+  policy: {
+    email: { attempts: 1, backoffBaseMs: 100, backoffCapMs: 100, concurrency: 4, limiter: null },
+    ai: { attempts: 2, backoffBaseMs: 100, backoffCapMs: 100, concurrency: 2, limiter: null },
+  },
   idle: { drainDelay: 1, stalledInterval: 5000 },
   relayIntervalMs: 200,
 });
@@ -65,6 +74,7 @@ const server = app.listen(8181, '127.0.0.1', () => process.stdout.write('e2e API
 const shutdown = async () => {
   await background.stop();
   server.close();
+  await kimi.stop();
   await mongoose.disconnect();
   await replSet.stop();
   await redis.stop();

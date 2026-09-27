@@ -40,7 +40,7 @@ beforeAll(async () => {
 afterAll(() => redis.stop());
 
 describe('Redis command budget', () => {
-  it('keeps idle background work, with a retry waiting, within 300,000 commands a month, and reports the cost per job', async () => {
+  it('keeps idle background work (relay, ai and email workers), with a retry waiting, within 300,000 commands a month, and reports the cost per job', async () => {
     const admin = new IORedis(redis.url);
     // A long backoff, so the failing job's retry waits through the whole measurement.
     const policy = { email: { ...DEFAULT_POLICY.email, backoffBaseMs: 3600 * 1000, backoffCapMs: 3600 * 1000 } };

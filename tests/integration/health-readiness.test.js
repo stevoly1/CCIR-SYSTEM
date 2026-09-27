@@ -17,7 +17,7 @@ const waiting = (secondsAgo, state = 'PENDING') => OutboxEntry.collection.insert
 });
 
 const ALL_SERVICES = {
-  GOOGLE_API_KEY: 'ready-ai-key-01', CLOUDINARY_CLOUD_NAME: 'ready-cloud-02', CLOUDINARY_API_KEY: 'ready-cloud-key-03',
+  AI_PROVIDER: 'kimi', KIMI_API_KEY: 'ready-ai-key-01', CLOUDINARY_CLOUD_NAME: 'ready-cloud-02', CLOUDINARY_API_KEY: 'ready-cloud-key-03',
   CLOUDINARY_API_SECRET: 'ready-cloud-secret-04', RESEND_API_KEY: 'ready-resend-05', EMAIL_FROM: 'CCIR <ready-from-06@example.test>',
   GOOGLE_CLIENT_ID: 'ready-client-07', GOOGLE_CLIENT_SECRET: 'ready-client-secret-08', GOOGLE_CALLBACK_URL: 'http://localhost/ready-callback-09',
 };
@@ -51,7 +51,7 @@ describe('health endpoints', () => {
   });
 
   it('reports degraded, naming the services, when optional settings are missing', async () => {
-    vi.stubEnv('GOOGLE_API_KEY', '');
+    vi.stubEnv('KIMI_API_KEY', '');
     vi.stubEnv('RESEND_API_KEY', '');
     const response = await request(testServer()).get('/api/v1/health/ready');
     expect(response.status).toBe(200);
@@ -59,6 +59,17 @@ describe('health endpoints', () => {
     expect(response.body.checks.ai).toEqual({ status: 'not_configured' });
     expect(response.body.checks.email).toEqual({ status: 'not_configured' });
     expect(response.body.checks.uploads).toEqual({ status: 'ok' });
+  });
+
+  it('reports AI unconfigured when a provider has no key or no provider is chosen', async () => {
+    vi.stubEnv('READINESS_CACHE_MS', '0');
+    vi.stubEnv('KIMI_API_KEY', '');
+    let response = await request(testServer()).get('/api/v1/health/ready');
+    expect(response.body.checks.ai).toEqual({ status: 'not_configured' });
+    vi.stubEnv('KIMI_API_KEY', 'ready-ai-key-01');
+    vi.stubEnv('AI_PROVIDER', '');
+    response = await request(testServer()).get('/api/v1/health/ready');
+    expect(response.body.checks.ai).toEqual({ status: 'not_configured' });
   });
 
   it('runs one database check for a burst of readiness requests', async () => {

@@ -41,6 +41,26 @@ describe('ComplaintTimeline', () => {
         expect(screen.getByText('Priority changed from Low to High')).toBeInTheDocument();
     });
 
+    it('describes a staff category change and its private reason', () => {
+        render(<ComplaintTimeline staffView entries={[{
+            _id: '5', type: 'CATEGORY_CHANGED', status: 'IN_REVIEW',
+            categoryChange: { from: { name: 'Roads' }, to: { name: 'Drainage' } },
+            internalNote: 'The photo shows a drain', actorLabel: 'Agency staff', createdAt: '2026-09-04T10:00:00Z',
+        }]} />);
+        expect(screen.getByText('Category changed from Roads to Drainage')).toBeInTheDocument();
+        expect(screen.getByText('The photo shows a drain')).toBeInTheDocument();
+        expect(screen.getByText(/Staff only:/)).toBeInTheDocument();
+    });
+
+    it('keeps category changes private if a citizen receives an unexpected entry', () => {
+        render(<ComplaintTimeline staffView={false} entries={[{
+            _id: '6', type: 'CATEGORY_CHANGED', status: 'IN_REVIEW',
+            categoryChange: { from: { name: 'Roads' }, to: { name: 'Drainage' } },
+            internalNote: 'Private reason', actorLabel: 'Agency staff', createdAt: '2026-09-04T10:00:00Z',
+        }]} />);
+        expect(document.body.textContent).not.toMatch(/Category changed|Private reason/);
+    });
+
     it('labels renamed categories with their filed name', () => {
         expect(categoryLabel({ name: 'Road damage', recordedName: 'Potholes' })).toBe("Road damage (filed as 'Potholes')");
         expect(categoryLabel({ name: 'Roads', recordedName: 'Roads' })).toBe('Roads');

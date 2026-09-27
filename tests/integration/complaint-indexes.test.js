@@ -40,4 +40,15 @@ describe('complaint indexes', () => {
     const declared = Complaint.schema.indexes().map(([fields]) => Object.keys(fields).join(','));
     expect(declared).not.toContain('location.latitude,location.longitude');
   });
+
+  it('declares the classification status, failure sweep and disagreement indexes', () => {
+    const indexes = Complaint.schema.indexes();
+    expect(indexes.map(([fields]) => fields)).toEqual(expect.arrayContaining([
+      { 'ai.status': 1, createdAt: -1 },
+      { 'ai.status': 1, 'ai.failedAt': 1 },
+      { 'ai.disagreement.categoryId': 1, createdAt: -1 },
+    ]));
+    const disagreement = indexes.find(([fields]) => fields['ai.disagreement.categoryId'] === 1);
+    expect(disagreement[1].partialFilterExpression).toEqual({ 'ai.disagreement.categoryId': { $exists: true } });
+  });
 });

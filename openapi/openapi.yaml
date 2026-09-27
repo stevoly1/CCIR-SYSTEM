@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: CCIR API
-  version: 2.0.0
+  version: 2.1.0
   summary: Civic Complaint and Infrastructure Reporting backend.
   description: >
     Citizens file complaints about public infrastructure; agency staff and administrators triage,
@@ -38,6 +38,15 @@ info:
     **Breaking:** `PATCH /users/{id}` no longer accepts `email` (use `POST /users/{id}/email`), and
     `DELETE /users/profile` requires `password` (or `confirmEmail` for Google accounts). New passwords
     need 8 to 128 characters.
+
+
+    **Changes in 2.1.0.** Classification runs in a background job; filing returns with provisional
+    "Other", `categorySource` and `ai.status`. Citizens may choose a category; staff see AI failure,
+    provenance and disagreement details. The old `ai.error` field is deprecated. Staff may use
+    `PATCH /complaints/{id}/category` (recorded as `CATEGORY_CHANGED`), and administrators may use
+    `POST /complaints/{id}/reclassify`. Complaint lists accept staff AI-state and disagreement filters;
+    Jobs accepts the `ai` queue. **Breaking:** the Jobs list accepts only `state=FAILED`; no client
+    used the other states. Password-change wording now describes the sessions it signs out.
 
 
     **Changes in 2.0.0.** Every email is now sent by a background worker, and links are created when
@@ -197,7 +206,7 @@ components:
 
     Job:
       type: object
-      description: One background job (an email to send), as administrators see it.
+      description: One background job, as administrators see it.
       additionalProperties: false
       required: [id, queue, type, state, attempts, lastErrorCode, lastErrorAt, createdAt, subject]
       properties:
@@ -205,12 +214,12 @@ components:
           $ref: '#/components/schemas/ObjectId'
         queue:
           type: string
-          enum: [email]
+          enum: [ai, email]
         type:
           type: string
           description: >
             report_filed, status_update, password_reset_request, password_changed, email_change_notice,
-            email_change_link or verify_email.
+            email_change_link, verify_email or classify_report.
         state:
           type: string
           enum: [PENDING, QUEUED, DONE, FAILED, DISMISSED]
@@ -220,8 +229,9 @@ components:
         lastErrorCode:
           type: [string, 'null']
           description: >
-            Why the last attempt failed: PROVIDER_DOWN, RATE_LIMITED, TIMEOUT, INTERNAL (retried
-            automatically), or NOT_CONFIGURED, REJECTED, RECIPIENT_CAPPED (not retried).
+            Why the last attempt failed. PROVIDER_DOWN, RATE_LIMITED, TIMEOUT and INTERNAL are retried
+            automatically; INVALID_OUTPUT is retried once. NOT_CONFIGURED, REJECTED, RECIPIENT_CAPPED,
+            AUTH, REFUSED and UNKNOWN_TYPE are final.
         lastErrorAt:
           type: [string, 'null']
           format: date-time
@@ -239,8 +249,29 @@ components:
         queues:
           type: object
           additionalProperties: false
-          required: [email]
+          required: [ai, email]
           properties:
+            ai:
+              type: object
+              additionalProperties: false
+              required: [PENDING, QUEUED, FAILED, DONE, DISMISSED]
+              properties:
+                PENDING:
+                  type: integer
+                  minimum: 0
+                QUEUED:
+                  type: integer
+                  minimum: 0
+                FAILED:
+                  type: integer
+                  minimum: 0
+                DONE:
+                  type: integer
+                  minimum: 0
+                  description: Finished in the last seven days (older ones are removed).
+                DISMISSED:
+                  type: integer
+                  minimum: 0
             email:
               type: object
               additionalProperties: false
@@ -464,6 +495,25 @@ components:
         deleted:
           type: boolean
 
+    CategorySource:
+      type: [string, 'null']
+      enum: [PENDING, CITIZEN, AI, FALLBACK, STAFF, null]
+      description: 'Who set the current category. PENDING is provisional Other until AI answers; FALLBACK means AI could not classify it; STAFF is never changed by AI.'
+
+    AiDisagreement:
+      type: [object, 'null']
+      additionalProperties: false
+      required: [categoryId, name, confidence]
+      properties:
+        categoryId:
+          $ref: '#/components/schemas/ObjectId'
+        name:
+          type: string
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+
     TimelineEntry:
       type: object
       description: A status-history entry as the reporter sees it.
@@ -498,11 +548,21 @@ components:
           type: [string, 'null']
         type:
           type: string
-          enum: [CREATED, STATUS_CHANGED, PRIORITY_CHANGED, WITHDRAWN]
+          enum: [CREATED, STATUS_CHANGED, PRIORITY_CHANGED, CATEGORY_CHANGED, WITHDRAWN]
         status:
           $ref: '#/components/schemas/Status'
         priorityChange:
           $ref: '#/components/schemas/PriorityChange'
+        categoryChange:
+          description: Staff only. The category before and after the change.
+          type: object
+          additionalProperties: false
+          required: [from, to]
+          properties:
+            from:
+              $ref: '#/components/schemas/CategoryChangeSide'
+            to:
+              $ref: '#/components/schemas/CategoryChangeSide'
         publicNote:
           type: string
         internalNote:
@@ -528,11 +588,21 @@ components:
         to:
           $ref: '#/components/schemas/Priority'
 
+    CategoryChangeSide:
+      type: object
+      additionalProperties: false
+      required: [categoryId, name]
+      properties:
+        categoryId:
+          type: [string, 'null']
+        name:
+          type: string
+
     ComplaintSummary:
       type: object
       description: A list row as the reporter sees it.
       additionalProperties: false
-      required: [_id, referenceCode, status, priority, description, category, address, hasPrecisePosition, imageCount, thumbnailUrl, createdAt, updatedAt]
+      required: [_id, referenceCode, status, priority, description, category, categorySource, ai, address, hasPrecisePosition, imageCount, thumbnailUrl, createdAt, updatedAt]
       properties:
         _id:
           $ref: '#/components/schemas/ObjectId'
@@ -546,6 +616,16 @@ components:
           type: string
         category:
           $ref: '#/components/schemas/ComplaintCategory'
+        categorySource:
+          $ref: '#/components/schemas/CategorySource'
+        ai:
+          type: object
+          additionalProperties: false
+          required: [status]
+          properties:
+            status:
+              type: [string, 'null']
+              enum: [PENDING, DONE, FAILED, null]
         address:
           type: [string, 'null']
         hasPrecisePosition:
@@ -566,7 +646,7 @@ components:
       type: object
       description: A list row as staff see it, with the reporter and assignee.
       additionalProperties: false
-      required: [_id, referenceCode, status, priority, description, category, address, hasPrecisePosition, imageCount, thumbnailUrl, createdAt, updatedAt, reporter, assignee]
+      required: [_id, referenceCode, status, priority, description, category, categorySource, ai, address, hasPrecisePosition, imageCount, thumbnailUrl, createdAt, updatedAt, reporter, assignee]
       properties:
         _id:
           $ref: '#/components/schemas/ObjectId'
@@ -580,6 +660,18 @@ components:
           type: string
         category:
           $ref: '#/components/schemas/ComplaintCategory'
+        categorySource:
+          $ref: '#/components/schemas/CategorySource'
+        ai:
+          type: object
+          additionalProperties: false
+          required: [status, disagreement]
+          properties:
+            status:
+              type: [string, 'null']
+              enum: [PENDING, DONE, FAILED, null]
+            disagreement:
+              $ref: '#/components/schemas/AiDisagreement'
         address:
           type: [string, 'null']
         hasPrecisePosition:
@@ -609,7 +701,7 @@ components:
         notes, assignment and edit history, AI details) are absent, and any extra field is a contract
         violation.
       additionalProperties: false
-      required: [_id, referenceCode, status, priority, description, category, address, hasPrecisePosition, imageCount, thumbnailUrl, createdAt, updatedAt, reporter, version, images, ai, timeline, responsibility, canEdit, canWithdraw]
+      required: [_id, referenceCode, status, priority, description, category, categorySource, address, hasPrecisePosition, imageCount, thumbnailUrl, createdAt, updatedAt, reporter, version, images, citizenCategory, ai, timeline, responsibility, canEdit, canWithdraw]
       properties:
         _id:
           $ref: '#/components/schemas/ObjectId'
@@ -623,6 +715,8 @@ components:
           type: string
         category:
           $ref: '#/components/schemas/ComplaintCategory'
+        categorySource:
+          $ref: '#/components/schemas/CategorySource'
         address:
           type: [string, 'null']
         hasPrecisePosition:
@@ -648,11 +742,23 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Image'
+        citizenCategory:
+          type: [object, 'null']
+          additionalProperties: false
+          required: [categoryId, name]
+          properties:
+            categoryId:
+              $ref: '#/components/schemas/ObjectId'
+            name:
+              type: string
         ai:
           type: object
           additionalProperties: false
-          required: [summary, tags]
+          required: [status, summary, tags]
           properties:
+            status:
+              type: [string, 'null']
+              enum: [PENDING, DONE, FAILED, null]
             summary:
               type: string
             tags:
@@ -675,7 +781,7 @@ components:
       type: object
       description: A complaint as agency staff and administrators see it.
       additionalProperties: false
-      required: [_id, referenceCode, status, priority, description, category, address, hasPrecisePosition, imageCount, thumbnailUrl, createdAt, updatedAt, reporter, assignee, version, images, ai, timeline, responsibility, canEdit, canWithdraw, location, assignmentHistory, editHistory, allowedTransitions, canChangePriority, canAssign, canDelete, resolvedAt, resolvedAtEstimated]
+      required: [_id, referenceCode, status, priority, description, category, categorySource, address, hasPrecisePosition, imageCount, thumbnailUrl, createdAt, updatedAt, reporter, assignee, version, images, citizenCategory, ai, timeline, responsibility, canEdit, canWithdraw, location, assignmentHistory, editHistory, allowedTransitions, canChangePriority, canAssign, canRecategorise, canReclassify, canDelete, resolvedAt, resolvedAtEstimated]
       properties:
         _id:
           $ref: '#/components/schemas/ObjectId'
@@ -689,6 +795,8 @@ components:
           type: string
         category:
           $ref: '#/components/schemas/ComplaintCategory'
+        categorySource:
+          $ref: '#/components/schemas/CategorySource'
         address:
           type: [string, 'null']
         hasPrecisePosition:
@@ -717,10 +825,19 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Image'
+        citizenCategory:
+          type: [object, 'null']
+          additionalProperties: false
+          required: [categoryId, name]
+          properties:
+            categoryId:
+              $ref: '#/components/schemas/ObjectId'
+            name:
+              type: string
         ai:
           type: object
           additionalProperties: false
-          required: [suggestedCategory, confidence, summary, tags, classifiedAt, error, inputMode, analysisCount]
+          required: [suggestedCategory, confidence, summary, tags, classifiedAt, error, inputMode, analysisCount, status, requestSeq, failureCode, failedAt, provider, model, promptVersion, disagreement]
           properties:
             suggestedCategory:
               type: [string, 'null']
@@ -737,12 +854,32 @@ components:
               format: date-time
             error:
               type: [string, 'null']
-              description: Why the fallback classification was used (TIMEOUT, NETWORK_ERROR, PROVIDER_ERROR, INVALID_OUTPUT).
+              deprecated: true
+              description: 'Before 2.1.0: why the fallback was used. Always null for new results; see failureCode.'
             inputMode:
               type: [string, 'null']
               enum: [TEXT_ONLY, TEXT_AND_IMAGE, null]
             analysisCount:
               type: [integer, 'null']
+            status:
+              type: [string, 'null']
+              enum: [PENDING, DONE, FAILED, null]
+            requestSeq:
+              type: [integer, 'null']
+              description: Each classification request, edit or retry adds one.
+            failureCode:
+              type: [string, 'null']
+            failedAt:
+              type: [string, 'null']
+              format: date-time
+            provider:
+              type: [string, 'null']
+            model:
+              type: [string, 'null']
+            promptVersion:
+              type: [string, 'null']
+            disagreement:
+              $ref: '#/components/schemas/AiDisagreement'
         timeline:
           type: array
           items:
@@ -828,6 +965,10 @@ components:
         canChangePriority:
           type: boolean
         canAssign:
+          type: boolean
+        canRecategorise:
+          type: boolean
+        canReclassify:
           type: boolean
         canDelete:
           type: boolean
@@ -942,6 +1083,7 @@ components:
             background:
               $ref: '#/components/schemas/BackgroundCheck'
             ai:
+              description: Configured when AI_PROVIDER selects an adapter and its key is present.
               $ref: '#/components/schemas/ServiceCheck'
             uploads:
               $ref: '#/components/schemas/ServiceCheck'
@@ -1379,8 +1521,9 @@ paths:
       summary: Set a new password with a reset link
       description: >
         The token comes from the link's address fragment (`#token=…`). The new password takes effect, every
-        session of the account ends, and the account is emailed a notice; the caller is not signed in. An
-        unknown, expired, used or replaced token gets 400 `INVALID_OR_EXPIRED_TOKEN`; a password equal to
+        session of the account ends, every pending link (password reset, email change, verification) is
+        cancelled, any email change under way ends, and the account is emailed a notice; the caller is not
+        signed in. An unknown, expired, used or replaced token gets 400 `INVALID_OR_EXPIRED_TOKEN`; a password equal to
         the email address gets 400 `PASSWORD_REJECTED` and leaves the link usable.
       operationId: resetPassword
       security: []
@@ -1856,8 +1999,9 @@ paths:
         Needs the current password. A wrong one gets 401 `WRONG_PASSWORD` and counts against the account's
         sign-in lockout (5 per 15 minutes, then 429). The new password must be 8 to 128 characters, differ
         from the current one (400 `SAME_PASSWORD`) and not be the email address (400 `PASSWORD_REJECTED`).
-        This session stays signed in; every other session ends, pending reset links are cancelled, and the
-        account is emailed a notice. Google accounts have no password (409 `GOOGLE_ACCOUNT`).
+        This session stays signed in; every other session ends, every pending link (password reset, email
+        change, verification) is cancelled, any email change under way ends, and the account is emailed a
+        notice. Google accounts have no password (409 `GOOGLE_ACCOUNT`).
       operationId: changePassword
       requestBody:
         required: true
@@ -2526,7 +2670,7 @@ paths:
     get:
       tags: [complaints]
       summary: List complaints
-      description: Citizens see only their own complaints. Only staff may filter by assignee.
+      description: Citizens see only their own complaints. Only staff may filter by assignee or AI state.
       operationId: listComplaints
       parameters:
         - $ref: '#/components/parameters/Page'
@@ -2551,6 +2695,18 @@ paths:
               - $ref: '#/components/schemas/ObjectId'
               - type: string
                 enum: [none]
+        - name: aiStatus
+          in: query
+          description: Staff only; citizens receive 403. Select reports waiting for AI or whose classification failed.
+          schema:
+            type: string
+            enum: [PENDING, FAILED]
+        - name: disagreement
+          in: query
+          description: Staff only; citizens receive 403. Select reports where AI disagrees with the citizen category.
+          schema:
+            type: string
+            enum: ['true']
         - $ref: '#/components/parameters/Search'
         - name: sort
           in: query
@@ -2592,6 +2748,9 @@ paths:
                       recordedName: Roads
                       isActive: true
                       deleted: false
+                    categorySource: AI
+                    ai:
+                      status: DONE
                     address: 12 Market Road, Ikeja
                     hasPrecisePosition: true
                     imageCount: 1
@@ -2617,8 +2776,8 @@ paths:
       tags: [complaints]
       summary: File a complaint
       description: >
-        Classified by AI when available; if AI times out or fails, a fallback classification is used
-        and filing still succeeds. With photos, send `multipart/form-data`: up to 5 images (JPEG,
+        Filing returns with a provisional Other category while a background job classifies the report.
+        If AI times out or fails, that fallback remains. With photos, send `multipart/form-data`: up to 5 images (JPEG,
         PNG or WebP), each at most 10 MiB and at most 25 MiB together. Images are re-encoded and
         stripped of metadata before storage. An email-and-password account must have verified its
         address first (403 `EMAIL_NOT_VERIFIED`; `POST /users/profile/verification-email` sends a new
@@ -2703,14 +2862,15 @@ paths:
                   _id: 66f1a0c0a1b2c3d4e5f60020
                   referenceCode: CCIR-EXAMPLE1
                   status: PENDING
-                  priority: HIGH
+                  priority: LOW
                   description: Deep pothole outside the market gate
                   category:
-                    _id: 66f1a0c0a1b2c3d4e5f60010
-                    name: Roads
-                    recordedName: Roads
+                    _id: 66f1a0c0a1b2c3d4e5f60011
+                    name: Other
+                    recordedName: Other
                     isActive: true
                     deleted: false
+                  categorySource: PENDING
                   address: 12 Market Road, Ikeja
                   hasPrecisePosition: true
                   imageCount: 0
@@ -2723,9 +2883,11 @@ paths:
                     role: citizen
                   version: 0
                   images: []
+                  citizenCategory: null
                   ai:
-                    summary: Pothole outside the market gate
-                    tags: [road, pothole]
+                    status: PENDING
+                    summary: ''
+                    tags: []
                   timeline:
                     - _id: 66f1a0c0a1b2c3d4e5f60021
                       type: CREATED
@@ -2815,6 +2977,7 @@ paths:
                         recordedName: Roads
                         isActive: true
                         deleted: false
+                      categorySource: AI
                       address: 12 Market Road, Ikeja
                       hasPrecisePosition: true
                       imageCount: 0
@@ -2831,6 +2994,7 @@ paths:
                         role: agency
                       version: 2
                       images: []
+                      citizenCategory: null
                       ai:
                         suggestedCategory: Roads
                         confidence: 0.9
@@ -2840,6 +3004,14 @@ paths:
                         error: null
                         inputMode: TEXT_ONLY
                         analysisCount: 1
+                        status: DONE
+                        requestSeq: 1
+                        failureCode: null
+                        failedAt: null
+                        provider: kimi
+                        model: kimi-k2.6
+                        promptVersion: classify-v1
+                        disagreement: null
                       timeline:
                         - _id: 66f1a0c0a1b2c3d4e5f60021
                           type: CREATED
@@ -2887,6 +3059,8 @@ paths:
                       allowedTransitions: [PENDING, IN_PROGRESS, REJECTED]
                       canChangePriority: true
                       canAssign: true
+                      canRecategorise: true
+                      canReclassify: true
                       canDelete: true
                       resolvedAt: null
                       resolvedAtEstimated: false
@@ -2906,8 +3080,8 @@ paths:
       tags: [complaints]
       summary: Edit a pending complaint (its reporter)
       description: >
-        Changes the description or location. A material description change re-runs AI
-        classification; `reanalysed` reports whether it did.
+        Changes the description or location. A material description change requests background AI
+        classification; `reanalysed` reports whether it requested a new answer.
       operationId: editComplaint
       requestBody:
         required: true
@@ -2968,6 +3142,7 @@ paths:
                     recordedName: Roads
                     isActive: true
                     deleted: false
+                  categorySource: AI
                   address: 12 Market Road, Ikeja
                   hasPrecisePosition: true
                   imageCount: 0
@@ -2980,8 +3155,10 @@ paths:
                     role: citizen
                   version: 1
                   images: []
+                  citizenCategory: null
                   ai:
-                    summary: Wide pothole outside the market gate
+                    status: PENDING
+                    summary: Pothole outside the market gate
                     tags: [road, pothole]
                   timeline:
                     - _id: 66f1a0c0a1b2c3d4e5f60021
@@ -3057,6 +3234,271 @@ paths:
         '500':
           $ref: '#/components/responses/ServerError'
 
+  /complaints/{id}/category:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [complaints]
+      summary: Change a report's category with a staff-only reason
+      description: >
+        Administrators and the assigned agency member can set the category. The citizen's original
+        choice and the report priority remain unchanged. The reason appears only in staff history.
+        Choosing the current category is allowed when resolving an AI disagreement.
+      operationId: recategoriseComplaint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [categoryId, reason]
+              properties:
+                categoryId:
+                  $ref: '#/components/schemas/ObjectId'
+                reason:
+                  type: string
+                  minLength: 3
+                  maxLength: 500
+                expectedVersion:
+                  type: integer
+                  minimum: 0
+            example:
+              categoryId: 66f1a0c0a1b2c3d4e5f60012
+              reason: The photo shows a blocked drain
+              expectedVersion: 0
+      responses:
+        '200':
+          description: The updated staff view.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [complaint]
+                properties:
+                  complaint:
+                    $ref: '#/components/schemas/ComplaintStaffView'
+              example:
+                complaint:
+                  _id: 66f1a0c0a1b2c3d4e5f60020
+                  referenceCode: CCIR-EXAMPLE1
+                  status: PENDING
+                  priority: LOW
+                  description: Blocked drain beside the market gate
+                  category:
+                    _id: 66f1a0c0a1b2c3d4e5f60012
+                    name: Drainage
+                    recordedName: Drainage
+                    isActive: true
+                    deleted: false
+                  categorySource: STAFF
+                  address: 12 Market Road, Ikeja
+                  hasPrecisePosition: false
+                  imageCount: 0
+                  thumbnailUrl: null
+                  createdAt: '2026-09-24T09:20:00.000Z'
+                  updatedAt: '2026-09-24T09:40:00.000Z'
+                  reporter:
+                    userId: 66f1a0c0a1b2c3d4e5f60001
+                    displayName: Ada Citizen
+                    role: citizen
+                  assignee: null
+                  version: 1
+                  images: []
+                  citizenCategory: null
+                  ai:
+                    suggestedCategory: null
+                    confidence: null
+                    summary: ''
+                    tags: []
+                    classifiedAt: null
+                    error: null
+                    inputMode: null
+                    analysisCount: 1
+                    status: PENDING
+                    requestSeq: 1
+                    failureCode: null
+                    failedAt: null
+                    provider: null
+                    model: null
+                    promptVersion: null
+                    disagreement: null
+                  timeline:
+                    - _id: 66f1a0c0a1b2c3d4e5f60024
+                      type: CATEGORY_CHANGED
+                      status: PENDING
+                      internalNote: The photo shows a blocked drain
+                      categoryChange:
+                        from:
+                          categoryId: 66f1a0c0a1b2c3d4e5f60010
+                          name: Roads
+                        to:
+                          categoryId: 66f1a0c0a1b2c3d4e5f60012
+                          name: Drainage
+                      actorLabel: You
+                      actor:
+                        userId: 66f1a0c0a1b2c3d4e5f60004
+                        displayName: Chi Admin
+                        role: admin
+                      createdAt: '2026-09-24T09:40:00.000Z'
+                  responsibility: AWAITING_ASSIGNMENT
+                  canEdit: false
+                  canWithdraw: false
+                  location:
+                    address: 12 Market Road, Ikeja
+                    latitude: null
+                    longitude: null
+                    coordinateSource: null
+                  assignmentHistory: []
+                  editHistory: []
+                  allowedTransitions: [IN_REVIEW, REJECTED]
+                  canChangePriority: true
+                  canAssign: true
+                  canRecategorise: true
+                  canReclassify: false
+                  canDelete: true
+                  resolvedAt: null
+                  resolvedAtEstimated: false
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: COMPLAINT_WITHDRAWN, CATEGORY_INACTIVE, CATEGORY_UNCHANGED, or STALE_COMPLAINT.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: CATEGORY_UNCHANGED
+                  message: The report already has this category
+                msg: The report already has this category
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /complaints/{id}/reclassify:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [complaints]
+      summary: Ask for a new AI classification (administrators)
+      description: >
+        Writes a new background classification request and returns immediately. A staff-set category
+        or priority is never changed by its answer. Refuses a pending classification, a withdrawn
+        report, or a server without configured AI.
+      operationId: reclassifyComplaint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+            example: {}
+      responses:
+        '202':
+          description: Classification requested; the current staff view remains available.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [complaint]
+                properties:
+                  complaint:
+                    $ref: '#/components/schemas/ComplaintStaffView'
+              example:
+                complaint:
+                  _id: 66f1a0c0a1b2c3d4e5f60020
+                  referenceCode: CCIR-EXAMPLE1
+                  status: PENDING
+                  priority: LOW
+                  description: Deep pothole outside the market gate
+                  category:
+                    _id: 66f1a0c0a1b2c3d4e5f60011
+                    name: Other
+                    recordedName: Other
+                    isActive: true
+                    deleted: false
+                  categorySource: FALLBACK
+                  address: 12 Market Road, Ikeja
+                  hasPrecisePosition: false
+                  imageCount: 0
+                  thumbnailUrl: null
+                  createdAt: '2026-09-24T09:20:00.000Z'
+                  updatedAt: '2026-09-24T09:40:00.000Z'
+                  reporter:
+                    userId: 66f1a0c0a1b2c3d4e5f60001
+                    displayName: Ada Citizen
+                    role: citizen
+                  assignee: null
+                  version: 0
+                  images: []
+                  citizenCategory: null
+                  ai:
+                    suggestedCategory: null
+                    confidence: null
+                    summary: ''
+                    tags: []
+                    classifiedAt: null
+                    error: null
+                    inputMode: null
+                    analysisCount: 1
+                    status: PENDING
+                    requestSeq: 2
+                    failureCode: null
+                    failedAt: null
+                    provider: null
+                    model: null
+                    promptVersion: null
+                    disagreement: null
+                  timeline: []
+                  responsibility: AWAITING_ASSIGNMENT
+                  canEdit: true
+                  canWithdraw: true
+                  location:
+                    address: 12 Market Road, Ikeja
+                    latitude: null
+                    longitude: null
+                    coordinateSource: null
+                  assignmentHistory: []
+                  editHistory: []
+                  allowedTransitions: [IN_REVIEW, REJECTED]
+                  canChangePriority: true
+                  canAssign: true
+                  canRecategorise: true
+                  canReclassify: false
+                  canDelete: true
+                  resolvedAt: null
+                  resolvedAtEstimated: false
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: CLASSIFICATION_PENDING, COMPLAINT_WITHDRAWN, or AI_NOT_CONFIGURED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  code: CLASSIFICATION_PENDING
+                  message: This report is already being classified
+                msg: This report is already being classified
+        '500':
+          $ref: '#/components/responses/ServerError'
+
   /complaints/{id}/status:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -3112,14 +3554,15 @@ paths:
                   _id: 66f1a0c0a1b2c3d4e5f60020
                   referenceCode: CCIR-EXAMPLE1
                   status: IN_REVIEW
-                  priority: HIGH
+                  priority: LOW
                   description: Deep pothole outside the market gate
                   category:
-                    _id: 66f1a0c0a1b2c3d4e5f60010
-                    name: Roads
-                    recordedName: Roads
+                    _id: 66f1a0c0a1b2c3d4e5f60011
+                    name: Other
+                    recordedName: Other
                     isActive: true
                     deleted: false
+                  categorySource: FALLBACK
                   address: 12 Market Road, Ikeja
                   hasPrecisePosition: false
                   imageCount: 0
@@ -3133,15 +3576,24 @@ paths:
                   assignee: null
                   version: 1
                   images: []
+                  citizenCategory: null
                   ai:
                     suggestedCategory: null
-                    confidence: 0
+                    confidence: null
                     summary: ''
                     tags: []
-                    classifiedAt: '2026-09-24T09:20:00.000Z'
-                    error: TIMEOUT
-                    inputMode: TEXT_ONLY
+                    classifiedAt: null
+                    error: null
+                    inputMode: null
                     analysisCount: 1
+                    status: FAILED
+                    requestSeq: 1
+                    failureCode: TIMEOUT
+                    failedAt: '2026-09-24T09:20:00.000Z'
+                    provider: null
+                    model: null
+                    promptVersion: null
+                    disagreement: null
                   timeline:
                     - _id: 66f1a0c0a1b2c3d4e5f60022
                       type: STATUS_CHANGED
@@ -3167,6 +3619,8 @@ paths:
                   allowedTransitions: [PENDING, IN_PROGRESS, REJECTED]
                   canChangePriority: true
                   canAssign: true
+                  canRecategorise: true
+                  canReclassify: true
                   canDelete: true
                   resolvedAt: null
                   resolvedAtEstimated: false
@@ -3244,6 +3698,7 @@ paths:
                     recordedName: Roads
                     isActive: true
                     deleted: false
+                  categorySource: AI
                   address: 12 Market Road, Ikeja
                   hasPrecisePosition: false
                   imageCount: 0
@@ -3260,6 +3715,7 @@ paths:
                     role: agency
                   version: 1
                   images: []
+                  citizenCategory: null
                   ai:
                     suggestedCategory: Roads
                     confidence: 0.9
@@ -3269,6 +3725,14 @@ paths:
                     error: null
                     inputMode: TEXT_ONLY
                     analysisCount: 1
+                    status: DONE
+                    requestSeq: 1
+                    failureCode: null
+                    failedAt: null
+                    provider: kimi
+                    model: kimi-k2.6
+                    promptVersion: classify-v1
+                    disagreement: null
                   timeline: []
                   responsibility: ASSIGNED
                   canEdit: false
@@ -3295,6 +3759,8 @@ paths:
                   allowedTransitions: [IN_REVIEW, REJECTED]
                   canChangePriority: true
                   canAssign: true
+                  canRecategorise: true
+                  canReclassify: true
                   canDelete: true
                   resolvedAt: null
                   resolvedAtEstimated: false
@@ -3364,6 +3830,7 @@ paths:
                     recordedName: Drainage
                     isActive: true
                     deleted: false
+                  categorySource: AI
                   address: 7 Lane Close
                   hasPrecisePosition: false
                   imageCount: 0
@@ -3376,7 +3843,9 @@ paths:
                     role: citizen
                   version: 1
                   images: []
+                  citizenCategory: null
                   ai:
+                    status: DONE
                     summary: Blocked drain
                     tags: [drainage]
                   timeline:
@@ -3542,13 +4011,13 @@ paths:
           in: query
           schema:
             type: string
-            enum: [PENDING, QUEUED, DONE, FAILED, DISMISSED]
+            enum: [FAILED]
             default: FAILED
         - name: queue
           in: query
           schema:
             type: string
-            enum: [email]
+            enum: [ai, email]
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Limit'
       responses:
@@ -3617,6 +4086,12 @@ paths:
                 $ref: '#/components/schemas/JobsSummary'
               example:
                 queues:
+                  ai:
+                    PENDING: 0
+                    QUEUED: 0
+                    FAILED: 0
+                    DONE: 0
+                    DISMISSED: 0
                   email:
                     PENDING: 0
                     QUEUED: 1
@@ -3801,7 +4276,7 @@ paths:
               properties:
                 queue:
                   type: string
-                  enum: [email]
+                  enum: [ai, email]
             example:
               queue: email
       responses:

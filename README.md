@@ -10,7 +10,7 @@ The core deliverable of this project is the **backend** — the API, database, a
 
 - **Backend**: Node.js, Express 5, MongoDB (Mongoose)
 - **Auth**: email/password (bcrypt) + optional Google OAuth, JWT access/refresh tokens in signed HTTP-only cookies
-- **AI classification**: Google Gemini (multimodal — text and photo), via `services/aiService.js`. Never blocks complaint submission; falls back to a default category/priority if the AI call fails or is unconfigured.
+- **AI classification**: provider-neutral background jobs with a Kimi adapter for text and photo. Filing returns before classification; a failed or unconfigured provider leaves the report in its fallback category.
 - **Location**: Photon (OpenStreetMap-based, keyless) for address autocomplete, forward geocoding, and reverse geocoding, via `services/locationService.js`
 - **Photo storage**: Cloudinary
 - **Email notifications**: Resend (optional — the app works without it)
@@ -20,15 +20,41 @@ If `client/dist` exists (i.e. the frontend has been built), the backend serves i
 
 ### A note on the AI component
 
-The AI classification feature uses a pretrained, general-purpose multimodal model (Google Gemini) called via API with a prompt — it does not train or fine-tune a custom model. This was a deliberate choice: it avoids needing a large labelled dataset of civic complaints, and pretrained models already handle both text and images. One consequence is that AI classification and location autocomplete/geocoding depend on external third-party services and internet access. The backend itself can be fully self-hosted on your own servers, but these two specific features will keep relying on Google's and Photon's public APIs unless you swap in a different provider.
+The AI classification feature sends reports to a configured pretrained multimodal provider in a background job; it does not train or fine-tune a custom model. The current adapter uses Moonshot Kimi for text and optional images. Classification and location autocomplete/geocoding depend on external services and internet access. The backend itself can be self-hosted, while these features require their configured providers.
+
+### AI classification
+
+The provider-neutral service in `services/ai/` calls the configured adapter and checks its output. Filing saves a classification job in the same database transaction as the report and returns immediately with provisional `Other` and `ai.status=PENDING`. A citizen may choose an active category instead; that choice remains unless staff change it. Staff can see AI status, failure code, provenance and a suggested category that disagrees with a citizen's choice. Administrators can rerun classification; staff can recategorise with a private reason.
+
+| Setting | Default and accepted value |
+|---|---|
+| `AI_PROVIDER` | Unset to run without AI; `kimi` to enable it. |
+| `KIMI_API_KEY` | Moonshot key; required for configured classification. |
+| `KIMI_MODEL` | `kimi-k2.6`; model name of 1–80 letters, digits, dots, dashes or underscores. |
+| `KIMI_BASE_URL` | `https://api.moonshot.ai/v1`; HTTP or HTTPS URL without credentials, query or fragment. |
+| `AI_TIMEOUT_MS` | `20000`; integer 1000–60000 milliseconds per request. |
+| `AI_RATE_PER_MINUTE` | `20`; integer 1–600 for the AI queue. Set it to your provider allowance. |
+| `AI_DISAGREEMENT_CONFIDENCE` | `0.7`; number 0–1. Staff see an AI disagreement at or above this confidence. |
+
+`GOOGLE_API_KEY` and `GEMINI_MODEL` are old settings. Startup warns if they remain set; they do not configure the new adapter. When AI is unset or the key is absent, reports still file, their jobs fail with `NOT_CONFIGURED`, and readiness reports AI as unconfigured. Reports without a citizen category remain on `Other`.
+
+| Condition | Behavior |
+|---|---|
+| Slow provider | The request times out and the worker retries; filing has already returned. |
+| Provider rate limit | The AI queue pauses for the requested interval and resumes at its configured rate. |
+| Provider outage | Attempts eventually fail; reports without a citizen category stay on `Other`. The daily sweep and Jobs page can retry eligible failures. |
+| Redis or worker unavailable | Jobs remain in MongoDB; readiness degrades and the relay catches up when work resumes. |
+| Email provider unavailable | Email jobs retry, then appear as failed on the Jobs page. |
+
+**Privacy:** When configured, classification sends report text and the first photo, downscaled to at most 1024 pixels, to Moonshot's API. Photos may show faces, number plates or homes. Reports without a photo send text only.
 
 ## Prerequisites
 
 - Node.js 26 (26.9.0 or a later 26.x release) and npm 12.1.0 or later 12.x (`.nvmrc` records the verified version)
 - MongoDB 4.4 or later, **running as a replica set** (the API uses transactions). Hosted clusters such as MongoDB Atlas already are. A self-managed server, even a single one, must be started with `--replSet rs0` and initiated once with `rs.initiate()` in `mongosh`
-- A [Google AI Studio](https://aistudio.google.com/) API key (for AI classification — optional but recommended). A free-tier key allows only a few requests a minute per model (5 for `gemini-3.6-flash` in September 2026; see [rate limits](https://ai.google.dev/gemini-api/docs/rate-limits)). Each new report, and each edit that changes the description, is one request; beyond the limit reports fall back to `Other`/`MEDIUM` until the minute resets. Use a billing-enabled key for real use. Every fallback is logged (`AI classification failed; using the fallback`) with its code and, for a refusal, the provider's HTTP status (`providerStatus` 429 means the quota was reached)
+- A Moonshot Kimi API key for AI classification (optional). Without it, filing still works and reports show a typed `NOT_CONFIGURED` AI failure. The worker retries temporary provider failures within its attempt limit; administrators can recover failed jobs from the Jobs page.
 - A [Cloudinary](https://cloudinary.com/) account (only required if citizens will attach photos to complaints — a text-only complaint never calls Cloudinary. Unlike the AI and email services, image upload has no fallback: a complaint submitted *with* a photo will fail without valid Cloudinary credentials)
-- Redis 6.2 or later for the background worker that sends every email (a free [Upstash](https://upstash.com/) database works; see [Background work](#background-work)). The tests start their own throwaway `redis-server`, so it must be installed locally (`brew install redis` on macOS, `sudo apt-get install redis-server` on Ubuntu)
+- Redis 6.2 or later for the background email and AI workers (see [Background work](#background-work)). The tests start their own throwaway `redis-server`, so it must be installed locally (`brew install redis` on macOS, `sudo apt-get install redis-server` on Ubuntu)
 - Optionally: a [Resend](https://resend.com/) API key (email notifications) and Google OAuth credentials (Google sign-in)
 
 ## Setup
@@ -53,16 +79,16 @@ See [`.env.example`](./.env.example) for the full list of environment variables 
 
 ### Background work
 
-Every email (report filed, status changes, password and email-address links, verification) is sent by a background worker, never during a request. The change and its email are saved together in MongoDB (an outbox); a relay moves each saved email into a Redis queue, and a worker sends it through Resend. So an answer never waits on the email provider, and nothing is lost while it is down: failures are retried with growing waits (from a minute, up to two hours apart, 8 tries), and the waiting happens in MongoDB, not in Redis.
+Emails (report filed, status changes, password and email-address links, verification) and AI classifications run in separate background queues. Each job is saved in MongoDB with the change it belongs to; a relay offers it to Redis and a worker runs it. Requests do not wait on the providers. Retry waits live in MongoDB, so pending work survives a Redis outage.
 
-- `REDIS_URL`: the Redis the queue uses. Upstash and other hosted Redis use `rediss://` (TLS). Only the process that runs the worker needs it.
+- `REDIS_URL`: the Redis the queues use. Hosted Redis with TLS uses `rediss://`. Only the process that runs the worker needs it.
 - Run the worker in one of two ways:
   - as its own service, `npm run worker`, next to the API (both need the same `.env`); or
   - inside the API, with `WORKERS_IN_PROCESS=true`, for hosting a single service.
-- `RELAY_INTERVAL_MS` (default `1000`): how often saved emails are moved into Redis. The relay reads MongoDB and touches Redis only when there is something to move.
+- `RELAY_INTERVAL_MS` (default `1000`): how often saved jobs are offered to Redis. The relay reads MongoDB and touches Redis only when there is something to move.
 - Redis must not evict keys: BullMQ needs `maxmemory-policy noeviction`. On Upstash, check the database's eviction setting is off.
-- **Cost on Upstash's free tier (500,000 commands a month).** Measured with the test suite's budget test: an idle worker, even with a failed email waiting to retry, uses at most about 131,000 commands a month; each email costs about 45 commands. That leaves room for roughly 8,000 emails a month. Resend's own free plan has lower daily and monthly sending limits, so it is usually the tighter one; a used-up Resend quota holds the queue for an hour at a time.
-- Where failures show: the administrators' **Jobs** page lists failed emails (by report reference or account name, never by address), with retry and dismiss; `GET /api/v1/health/ready` reports `checks.background` (`NO_WORKER`, `WORKER_SILENT`, `BACKLOG_OLD`).
+- **Redis command budget:** the measured two-worker idle run used 96 commands in 95 seconds with idle timers accelerated 10×. Dividing the measured rate by 10 projects about 261,928 commands in a 30-day month, below this project's 300,000 idle-command guard. The budget test assumes a 500,000-command monthly allowance, leaving about 238,072 commands for work. At about 45 commands per job, that is roughly 5,290 jobs; with one AI job and one filed-email job per new report, roughly 2,640 reports before edits, retries and other emails. Check the actual Redis plan and re-measure in the deployment environment.
+- Where failures show: the administrators' **Jobs** page lists failed AI and email jobs (by report reference or account name, never by address), with retry and dismiss; `GET /api/v1/health/ready` reports `checks.background` (`NO_WORKER`, `WORKER_SILENT`, `BACKLOG_OLD`).
 
 ### Creating the first admin account
 
@@ -127,7 +153,15 @@ npm run migrate:phase2 -- --apply --backup-reference=<your-backup-label>
 npm run migrate:phase2 -- --verify
 ```
 
-`migrate:phase4c` marks Google accounts verified and removes email-change links from before this release that were never used (those people ask again); email-and-password accounts verify themselves.
+`migrate:phase4c` marks Google accounts verified, removes unused email-change links from before this release, and gives existing reports a classification state. Old successful results are marked as Gemini results; old failures receive stable codes. Email-and-password accounts verify themselves. After deploying 4c-2 on each database, run `npm run db:indexes -- --apply`, then repeat the Phase 4c migration:
+
+```bash
+npm run migrate:phase4c -- --dry-run
+npm run migrate:phase4c -- --apply --backup-reference=<your-backup-label>
+npm run migrate:phase4c -- --verify
+```
+
+Take the named backup before `--apply`. The migration is safe to repeat; set the AI settings after the data and indexes are ready.
 
 Each script prints a single JSON report, and `--verify` exits with code 2 while any invariant fails. Case-duplicate category names and category names outside 2–60 characters are reported for manual correction, never changed automatically. Rolling back after `--apply` means restoring the backup together with the previous code; older code cannot read the migrated data.
 

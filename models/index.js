@@ -10,5 +10,6 @@ module.exports = {
     AccountToken: require('./AccountToken'),
     OutboxEntry: require('./OutboxEntry'),
     WorkerHeartbeat: require('./WorkerHeartbeat'),
+    SchedulerLease: require('./SchedulerLease'),
     EmailChange: require('./EmailChange'),
 };

@@ -1,14 +1,7 @@
 import { MapPin, Sparkles } from 'lucide-react';
 import { categoryLabel } from './categoryLabel';
 import { COORDINATE_SOURCE_LABELS, labelFor } from '../labels';
-
-// Why the fallback was used, from the API's ai.error code.
-const AI_FAILURE_REASONS = {
-    TIMEOUT: 'The AI took too long to answer',
-    PROVIDER_ERROR: 'The AI service refused the request or was unavailable, for example because its usage limit was reached',
-    NETWORK_ERROR: 'The AI service could not be reached',
-    INVALID_OUTPUT: "The AI's answer could not be used",
-};
+import AiDetails from './AiDetails';
 
 // The report's content, as read-only sections titled with headings (not form labels). Staff see recorded coordinates (5 decimal places) and their
 // source; the owner sees only the address and whether a precise position exists.
@@ -52,7 +45,7 @@ const ComplaintSummary = ({ complaint, staffView }) => {
 
             <div className="field">
                 <h3 className="field-heading">Category</h3>
-                <p>{categoryLabel(complaint.category)}</p>
+                <p>{complaint.categorySource === 'PENDING' ? <span role="status">Classifying…</span> : categoryLabel(complaint.category)}</p>
             </div>
 
             <div className="field">
@@ -68,13 +61,6 @@ const ComplaintSummary = ({ complaint, staffView }) => {
                 {!staffView && complaint.hasPrecisePosition && <span className="meta">Precise position recorded</span>}
             </div>
 
-            {staffView && complaint.ai?.error && (
-                <p role="note" className="form-error-banner">
-                    The AI could not classify this report, so the category and priority were set by the fallback. Check them.
-                    {AI_FAILURE_REASONS[complaint.ai.error] && ` ${AI_FAILURE_REASONS[complaint.ai.error]}.`}
-                </p>
-            )}
-
             {complaint.ai?.summary && (
                 <div className="field">
                     <h3 className="field-heading" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -89,6 +75,8 @@ const ComplaintSummary = ({ complaint, staffView }) => {
                     )}
                 </div>
             )}
+
+            {staffView && <AiDetails complaint={complaint} />}
 
             {staffView && complaint.resolvedAt && (
                 <p className="meta">

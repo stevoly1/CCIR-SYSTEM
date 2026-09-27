@@ -1,13 +1,13 @@
-const { Category, Complaint, User } = require('../models');
+const { Complaint, User } = require('../models');
 const CustomError = require('../errors');
 const { complaintNotEditable, staleComplaint } = require('../errors/domainErrors');
-const aiService = require('./aiService');
 const { buildUserSnapshot } = require('./userSnapshotService');
 const { assertExpectedVersion } = require('./complaintVersionGuard');
 const authority = require('../policies/complaintAuthorityPolicy');
-const { chooseCategory, FALLBACK_NAME } = require('../policies/complaintCategoryPolicy');
-const { assertEditAllowed, isMaterialChange, reanalysisPriority } = require('../policies/complaintEditPolicy');
+const { assertEditAllowed, isMaterialChange } = require('../policies/complaintEditPolicy');
 const { buildLocation } = require('../validators/locationValidator');
+const { inTransaction } = require('../utils/transaction');
+const { enqueueClassification, STALE_AI_RESULT_FIELDS } = require('./classificationRequests');
 
 const loadOwnedComplaint = async (complaintId, viewer) => {
   const complaint = await Complaint.findById(complaintId);
@@ -26,10 +26,8 @@ const explainMissedWrite = async (complaintId) => {
   throw staleComplaint();
 };
 
-// Reporter edits of a PENDING complaint. A material description change re-runs AI
-// (text only) and replaces every AI-derived field together, so no stale category,
-// priority, summary, or tags survive. The provider is called before the guarded write;
-// a lost race costs one AI call and changes nothing.
+// Reporter edits of a PENDING complaint. A material description change asks for a new
+// classification in the same transaction as the edit. The provider is never called here.
 const editComplaint = async ({ complaintId, viewer, changes }) => {
   const complaint = await loadOwnedComplaint(complaintId, viewer);
   if (complaint.status !== 'PENDING') throw complaintNotEditable();
@@ -49,54 +47,27 @@ const editComplaint = async ({ complaintId, viewer, changes }) => {
   }
   if (fields.length === 0) return { complaint, reanalysed: false };
 
-  let aiError;
-  if (material) {
-    const activeCategories = await Category.find({ isActive: true });
-    // Same fail-safe as creation: never spend a provider call without the fallback.
-    if (!activeCategories.some((category) => category.name === FALLBACK_NAME)) {
-      throw new Error('Active Other category is not configured');
-    }
-    const ai = await aiService.classifyComplaint({
-      description: changes.description,
-      imageTempFilePath: undefined,
-      imageMimeType: undefined,
-      categoryNames: activeCategories.map((category) => category.name),
-    });
-    const category = chooseCategory({ ai, activeCategories });
-    Object.assign(set, {
-      category: category._id,
-      categorySnapshot: { categoryId: category._id, name: category.name },
-      'ai.suggestedCategory': ai.category,
-      'ai.confidence': ai.confidence,
-      'ai.summary': ai.summary,
-      'ai.tags': ai.tags,
-      'ai.classifiedAt': new Date(),
-      'ai.error': ai.error,
-      'ai.inputMode': 'TEXT_ONLY',
-      // Exact count (legacy documents may lack it); safe because the write is version-guarded.
-      'ai.analysisCount': (complaint.ai?.analysisCount ?? 1) + 1,
-    }, reanalysisPriority({ complaint, ai, category }));
-    aiError = ai.error || undefined;
-  }
-
   const editor = await User.findById(viewer.userId);
-  const updated = await Complaint.findOneAndUpdate(
-    { _id: complaint._id, reporter: complaint.reporter, status: 'PENDING', __v: complaint.__v },
-    {
-      $set: set,
-      $push: {
-        editHistory: {
-          editedAt: new Date(),
-          editedBy: buildUserSnapshot(editor),
-          fields,
-          reanalysed: material,
-          ...(aiError ? { aiError } : {}),
-        },
-      },
-      $inc: { __v: 1 },
-    },
-    { returnDocument: 'after', runValidators: true },
-  );
+  const update = {
+    $set: set,
+    $push: { editHistory: { editedAt: new Date(), editedBy: buildUserSnapshot(editor), fields, reanalysed: material } },
+    $inc: { __v: 1 },
+  };
+  if (material) {
+    // Category and priority change only when the classification job answers.
+    update.$set['ai.status'] = 'PENDING';
+    Object.assign(update.$inc, { 'ai.requestSeq': 1, 'ai.analysisCount': 1 });
+    update.$unset = STALE_AI_RESULT_FIELDS;
+  }
+  const updated = await inTransaction(async (session) => {
+    const saved = await Complaint.findOneAndUpdate(
+      { _id: complaint._id, reporter: complaint.reporter, status: 'PENDING', __v: complaint.__v },
+      update,
+      { returnDocument: 'after', runValidators: true, session },
+    );
+    if (saved && material) await enqueueClassification(session, saved);
+    return saved;
+  });
   if (!updated) await explainMissedWrite(complaint._id);
   return { complaint: updated, reanalysed: material };
 };

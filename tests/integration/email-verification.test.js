@@ -6,7 +6,7 @@ const { createUserFixture } = require('../fixtures/user');
 const { createCategoryFixture } = require('../fixtures/category');
 const { AccountToken, Complaint, OutboxEntry, User } = require('../../models');
 const emailService = require('../../services/emailService');
-const aiService = require('../../services/aiService');
+const { fakeClassification } = require('../helpers/ai');
 const { inTransaction } = require('../../utils/transaction');
 const { enqueue } = require('../../services/jobs/outbox');
 const { drainOutbox } = require('../helpers/jobs');
@@ -21,7 +21,7 @@ describe('email verification', () => {
   beforeEach(async () => {
     vi.spyOn(emailService, 'sendVerificationEmail').mockResolvedValue(undefined);
     vi.spyOn(emailService, 'sendComplaintFiledEmail').mockResolvedValue(undefined);
-    vi.spyOn(aiService, 'classifyComplaint').mockResolvedValue({ category: 'Other', priority: 'LOW', summary: 's', tags: [], confidence: 0.9, error: null });
+    fakeClassification({ category: 'Other', priority: 'LOW', summary: 's' });
     await createCategoryFixture({ name: 'Other' });
   });
 

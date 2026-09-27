@@ -21,6 +21,28 @@ describe('running one outbox entry', () => {
     behaviour.onFinalFailure.mockReset();
   });
 
+  it('adds what the handler reports to its job line without letting it override the outcome', async () => {
+    behaviour.run.mockResolvedValue({ log: { provider: 'kimi', model: 'kimi-test', outcome: 'false', event: 'forged', entryId: 'forged', reportText: 'private text' } });
+    const entry = await add();
+    const logs = captureLogs();
+    try { await executeEntry(entry._id, { runKey: 0, attempt: 1, maxAttempts: 1 }); } finally { logs.restore(); }
+    const line = logs.lines.find((item) => item.event === 'job');
+    expect(line).toMatchObject({ outcome: 'done', entryId: String(entry._id), provider: 'kimi', model: 'kimi-test' });
+    expect(line).not.toHaveProperty('reportText');
+  });
+
+  it('adds what a failure reports to its job line without letting it override the failure code', async () => {
+    const failure = JobError.of('AUTH');
+    failure.log = { provider: 'kimi', model: 'kimi-test', failureCode: 'false', event: 'forged', entryId: 'forged', reportText: 'private text' };
+    behaviour.run.mockRejectedValue(failure);
+    const entry = await add();
+    const logs = captureLogs();
+    try { await executeEntry(entry._id, { runKey: 0, attempt: 1, maxAttempts: 3 }).catch(() => {}); } finally { logs.restore(); }
+    const line = logs.lines.find((item) => item.event === 'job');
+    expect(line).toMatchObject({ outcome: 'failed', entryId: String(entry._id), failureCode: 'AUTH', provider: 'kimi', model: 'kimi-test' });
+    expect(line).not.toHaveProperty('reportText');
+  });
+
   it('marks a successful entry done and forgets a stored address', async () => {
     behaviour.run.mockResolvedValue(undefined);
     const entry = await add({ email: 'someone@example.test', userId: 'u1' });
@@ -30,6 +52,67 @@ describe('running one outbox entry', () => {
     expect(saved.doneAt).toBeInstanceOf(Date);
     expect(saved.refs).toEqual({ userId: 'u1' });
     expect(saved.notBefore).toBeUndefined();
+  });
+
+  it('runs only one copy when the same attempt is delivered concurrently', async () => {
+    let release;
+    let started;
+    const entered = new Promise((resolve) => { started = resolve; });
+    const held = new Promise((resolve) => { release = resolve; });
+    behaviour.run.mockImplementation(async () => { started(); await held; });
+    const entry = await add();
+    const options = { runKey: 0, attempt: 1, maxAttempts: 1 };
+    const first = executeEntry(entry._id, options);
+    await entered;
+    try {
+      await expect(executeEntry(entry._id, options)).resolves.toBe('skipped');
+    } finally {
+      release();
+    }
+    await expect(first).resolves.toBe('done');
+    expect(behaviour.run).toHaveBeenCalledTimes(1);
+    expect(await OutboxEntry.findById(entry._id)).toMatchObject({ state: 'DONE', attempts: 1 });
+  });
+
+  it('lets an expired claim recover while fencing the old delivery from marking it failed', async () => {
+    let release;
+    let started;
+    const entered = new Promise((resolve) => { started = resolve; });
+    const held = new Promise((resolve) => { release = resolve; });
+    behaviour.run.mockImplementationOnce(async () => { started(); await held; throw JobError.of('AUTH'); }).mockResolvedValueOnce(undefined);
+    const entry = await add();
+    const options = { runKey: 0, attempt: 1, maxAttempts: 1 };
+    const first = executeEntry(entry._id, options);
+    await entered;
+    try {
+      await OutboxEntry.updateOne({ _id: entry._id }, { $set: { processingAt: new Date(Date.now() - 11 * 60 * 1000) } });
+      await expect(executeEntry(entry._id, options)).resolves.toBe('done');
+    } finally {
+      release();
+    }
+    await expect(first).resolves.toBe('skipped');
+    expect(behaviour.onFinalFailure).not.toHaveBeenCalled();
+    expect(await OutboxEntry.findById(entry._id)).toMatchObject({ state: 'DONE', attempts: 1 });
+  });
+
+  it('takes over a fresh claim when the queue found its worker gone, still fencing the old delivery', async () => {
+    let release;
+    let started;
+    const entered = new Promise((resolve) => { started = resolve; });
+    const held = new Promise((resolve) => { release = resolve; });
+    behaviour.run.mockImplementationOnce(async () => { started(); await held; throw JobError.of('AUTH'); }).mockResolvedValueOnce(undefined);
+    const entry = await add();
+    const options = { runKey: 0, attempt: 1, maxAttempts: 1 };
+    const first = executeEntry(entry._id, options);
+    await entered;
+    try {
+      await expect(executeEntry(entry._id, { ...options, takeOver: true })).resolves.toBe('done');
+    } finally {
+      release();
+    }
+    await expect(first).resolves.toBe('skipped');
+    expect(behaviour.onFinalFailure).not.toHaveBeenCalled();
+    expect(await OutboxEntry.findById(entry._id)).toMatchObject({ state: 'DONE', attempts: 1 });
   });
 
   it('records a retryable failure and schedules the next attempt in MongoDB', async () => {
@@ -64,7 +147,10 @@ describe('running one outbox entry', () => {
     const rejected = await add();
     await expect(executeEntry(rejected._id, { runKey: 0, attempt: 1, maxAttempts: 3 })).rejects.toMatchObject({ code: 'REJECTED', final: true });
     expect(behaviour.onFinalFailure).toHaveBeenCalledTimes(2);
-    expect(behaviour.onFinalFailure).toHaveBeenLastCalledWith(expect.objectContaining({ _id: rejected._id }), 'REJECTED');
+    expect(behaviour.onFinalFailure).toHaveBeenLastCalledWith(
+      expect.objectContaining({ _id: rejected._id }), 'REJECTED',
+      expect.objectContaining({ processingToken: expect.any(String) }),
+    );
   });
 
   it('skips done, failed, dismissed, missing and stale entries, and repeated attempts, without running them', async () => {
@@ -98,6 +184,23 @@ describe('running one outbox entry', () => {
     }
     expect(await OutboxEntry.findById(entry._id)).toMatchObject({ state: 'FAILED' });
     expect(logs.lines).toContainEqual(expect.objectContaining({ event: 'job_final_failure_step_failed', entryId: String(entry._id) }));
+  });
+
+  it('keeps an atomic final failure retryable if its report cleanup crashes', async () => {
+    const finish = vi.fn().mockRejectedValueOnce(new Error('report write unavailable')).mockResolvedValue(undefined);
+    registry.registerHandler('test_exec_atomic', {
+      queue: 'ai', atomicFinalFailure: true,
+      run: async () => { throw JobError.of('AUTH'); },
+      onFinalFailure: finish,
+    });
+    const entry = await inTransaction((session) => enqueue(session, { queue: 'ai', type: 'test_exec_atomic', refs: {} }));
+    const options = { runKey: 0, attempt: 1, maxAttempts: 1 };
+    await expect(executeEntry(entry._id, options)).rejects.toThrow('report write unavailable');
+    expect(await OutboxEntry.findById(entry._id)).toMatchObject({ state: 'PENDING', attempts: 0 });
+    await OutboxEntry.updateOne({ _id: entry._id }, { $set: { processingAt: new Date(Date.now() - 11 * 60 * 1000) } });
+    await expect(executeEntry(entry._id, options)).rejects.toMatchObject({ code: 'AUTH', final: true });
+    expect(await OutboxEntry.findById(entry._id)).toMatchObject({ state: 'FAILED', attempts: 1, lastErrorCode: 'AUTH' });
+    expect(finish).toHaveBeenCalledTimes(2);
   });
 
   it('logs ids and codes only', async () => {
@@ -140,6 +243,20 @@ describe('running one outbox entry', () => {
       logs.restore();
     }
     expect(logs.lines.find((l) => l.event === 'job').err).toBeUndefined();
+  });
+
+  it('records an unknown type as failed once with a stable code', async () => {
+    const entry = await OutboxEntry.create({ queue: 'email', type: 'from_a_newer_version', refs: { email: 'private@example.test' } });
+    const logs = captureLogs();
+    let error;
+    try { error = await executeEntry(entry._id, { runKey: 0, attempt: 1, maxAttempts: 8 }).catch((e) => e); } finally { logs.restore(); }
+    expect(error).toMatchObject({ name: 'JobError', code: 'UNKNOWN_TYPE', final: true });
+    const saved = await OutboxEntry.findById(entry._id);
+    expect(saved).toMatchObject({ state: 'FAILED', attempts: 1, lastErrorCode: 'UNKNOWN_TYPE' });
+    expect(saved.refs).not.toHaveProperty('email');
+    expect(logs.lines).toContainEqual(expect.objectContaining({ event: 'job_unknown_type', entryId: String(entry._id) }));
+    expect(logs.text()).not.toContain('private@example.test');
+    await expect(executeEntry(entry._id, { runKey: 0, attempt: 1, maxAttempts: 8 })).resolves.toBe('skipped');
   });
 
   it('drains the outbox for tests, retrying up to maxAttempts', async () => {

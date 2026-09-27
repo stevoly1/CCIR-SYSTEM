@@ -33,4 +33,20 @@ describe('ComplaintCard', () => {
         render(<ComplaintCard complaint={summary} />);
         expect(screen.queryByText(/Assigned to|Unassigned/)).not.toBeInTheDocument();
     });
+
+    it('shows Classifying instead of a provisional category', () => {
+        render(<ComplaintCard complaint={{ ...summary, categorySource: 'PENDING', ai: { status: 'PENDING' } }} />);
+        expect(screen.getByText('Classifying…')).toBeInTheDocument();
+        expect(screen.queryByText("Road damage (filed as 'Potholes')")).not.toBeInTheDocument();
+    });
+
+    it('shows a staff-visible AI disagreement', () => {
+        render(<ComplaintCard complaint={{ ...summary, assignee: null, ai: { disagreement: { name: 'Roads', confidence: 0.9 } } }} />);
+        expect(screen.getByText('AI suggests Roads')).toBeInTheDocument();
+    });
+
+    it('does not show a disagreement on a citizen summary', () => {
+        render(<ComplaintCard complaint={{ ...summary, ai: { disagreement: { name: 'Roads', confidence: 0.9 } } }} />);
+        expect(screen.queryByText('AI suggests Roads')).not.toBeInTheDocument();
+    });
 });

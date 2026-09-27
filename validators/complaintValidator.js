@@ -61,6 +61,12 @@ const assignComplaintSchema = z.strictObject({
     expectedVersion: expectedVersionSchema,
 });
 
+const recategoriseSchema = z.strictObject({
+    categoryId: objectIdSchema,
+    reason: z.string().trim().min(3).max(500),
+    expectedVersion: expectedVersionSchema,
+});
+
 const complaintListQuerySchema = z.strictObject({
     page: pageSchema,
     limit: limitSchema,
@@ -69,6 +75,8 @@ const complaintListQuerySchema = z.strictObject({
     category: objectIdSchema.optional(),
     // A staff member's id, or `none` for reports nobody is assigned to.
     assignedTo: z.union([objectIdSchema, z.literal('none')]).optional(),
+    aiStatus: z.enum(['PENDING', 'FAILED']).optional(),
+    disagreement: z.literal('true').optional(),
     search: searchSchema,
     sort: sortSchema,
 });
@@ -81,5 +89,6 @@ module.exports = {
     updateComplaintSchema,
     updateStatusSchema,
     assignComplaintSchema,
+    recategoriseSchema,
     complaintListQuerySchema,
 };

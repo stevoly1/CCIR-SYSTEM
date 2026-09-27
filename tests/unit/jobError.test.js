@@ -14,6 +14,13 @@ describe('job errors', () => {
     expect(JobError.of('RATE_LIMITED', { retryAfterMs: -1 }).retryAfterMs).toBeUndefined();
   });
 
+  it('lets a job decide, per failure, whether another try can help', () => {
+    expect(JobError.of('INVALID_OUTPUT').retryable).toBe(false);
+    expect(JobError.of('INVALID_OUTPUT', { retryable: true }).retryable).toBe(true);
+    expect(JobError.of('PROVIDER_DOWN', { retryable: false }).retryable).toBe(false);
+    expect(JobError.of('AUTH').retryable).toBe(false);
+  });
+
   it('turns an unexpected error into a retryable INTERNAL, without its message', () => {
     const converted = toJobError(new Error('secret detail'));
     expect(converted).toMatchObject({ code: 'INTERNAL', retryable: true, message: 'INTERNAL' });

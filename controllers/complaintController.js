@@ -14,18 +14,20 @@ const {
 } = require('../presenters/complaintPresenter');
 const { buildUserSnapshot } = require('../services/userSnapshotService');
 const { buildLocation } = require('../validators/locationValidator');
-const { chooseCategory } = require('../policies/complaintCategoryPolicy');
-const { categoryInactive, complaintWithdrawn, emailNotVerified } = require('../errors/domainErrors');
+const { categoryInactive, complaintWithdrawn, emailNotVerified, classificationPending, aiNotConfigured } = require('../errors/domainErrors');
 const { versionFilter } = require('../services/complaintVersionGuard');
 const { notAssignedToYou, staleComplaint } = require('../errors/domainErrors');
 const referenceService = require('../services/complaintReferenceService');
-const aiService = require('../services/aiService');
+const { enqueueClassification, requestClassification } = require('../services/classificationRequests');
+const { getAiConfig } = require('../config/ai');
+const { getLogger } = require('../utils/logger');
 const { inTransaction } = require('../utils/transaction');
 const { enqueue } = require('../services/jobs/outbox');
 const complaintImageService = require('../services/complaintImageService');
 // Module-object access keeps the edit service replaceable in tests.
 const complaintEditService = require('../services/complaintEditService');
 const { assignComplaintTransaction } = require('../services/complaintAssignmentService');
+const { recategorise } = require('../services/complaintRecategoriseService');
 const { deleteComplaintPermanently } = require('../services/complaintDeletionService');
 
 const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -52,8 +54,7 @@ const createComplaint = async (req, res) => {
         if (!reporter) throw new CustomError.UnauthenticatedError('Not authenticated');
         if (reporter.authProvider === 'local' && !reporter.emailVerifiedAt) throw emailNotVerified();
 
-        // A client category hint must name an existing, active category; checked before
-        // any image work or provider call so a rejected hint costs nothing.
+        // The citizen's category must be active; check it before any image work.
         let hint = null;
         if (categoryId) {
             hint = await Category.findOne({ _id: categoryId, isActive: true });
@@ -66,28 +67,19 @@ const createComplaint = async (req, res) => {
         }
         imageFiles = await complaintImageService.prepareComplaintImages(req.files?.image);
 
-        const activeCategories = await Category.find({ isActive: true });
-        const fallbackCategory = activeCategories.find((category) => category.name === 'Other');
-        if (!fallbackCategory) {
-            throw new Error('Active Other category is not configured');
-        }
-
-        const ai = await aiService.classifyComplaint({
-            description,
-            imageTempFilePath: imageFiles[0]?.tempFilePath,
-            imageMimeType: imageFiles[0]?.mimeType,
-            categoryNames: activeCategories.map((c) => c.name),
-        });
-
-        const category = chooseCategory({ ai, activeCategories, hint });
+        // The worker needs Other even when the citizen chose a category: an unavailable AI
+        // category must still have a safe fallback.
+        const fallbackCategory = await Category.findOne({ name: 'Other', isActive: true });
+        if (!fallbackCategory) throw new Error('Active Other category is not configured');
+        const category = hint ?? fallbackCategory;
 
         const reporterSnapshot = buildUserSnapshot(reporter);
         const images = await complaintImageService.uploadComplaintImages(imageFiles);
 
         let complaint;
         try {
-            // A reference-code collision retries only this insert; uploads and AI are not repeated.
-            // The report and its filed email are written together, or neither is.
+            // A reference-code collision retries only this insert; uploads are not repeated.
+            // The report, its classification job and filed email are written together.
             complaint = await referenceService.createWithUniqueReference((referenceCode) => inTransaction(async (session) => {
                 const [created] = await Complaint.create([{
                     referenceCode,
@@ -96,18 +88,11 @@ const createComplaint = async (req, res) => {
                     location,
                     category: category._id,
                     categorySnapshot: { categoryId: category._id, name: category.name },
-                    priority: ai.error ? category.defaultPriority : ai.priority,
-                    prioritySource: ai.error ? 'CATEGORY_DEFAULT' : 'AI',
-                    ai: {
-                        suggestedCategory: ai.category,
-                        confidence: ai.confidence,
-                        summary: ai.summary,
-                        tags: ai.tags,
-                        classifiedAt: new Date(),
-                        error: ai.error,
-                        inputMode: imageFiles.length ? 'TEXT_AND_IMAGE' : 'TEXT_ONLY',
-                        analysisCount: 1,
-                    },
+                    categorySource: hint ? 'CITIZEN' : 'PENDING',
+                    ...(hint ? { citizenCategory: { categoryId: hint._id, name: hint.name } } : {}),
+                    priority: category.defaultPriority,
+                    prioritySource: 'CATEGORY_DEFAULT',
+                    ai: { status: 'PENDING', requestSeq: 1, analysisCount: 1 },
                     reporter: req.user.userId,
                     reporterSnapshot,
                     statusHistory: [{
@@ -118,6 +103,7 @@ const createComplaint = async (req, res) => {
                         changedBySnapshot: reporterSnapshot,
                     }],
                 }], { session });
+                await enqueueClassification(session, created);
                 await enqueue(session, { queue: 'email', type: 'report_filed', refs: { complaintId: String(created._id) } });
                 return created;
             }));
@@ -139,6 +125,9 @@ const getAllComplaints = async (req, res) => {
     if (req.query.assignedTo && !authority.isStaff(viewer)) {
         throw new CustomError.ForbiddenError('You do not have permission to filter by assignee');
     }
+    if ((req.query.aiStatus || req.query.disagreement) && !authority.isStaff(viewer)) {
+        throw new CustomError.ForbiddenError('You do not have permission to filter by AI state');
+    }
 
     const filter = {};
     if (!authority.isStaff(viewer)) {
@@ -148,6 +137,8 @@ const getAllComplaints = async (req, res) => {
     if (req.query.priority) filter.priority = req.query.priority;
     if (req.query.category) filter.category = req.query.category;
     if (req.query.assignedTo) filter.assignedTo = req.query.assignedTo === 'none' ? null : req.query.assignedTo;
+    if (req.query.aiStatus) filter['ai.status'] = req.query.aiStatus;
+    if (req.query.disagreement) filter['ai.disagreement.categoryId'] = { $exists: true, $ne: null };
     if (req.query.search) {
         const regex = new RegExp(escapeRegExp(req.query.search.trim()), 'i');
         filter.$or = [
@@ -263,6 +254,11 @@ const updateComplaintStatus = async (req, res) => {
     }
 
     const filter = { _id: complaint._id, status: complaint.status, __v: matchVersion };
+    // Classification writes do not increment __v. Preserve the priority value used to build history.
+    if (priority !== undefined) {
+        filter.priority = complaint.priority;
+        filter.prioritySource = complaint.prioritySource ?? null;
+    }
     if (viewer.role === 'agency') filter.assignedTo = complaint.assignedTo;
     // The change and its email to the reporter are written together. Only status changes notify
     // the reporter, and the email only ever carries the public note.
@@ -306,6 +302,31 @@ const withdrawComplaint = async (req, res) => {
     await respondWithComplaint(res, StatusCodes.OK, complaint._id, viewer);
 };
 
+// Administrator-only route. The status predicate also protects a withdrawal that races this read.
+const reclassifyComplaint = async (req, res) => {
+    const viewer = viewerFromRequest(req);
+    const complaint = await Complaint.findById(req.params.id);
+    if (!complaint) throw new CustomError.NotFoundError(`No complaint found with id ${req.params.id}`);
+    if (complaint.status === 'WITHDRAWN') throw complaintWithdrawn();
+    if (!getAiConfig().configured) throw aiNotConfigured();
+    const requested = await inTransaction((session) => requestClassification({
+        session, complaintId: complaint._id,
+        where: { status: { $ne: 'WITHDRAWN' }, 'ai.status': { $ne: 'PENDING' } },
+    }));
+    if (!requested) {
+        const current = await Complaint.findById(complaint._id).select('status');
+        throw current?.status === 'WITHDRAWN' ? complaintWithdrawn() : classificationPending();
+    }
+    getLogger().info({ event: 'reclassify_requested', complaintId: String(complaint._id), by: String(viewer.userId) }, 'Classification requested again');
+    await respondWithComplaint(res, StatusCodes.ACCEPTED, complaint._id, viewer);
+};
+
+const recategoriseComplaint = async (req, res) => {
+    const viewer = viewerFromRequest(req);
+    const updated = await recategorise({ complaintId: req.params.id, viewer, ...req.body });
+    await respondWithComplaint(res, StatusCodes.OK, updated._id, viewer);
+};
+
 // Administrator-only (route-restricted); citizens withdraw instead.
 const deleteComplaint = async (req, res) => {
     await deleteComplaintPermanently({
@@ -325,5 +346,7 @@ module.exports = {
     updateComplaintStatus,
     assignComplaint,
     withdrawComplaint,
+    reclassifyComplaint,
+    recategoriseComplaint,
     deleteComplaint,
 };

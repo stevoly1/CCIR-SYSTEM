@@ -1,4 +1,4 @@
-const aiService = require('../../services/aiService');
+const { fakeClassification } = require('../helpers/ai');
 const emailService = require('../../services/emailService');
 const { drainOutbox } = require('../helpers/jobs');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
@@ -19,7 +19,7 @@ const assertOwnerSafe = (body, secrets) => {
 
 describe('citizen-visible complaint data', () => {
   it('never exposes staff identity, internal notes, coordinates, or provider detail', async () => {
-    vi.spyOn(aiService, 'classifyComplaint').mockResolvedValue({ category: 'Roads', priority: 'HIGH', summary: 'Pothole', tags: ['road'], confidence: 0.93, error: null });
+    fakeClassification({ category: 'Roads', priority: 'HIGH', summary: 'Pothole', tags: ['road'], confidence: 0.93 });
     const email = vi.spyOn(emailService, 'sendStatusUpdateEmail').mockResolvedValue(undefined);
     await createCategoryFixture({ name: 'Other' });
     await createCategoryFixture({ name: 'Roads' });
@@ -34,6 +34,7 @@ describe('citizen-visible complaint data', () => {
     expect(created.status).toBe(201);
     assertOwnerSafe(created.body, secrets);
     const id = created.body.complaint._id;
+    await drainOutbox();
 
     // Every staff write must succeed, or the absence checks below would pass vacuously.
     const assigned = await unsafeRequest(admin, 'patch', `/api/v1/complaints/${id}/assign`).send({ assignedTo: agencyUser.id, reason: 'CONFIDENTIAL-INTERNAL reason' });
@@ -48,6 +49,10 @@ describe('citizen-visible complaint data', () => {
     const detail = await citizen.get(`/api/v1/complaints/${id}`);
     expect(detail.status).toBe(200);
     assertOwnerSafe(detail.body, secrets);
+    expect(detail.body.complaint.ai).toEqual({ status: 'DONE', summary: 'Pothole', tags: ['road'] });
+    for (const field of ['provider', 'model', 'promptVersion', 'confidence', 'failureCode', 'disagreement']) {
+      expect(JSON.stringify(detail.body), `owner response contains ${field}`).not.toContain(`"${field}"`);
+    }
     expect(detail.body.complaint.timeline.map((e) => e.actorLabel)).toEqual(['You', 'Agency staff', 'Agency staff', 'Administrator']);
     expect(detail.body.complaint.timeline.map((e) => e.publicNote)).toEqual(['Report submitted', 'Inspecting soon', undefined, 'Crew dispatched']);
     expect(detail.body.complaint.responsibility).toBe('ASSIGNED');

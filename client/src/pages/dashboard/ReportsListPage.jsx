@@ -22,7 +22,7 @@ const STATUS_FILTERS = [
 
 const PAGE_SIZE = 50;
 // Filters kept in the address, so a reload or the back button returns to the same list.
-const FILTER_PARAMS = ['priority', 'category', 'sort', 'assignee'];
+const FILTER_PARAMS = ['priority', 'category', 'sort', 'assignee', 'ai'];
 
 const ReportsListPage = () => {
     const dispatch = useDispatch();
@@ -37,7 +37,7 @@ const ReportsListPage = () => {
     const isAgency = user?.role === 'agency';
     const isStaff = user?.role === 'admin' || user?.role === 'agency';
     const isAdmin = user?.role === 'admin';
-    const [priority, category, sort, assignee] = FILTER_PARAMS.map((name) => searchParams.get(name) || '');
+    const [priority, category, sort, assignee, ai] = FILTER_PARAMS.map((name) => searchParams.get(name) || '');
     // null until the list arrives (or if it cannot be loaded).
     const [assignable, setAssignable] = useState(null);
 
@@ -65,10 +65,12 @@ const ReportsListPage = () => {
         if (priority) params.priority = priority;
         if (category) params.category = category;
         if (sort) params.sort = sort;
+        if (isStaff && ai === 'DISAGREES') params.disagreement = 'true';
+        else if (isStaff && ai) params.aiStatus = ai;
         if (isAgency && mine && user?._id) params.assignedTo = user._id;
         if (isAdmin && assignee) params.assignedTo = assignee;
         dispatch(fetchComplaints(params));
-    }, [dispatch, status, search, priority, category, sort, assignee, isAgency, isAdmin, mine, page, user?._id]);
+    }, [dispatch, status, search, priority, category, sort, assignee, ai, isAgency, isAdmin, isStaff, mine, page, user?._id]);
 
     // Any change to what is listed starts again from its first page.
     const withoutPage = () => {
@@ -153,6 +155,16 @@ const ReportsListPage = () => {
                             {assignee && assignee !== 'none' && !assignable?.some((a) => a.userId === assignee) && (
                                 <option value={assignee}>{assignable ? 'Someone no longer assignable' : 'Selected staff member'}</option>
                             )}
+                        </select>
+                    </div>
+                )}
+                {isStaff && (
+                    <div className="field list-filter">
+                        <select aria-label="Filter by AI state" value={ai} onChange={(event) => setFilter('ai', event.target.value)}>
+                            <option value="">All</option>
+                            <option value="PENDING">Classifying</option>
+                            <option value="FAILED">AI failed</option>
+                            <option value="DISAGREES">AI disagrees</option>
                         </select>
                     </div>
                 )}

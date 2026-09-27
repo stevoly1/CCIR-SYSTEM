@@ -1,11 +1,8 @@
 const { Complaint } = require('../../models');
-const aiService = require('../../services/aiService');
 const locationService = require('../../services/locationService');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createCategoryFixture } = require('../fixtures/category');
 const { createComplaintFixture } = require('../fixtures/complaint');
-
-const ai = { category: 'Other', priority: 'LOW', summary: 's', tags: [], confidence: 0.9, error: null };
 
 describe('complaint location rule', () => {
   let agent;
@@ -15,7 +12,6 @@ describe('complaint location rule', () => {
   beforeEach(async () => {
     ({ agent, user } = await createAuthenticatedAgent({ role: 'citizen' }));
     await createCategoryFixture({ name: 'Other' });
-    vi.spyOn(aiService, 'classifyComplaint').mockResolvedValue(ai);
     providerSpies = ['autocomplete', 'geocodeAddress', 'reverseGeocode']
       .map((name) => vi.spyOn(locationService, name).mockRejectedValue(new Error('must not be called')));
   });

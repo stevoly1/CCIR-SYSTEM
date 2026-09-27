@@ -16,6 +16,9 @@ const allowedTransitions = (viewer, complaint) => (
 );
 const canChangePriority = (viewer, complaint) => canManageStatus(viewer, complaint) && complaint.status !== 'WITHDRAWN';
 const canAssign = (viewer, complaint) => viewer?.role === 'admin' && complaint.status !== 'WITHDRAWN';
+const canRecategorise = (viewer, complaint) => canManageStatus(viewer, complaint) && complaint.status !== 'WITHDRAWN';
+const canReclassify = (viewer, complaint, { aiConfigured }) => viewer?.role === 'admin'
+  && Boolean(aiConfigured) && complaint.status !== 'WITHDRAWN' && complaint.ai?.status !== 'PENDING';
 const canEdit = (viewer, complaint) => isReporter(viewer, complaint)
   && complaint.status === 'PENDING'
   && (complaint.editHistory?.length ?? 0) < MAX_EDITS;
@@ -30,6 +33,8 @@ module.exports = {
   allowedTransitions,
   canChangePriority,
   canAssign,
+  canRecategorise,
+  canReclassify,
   canEdit,
   canWithdraw,
   canDelete,

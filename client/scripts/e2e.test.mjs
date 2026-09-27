@@ -30,7 +30,7 @@ describe('journey runner', () => {
         const runs = buildRuns([], {});
         expect(runs.map((r) => [r.group, r.project])).toEqual([['core', 'chrome'], ['core', 'webkit'], ['queue', 'chrome'], ['queue', 'webkit']]);
         expect(runs[0].args).toEqual(['test', '--project=chrome', ...GROUPS[0].filters]);
-        expect(runs[2].args).toEqual(['test', '--project=chrome', 'tests/e2e/journeys/09-']);
+        expect(runs[2].args).toEqual(['test', '--project=chrome', 'tests/e2e/journeys/09-', 'tests/e2e/journeys/10-']);
     });
 
     it('puts every journey in exactly one group', () => {

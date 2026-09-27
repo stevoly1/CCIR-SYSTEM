@@ -1,6 +1,5 @@
 const path = require('node:path');
 const { Complaint } = require('../../models');
-const aiService = require('../../services/aiService');
 const uploadService = require('../../services/uploadService');
 const referenceService = require('../../services/complaintReferenceService');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
@@ -8,7 +7,6 @@ const { createCategoryFixture } = require('../fixtures/category');
 const { createComplaintFixture } = require('../fixtures/complaint');
 
 const imageFixture = path.join(__dirname, '..', 'fixtures', 'images', 'valid.jpg');
-const ai = (category) => ({ category, priority: 'HIGH', summary: 's', tags: [], confidence: 0.9, error: null });
 
 describe('complaint reference codes', () => {
   let agent;
@@ -17,7 +15,6 @@ describe('complaint reference codes', () => {
     ({ agent } = await createAuthenticatedAgent({ role: 'citizen' }));
     await createCategoryFixture({ name: 'Other', defaultPriority: 'LOW' });
     await createCategoryFixture({ name: 'Roads', defaultPriority: 'HIGH' });
-    vi.spyOn(aiService, 'classifyComplaint').mockResolvedValue(ai('Roads'));
   });
 
   const file = () => unsafeRequest(agent, 'post', '/api/v1/complaints')

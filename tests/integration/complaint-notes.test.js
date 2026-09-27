@@ -1,5 +1,4 @@
 const { Complaint } = require('../../models');
-const aiService = require('../../services/aiService');
 const emailService = require('../../services/emailService');
 const { drainOutbox } = require('../helpers/jobs');
 const locationService = require('../../services/locationService');
@@ -71,9 +70,6 @@ describe('status notes and typed timeline', () => {
     const { agent } = await createAuthenticatedAgent({ role: 'citizen' });
     await createCategoryFixture({ name: 'Other' });
     vi.spyOn(locationService, 'geocodeAddress').mockRejectedValue(new Error('offline in tests'));
-    vi.spyOn(aiService, 'classifyComplaint').mockResolvedValue({
-      category: 'Other', priority: 'LOW', summary: 's', tags: [], confidence: 0.9, error: null,
-    });
     const response = await unsafeRequest(agent, 'post', '/api/v1/complaints')
       .send({ description: 'A broken streetlight near the market', address: '12 Market Road' });
     expect(response.status).toBe(201);

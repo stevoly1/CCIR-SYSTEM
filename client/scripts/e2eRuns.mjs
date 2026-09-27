@@ -13,7 +13,7 @@ export const PROJECTS = ['chrome', 'webkit'];
 
 export const GROUPS = [
     { name: 'core', filters: ['tests/e2e/login.smoke', 'tests/e2e/journeys/harness', ...['01', '02', '03', '04', '05', '06', '07', '08'].map((n) => `tests/e2e/journeys/${n}-`)] },
-    { name: 'queue', filters: ['tests/e2e/journeys/09-'] },
+    { name: 'queue', filters: ['tests/e2e/journeys/09-', 'tests/e2e/journeys/10-'] },
 ];
 
 // An argument that looks like a path picks spec files.

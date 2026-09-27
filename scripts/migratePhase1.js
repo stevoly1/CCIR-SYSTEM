@@ -82,7 +82,7 @@ const analyzeMigration = async ({ now }) => {
       changes.resolvedAtCleared += 1;
     } else if (complaint.status === 'RESOLVED' && !complaint.resolvedAt) {
       const resolvedEntries = (complaint.statusHistory || [])
-        .filter((entry) => entry.status === 'RESOLVED' && entry.createdAt)
+        .filter((entry) => (!entry.type || entry.type === 'STATUS_CHANGED') && entry.status === 'RESOLVED' && entry.createdAt)
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
       if (resolvedEntries[0]) {
         set.resolvedAt = resolvedEntries[0].createdAt;

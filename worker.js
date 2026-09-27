@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const connectDB = require('./config/db');
 const { startBackgroundWork } = require('./services/jobs/background');
 const { getLogger } = require('./utils/logger');
+const { getAiConfig, legacyAiSettings } = require('./config/ai');
 
 const SHUTDOWN_DEADLINE_MS = 30 * 1000;
 
@@ -12,6 +13,11 @@ const SHUTDOWN_DEADLINE_MS = 30 * 1000;
 // removes the heartbeat.
 const main = () => {
   const starting = (async () => {
+    getAiConfig();
+    const legacy = legacyAiSettings(process.env);
+    if (legacy.length) {
+      getLogger().warn({ event: 'legacy_ai_settings', settings: legacy }, 'These settings are no longer used; remove them');
+    }
     await connectDB();
     return startBackgroundWork();
   })();

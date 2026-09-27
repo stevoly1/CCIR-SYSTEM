@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { useDispatch } from 'react-redux';
 import toast from 'react-hot-toast';
 import { RELOAD_CODES, updateComplaintStatus } from '../../slices/complaintSlice';
+import axiosClient, { extractErrorMessage } from '../../api/axiosClient';
 import { PRIORITIES, PRIORITY_LABELS, STATUS_LABELS, labelFor } from '../labels';
+import RecategoriseDialog from './RecategoriseDialog';
 
 
 // Status and priority controls driven entirely by server-computed permissions:
@@ -14,10 +16,11 @@ const StaffActionsPanel = ({ complaint, onUpdated, onConflict }) => {
     const [publicNote, setPublicNote] = useState('');
     const [internalNote, setInternalNote] = useState('');
     const [busy, setBusy] = useState(false);
+    const [recategorising, setRecategorising] = useState(false);
+    const [rerunning, setRerunning] = useState(false);
+    const [actionError, setActionError] = useState('');
 
-    if (complaint.allowedTransitions.length === 0 && !complaint.canChangePriority) {
-        return <p className="meta">Only the assigned staff member can update this report.</p>;
-    }
+    const canUpdate = complaint.allowedTransitions.length > 0 || complaint.canChangePriority;
 
     const priorityChanged = priority !== complaint.priority;
     const hasChange = Boolean(status) || priorityChanged;
@@ -49,8 +52,22 @@ const StaffActionsPanel = ({ complaint, onUpdated, onConflict }) => {
         }
     };
 
+    const rerunAi = async () => {
+        setActionError('');
+        setRerunning(true);
+        try {
+            await axiosClient.post(`/complaints/${complaint._id}/reclassify`, {});
+            onUpdated();
+        } catch (error) {
+            setActionError(extractErrorMessage(error));
+        } finally {
+            setRerunning(false);
+        }
+    };
+
     return (
-        <form
+        <div>
+        {canUpdate ? <form
             onSubmit={submit}
             style={{ background: '#fff', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: 20 }}
         >
@@ -83,7 +100,21 @@ const StaffActionsPanel = ({ complaint, onUpdated, onConflict }) => {
                 <textarea id="staff-internal-note" rows={3} maxLength={1000} value={internalNote} onChange={(e) => setInternalNote(e.target.value)} />
             </div>
             <button className="btn btn-primary btn-block" type="submit" disabled={busy || !hasChange}>Save update</button>
-        </form>
+        </form> : <p className="meta">Status and priority cannot be changed here.</p>}
+        {(complaint.canRecategorise || complaint.canReclassify) && (
+            <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+                {complaint.canRecategorise && <button type="button" className="btn btn-outline" onClick={() => setRecategorising(true)}>Re-categorise</button>}
+                {complaint.canReclassify && <button type="button" className="btn btn-outline" onClick={rerunAi} disabled={rerunning}>{rerunning ? 'Re-running…' : 'Re-run AI'}</button>}
+            </div>
+        )}
+        {actionError && <p role="alert" className="form-error-banner">{actionError}</p>}
+        {recategorising && (
+            <RecategoriseDialog complaint={complaint} initialCategoryId={complaint.category._id} title="Re-categorise"
+                onClose={() => setRecategorising(false)}
+                onDone={() => { setRecategorising(false); onUpdated(); }}
+                onConflict={() => { setRecategorising(false); onConflict(); }} />
+        )}
+        </div>
     );
 };
 

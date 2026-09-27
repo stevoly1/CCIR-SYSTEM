@@ -1,6 +1,6 @@
 const { Complaint, OutboxEntry, User } = require('../../models');
 const emailService = require('../../services/emailService');
-const aiService = require('../../services/aiService');
+const { fakeClassification } = require('../helpers/ai');
 const referenceService = require('../../services/complaintReferenceService');
 const { createAuthenticatedAgent, unsafeRequest } = require('../helpers/auth');
 const { createCategoryFixture } = require('../fixtures/category');
@@ -13,7 +13,7 @@ describe('report emails', () => {
   beforeEach(async () => {
     await createCategoryFixture({ name: 'Other' });
     await createCategoryFixture({ name: 'Roads' });
-    vi.spyOn(aiService, 'classifyComplaint').mockResolvedValue({ category: 'Roads', priority: 'HIGH', summary: 's', tags: [], confidence: 0.9, error: null });
+    fakeClassification({ category: 'Roads', priority: 'HIGH', summary: 's' });
     vi.spyOn(emailService, 'sendComplaintFiledEmail').mockResolvedValue(undefined);
     vi.spyOn(emailService, 'sendStatusUpdateEmail').mockResolvedValue(undefined);
   });
@@ -23,7 +23,7 @@ describe('report emails', () => {
     const response = await file(agent);
     expect(response.status).toBe(201);
     expect(emailService.sendComplaintFiledEmail).not.toHaveBeenCalled();
-    const [entry] = await OutboxEntry.find();
+    const entry = await OutboxEntry.findOne({ type: 'report_filed' });
     expect(entry).toMatchObject({ queue: 'email', type: 'report_filed', state: 'PENDING', refs: { complaintId: response.body.complaint._id } });
 
     await drainOutbox();
@@ -88,7 +88,7 @@ describe('report emails', () => {
   it('sends nothing to a retired reporter, and nothing twice when a job runs again', async () => {
     const { agent, user } = await createAuthenticatedAgent();
     await file(agent);
-    const [entry] = await OutboxEntry.find();
+    const entry = await OutboxEntry.findOne({ type: 'report_filed' });
     await drainOutbox();
     await OutboxEntry.updateOne({ _id: entry._id }, { state: 'PENDING' });
     await drainOutbox();
@@ -98,6 +98,6 @@ describe('report emails', () => {
     await User.updateOne({ _id: user._id }, { retiredAt: new Date(), isActive: false });
     await drainOutbox();
     expect(emailService.sendComplaintFiledEmail).toHaveBeenCalledTimes(1);
-    expect(await OutboxEntry.countDocuments({ state: 'DONE' })).toBe(2);
+    expect(await OutboxEntry.countDocuments({ state: 'DONE', type: 'report_filed' })).toBe(2);
   });
 });
