@@ -50,7 +50,7 @@ The provider-neutral service in `services/ai/` calls the configured adapter and 
 
 ## Prerequisites
 
-- Node.js 26 (26.9.0 or a later 26.x release) and npm 12.1.0 or later 12.x (`.nvmrc` records the verified version)
+- Node.js 26 (26.9.0 or a later 26.x release) and npm 11.19.1 or later, below 13 (the npm bundled with Node.js 26.9.0 is enough; `.nvmrc` records the verified Node.js version)
 - MongoDB 4.4 or later, **running as a replica set** (the API uses transactions). Hosted clusters such as MongoDB Atlas already are. A self-managed server, even a single one, must be started with `--replSet rs0` and initiated once with `rs.initiate()` in `mongosh`
 - A Moonshot Kimi API key for AI classification (optional). Without it, filing still works and reports show a typed `NOT_CONFIGURED` AI failure. The worker retries temporary provider failures within its attempt limit; administrators can recover failed jobs from the Jobs page.
 - A [Cloudinary](https://cloudinary.com/) account (only required if citizens will attach photos to complaints — a text-only complaint never calls Cloudinary. Unlike the AI and email services, image upload has no fallback: a complaint submitted *with* a photo will fail without valid Cloudinary credentials)

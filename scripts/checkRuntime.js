@@ -1,6 +1,6 @@
 const NODE_MINIMUM = [26, 9, 0];
 const NODE_MAXIMUM = [27, 0, 0];
-const NPM_MINIMUM = [12, 1, 0];
+const NPM_MINIMUM = [11, 19, 1];
 const NPM_MAXIMUM = [13, 0, 0];
 
 const parseVersion = (value) => {
