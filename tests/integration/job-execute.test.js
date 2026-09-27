@@ -54,6 +54,47 @@ describe('running one outbox entry', () => {
     expect(saved.notBefore).toBeUndefined();
   });
 
+  it('runs only one copy when the same attempt is delivered concurrently', async () => {
+    let release;
+    let started;
+    const entered = new Promise((resolve) => { started = resolve; });
+    const held = new Promise((resolve) => { release = resolve; });
+    behaviour.run.mockImplementation(async () => { started(); await held; });
+    const entry = await add();
+    const options = { runKey: 0, attempt: 1, maxAttempts: 1 };
+    const first = executeEntry(entry._id, options);
+    await entered;
+    try {
+      await expect(executeEntry(entry._id, options)).resolves.toBe('skipped');
+    } finally {
+      release();
+    }
+    await expect(first).resolves.toBe('done');
+    expect(behaviour.run).toHaveBeenCalledTimes(1);
+    expect(await OutboxEntry.findById(entry._id)).toMatchObject({ state: 'DONE', attempts: 1 });
+  });
+
+  it('lets an expired claim recover while fencing the old delivery from marking it failed', async () => {
+    let release;
+    let started;
+    const entered = new Promise((resolve) => { started = resolve; });
+    const held = new Promise((resolve) => { release = resolve; });
+    behaviour.run.mockImplementationOnce(async () => { started(); await held; throw JobError.of('AUTH'); }).mockResolvedValueOnce(undefined);
+    const entry = await add();
+    const options = { runKey: 0, attempt: 1, maxAttempts: 1 };
+    const first = executeEntry(entry._id, options);
+    await entered;
+    try {
+      await OutboxEntry.updateOne({ _id: entry._id }, { $set: { processingAt: new Date(Date.now() - 11 * 60 * 1000) } });
+      await expect(executeEntry(entry._id, options)).resolves.toBe('done');
+    } finally {
+      release();
+    }
+    await expect(first).resolves.toBe('skipped');
+    expect(behaviour.onFinalFailure).not.toHaveBeenCalled();
+    expect(await OutboxEntry.findById(entry._id)).toMatchObject({ state: 'DONE', attempts: 1 });
+  });
+
   it('records a retryable failure and schedules the next attempt in MongoDB', async () => {
     behaviour.run.mockRejectedValue(JobError.of('PROVIDER_DOWN'));
     const entry = await add();
@@ -86,7 +127,10 @@ describe('running one outbox entry', () => {
     const rejected = await add();
     await expect(executeEntry(rejected._id, { runKey: 0, attempt: 1, maxAttempts: 3 })).rejects.toMatchObject({ code: 'REJECTED', final: true });
     expect(behaviour.onFinalFailure).toHaveBeenCalledTimes(2);
-    expect(behaviour.onFinalFailure).toHaveBeenLastCalledWith(expect.objectContaining({ _id: rejected._id }), 'REJECTED');
+    expect(behaviour.onFinalFailure).toHaveBeenLastCalledWith(
+      expect.objectContaining({ _id: rejected._id }), 'REJECTED',
+      expect.objectContaining({ processingToken: expect.any(String) }),
+    );
   });
 
   it('skips done, failed, dismissed, missing and stale entries, and repeated attempts, without running them', async () => {
@@ -120,6 +164,23 @@ describe('running one outbox entry', () => {
     }
     expect(await OutboxEntry.findById(entry._id)).toMatchObject({ state: 'FAILED' });
     expect(logs.lines).toContainEqual(expect.objectContaining({ event: 'job_final_failure_step_failed', entryId: String(entry._id) }));
+  });
+
+  it('keeps an atomic final failure retryable if its report cleanup crashes', async () => {
+    const finish = vi.fn().mockRejectedValueOnce(new Error('report write unavailable')).mockResolvedValue(undefined);
+    registry.registerHandler('test_exec_atomic', {
+      queue: 'ai', atomicFinalFailure: true,
+      run: async () => { throw JobError.of('AUTH'); },
+      onFinalFailure: finish,
+    });
+    const entry = await inTransaction((session) => enqueue(session, { queue: 'ai', type: 'test_exec_atomic', refs: {} }));
+    const options = { runKey: 0, attempt: 1, maxAttempts: 1 };
+    await expect(executeEntry(entry._id, options)).rejects.toThrow('report write unavailable');
+    expect(await OutboxEntry.findById(entry._id)).toMatchObject({ state: 'PENDING', attempts: 0 });
+    await OutboxEntry.updateOne({ _id: entry._id }, { $set: { processingAt: new Date(Date.now() - 11 * 60 * 1000) } });
+    await expect(executeEntry(entry._id, options)).rejects.toMatchObject({ code: 'AUTH', final: true });
+    expect(await OutboxEntry.findById(entry._id)).toMatchObject({ state: 'FAILED', attempts: 1, lastErrorCode: 'AUTH' });
+    expect(finish).toHaveBeenCalledTimes(2);
   });
 
   it('logs ids and codes only', async () => {

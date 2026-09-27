@@ -18,15 +18,17 @@ beforeEach(async () => {
 });
 
 const failedReport = async (code = 'PROVIDER_DOWN', failedAt = new Date(Date.now() - 2 * DAY), overrides = {}) => {
+  const withdrawn = overrides.status === 'WITHDRAWN';
   const complaint = await createComplaintFixture({
     category: other._id, categorySnapshot: { categoryId: other._id, name: 'Other' },
     categorySource: 'PENDING', priority: 'LOW', prioritySource: 'CATEGORY_DEFAULT',
     ai: { status: 'PENDING', requestSeq: 1, analysisCount: 1 }, ...overrides,
+    ...(withdrawn ? { status: 'PENDING' } : {}),
   });
   await inTransaction((session) => enqueueClassification(session, complaint));
   fakeClassification(AiError.of(code === 'PROVIDER_DOWN' ? 'AUTH' : code));
   await drainOutbox();
-  await Complaint.updateOne({ _id: complaint._id }, { $set: { 'ai.failureCode': code, 'ai.failedAt': failedAt } });
+  await Complaint.updateOne({ _id: complaint._id }, { $set: { 'ai.failureCode': code, 'ai.failedAt': failedAt, ...(withdrawn ? { status: 'WITHDRAWN' } : {}) } });
   vi.restoreAllMocks();
   return complaint;
 };

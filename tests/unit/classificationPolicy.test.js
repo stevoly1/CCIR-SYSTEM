@@ -10,7 +10,10 @@ const decide = (report, overrides = {}) => decideClassification({ report: { _id:
 
 describe('what a classification changes', () => {
   it('writes only while the request is current and nobody changed the source meanwhile', () => {
-    expect(decide({ categorySource: 'PENDING' }).filter).toEqual({ _id: 'c1', 'ai.requestSeq': 2, categorySource: 'PENDING', prioritySource: 'CATEGORY_DEFAULT' });
+    expect(decide({ categorySource: 'PENDING' }).filter).toEqual({
+      _id: 'c1', status: { $ne: 'WITHDRAWN' }, 'ai.status': 'PENDING', 'ai.requestSeq': 2,
+      categorySource: 'PENDING', prioritySource: 'CATEGORY_DEFAULT',
+    });
     expect(decide({ categorySource: undefined, prioritySource: undefined }).filter).toMatchObject({ categorySource: null, prioritySource: null });
   });
 

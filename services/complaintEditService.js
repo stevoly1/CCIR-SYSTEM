@@ -7,7 +7,7 @@ const authority = require('../policies/complaintAuthorityPolicy');
 const { assertEditAllowed, isMaterialChange } = require('../policies/complaintEditPolicy');
 const { buildLocation } = require('../validators/locationValidator');
 const { inTransaction } = require('../utils/transaction');
-const { enqueueClassification } = require('./classificationRequests');
+const { enqueueClassification, STALE_AI_RESULT_FIELDS } = require('./classificationRequests');
 
 const loadOwnedComplaint = async (complaintId, viewer) => {
   const complaint = await Complaint.findById(complaintId);
@@ -57,7 +57,7 @@ const editComplaint = async ({ complaintId, viewer, changes }) => {
     // Category and priority change only when the classification job answers.
     update.$set['ai.status'] = 'PENDING';
     Object.assign(update.$inc, { 'ai.requestSeq': 1, 'ai.analysisCount': 1 });
-    update.$unset = { 'ai.failureCode': 1, 'ai.failedAt': 1 };
+    update.$unset = STALE_AI_RESULT_FIELDS;
   }
   const updated = await inTransaction(async (session) => {
     const saved = await Complaint.findOneAndUpdate(

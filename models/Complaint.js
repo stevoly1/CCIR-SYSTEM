@@ -241,6 +241,7 @@ const complaintSchema = new mongoose.Schema(
             // A result is kept only while its requestSeq is still current.
             status: { type: String, enum: ['PENDING', 'DONE', 'FAILED'] },
             requestSeq: { type: Number, min: 0 },
+            processingToken: { type: String },
             provider: { type: String, maxlength: 40 },
             model: { type: String, maxlength: 80 },
             promptVersion: { type: String, maxlength: 40 },

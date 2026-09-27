@@ -64,6 +64,32 @@ describe('status authority', () => {
     expect(email).not.toHaveBeenCalled();
   });
 
+  it('rejects stale priority history if AI changes priority without incrementing the version', async () => {
+    const { agent } = await createAuthenticatedAgent({ role: 'admin' });
+    const complaint = await createComplaintFixture({ status: 'IN_REVIEW', priority: 'LOW', prioritySource: 'CATEGORY_DEFAULT' });
+    const stale = await Complaint.findById(complaint.id);
+    await Complaint.updateOne({ _id: complaint._id }, { $set: { priority: 'HIGH', prioritySource: 'AI' } });
+    vi.spyOn(Complaint, 'findById').mockResolvedValueOnce(stale);
+    const response = await status(agent, complaint, { priority: 'MEDIUM' });
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('STALE_COMPLAINT');
+    const stored = await Complaint.findById(complaint.id);
+    expect(stored).toMatchObject({ priority: 'HIGH', prioritySource: 'AI' });
+    expect(stored.statusHistory).toHaveLength(0);
+  });
+
+  it('rejects a status change whose explicitly repeated priority went stale after AI updated it', async () => {
+    const { agent } = await createAuthenticatedAgent({ role: 'admin' });
+    const complaint = await createComplaintFixture({ priority: 'LOW', prioritySource: 'CATEGORY_DEFAULT' });
+    const stale = await Complaint.findById(complaint.id);
+    await Complaint.updateOne({ _id: complaint._id }, { $set: { priority: 'HIGH', prioritySource: 'AI' } });
+    vi.spyOn(Complaint, 'findById').mockResolvedValueOnce(stale);
+    const response = await status(agent, complaint, { status: 'IN_REVIEW', priority: 'LOW' });
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('STALE_COMPLAINT');
+    expect(await Complaint.findById(complaint.id)).toMatchObject({ status: 'PENDING', priority: 'HIGH', prioritySource: 'AI' });
+  });
+
   it('marks priority as staff-set when a transition also changes it', async () => {
     const { agent } = await createAuthenticatedAgent({ role: 'admin' });
     const complaint = await createComplaintFixture({ priority: 'LOW', prioritySource: 'AI' });

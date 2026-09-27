@@ -1,4 +1,4 @@
-const { Category, Complaint } = require('../../models');
+const { Category, Complaint, OutboxEntry } = require('../../models');
 // Module-object access lets the local journey server and tests replace the AI service.
 const ai = require('../ai');
 const reportPhoto = require('../ai/reportPhoto');
@@ -9,11 +9,17 @@ const { JobError } = require('./jobError');
 const { decideClassification } = require('../../policies/classificationPolicy');
 const { classificationRetry, recordClassificationFailure } = require('../classificationRequests');
 const { getLogger } = require('../../utils/logger');
+const { inTransaction } = require('../../utils/transaction');
 
 const WRITE_TRIES = 3;
 let notConfiguredLogged = false;
 
-const loadReport = (id) => Complaint.findById(id).select('description images category categorySource prioritySource ai.requestSeq');
+const loadReport = (id) => Complaint.findById(id).select('description images status category categorySource prioritySource ai.requestSeq ai.status ai.processingToken');
+const isCurrentPending = (report, requestSeq, processingToken) => report
+  && report.status !== 'WITHDRAWN'
+  && report.ai?.status === 'PENDING'
+  && report.ai.requestSeq === requestSeq
+  && report.ai.processingToken === processingToken;
 
 // Known AI failures carry stable codes. Invalid output gets one additional attempt.
 const asJobFailure = (error, entry) => {
@@ -41,10 +47,28 @@ const asJobFailure = (error, entry) => {
 
 registerHandler('classify_report', {
   queue: 'ai',
-  run: async (entry) => {
+  atomicFinalFailure: true,
+  run: async (entry, { processingToken }) => {
     const { complaintId, requestSeq } = entry.refs;
+    // Claim the report as well as the outbox attempt. An expired attempt may be reclaimed while
+    // the old provider call is still alive; only the current token may write its result/failure.
+    const claimedReport = await inTransaction(async (session) => {
+      // Write the outbox row too: a concurrent takeover conflicts with this transaction, so an
+      // old worker cannot install its token after a newer worker has claimed the attempt.
+      const active = await OutboxEntry.updateOne(
+        { _id: entry._id, runKey: entry.runKey, processingToken },
+        { $set: { processingAt: new Date() } }, { session },
+      );
+      if (active.matchedCount !== 1) return false;
+      const report = await Complaint.updateOne(
+        { _id: complaintId, status: { $ne: 'WITHDRAWN' }, 'ai.status': 'PENDING', 'ai.requestSeq': requestSeq },
+        { $set: { 'ai.processingToken': processingToken } }, { session },
+      );
+      return report.matchedCount === 1;
+    });
+    if (!claimedReport) return { log: { stale: true } };
     let report = await loadReport(complaintId);
-    if (!report || report.ai?.requestSeq !== requestSeq) return { log: { stale: true } };
+    if (!isCurrentPending(report, requestSeq, processingToken)) return { log: { stale: true } };
     const categories = await Category.find({ isActive: true }).select('name');
     let photo;
     try {
@@ -52,6 +76,9 @@ registerHandler('classify_report', {
     } catch (error) {
       throw asJobFailure(error, entry);
     }
+    // A withdrawal or newer request can land while the photo is being read.
+    report = await loadReport(complaintId);
+    if (!isCurrentPending(report, requestSeq, processingToken)) return { log: { stale: true } };
     let result;
     try {
       result = await ai.classifyReport({ description: report.description, image: photo ?? undefined, categories: categories.map((category) => category.name) });
@@ -66,10 +93,10 @@ registerHandler('classify_report', {
       });
       if ((await Complaint.updateOne(filter, update)).matchedCount === 1) return { log };
       report = await loadReport(complaintId);
-      if (!report || report.ai?.requestSeq !== requestSeq) return { log: { ...log, stale: true } };
+      if (!isCurrentPending(report, requestSeq, processingToken)) return { log: { ...log, stale: true } };
     }
     throw new Error('The classification could not be written: the report kept changing');
   },
-  onFinalFailure: (entry, code) => recordClassificationFailure(entry.refs, code),
+  onFinalFailure: (entry, code, context) => recordClassificationFailure(entry.refs, code, context),
   onRetry: classificationRetry,
 });

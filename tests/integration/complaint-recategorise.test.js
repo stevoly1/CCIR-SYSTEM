@@ -94,6 +94,25 @@ describe('staff recategorisation', () => {
     expect(stored.statusHistory).toHaveLength(0);
   });
 
+  it('refuses a stale staff category decision when AI changed the category without a version increment', async () => {
+    const { agent } = await createAuthenticatedAgent({ role: 'admin' });
+    const complaint = await createComplaintFixture({ category: roads._id, categorySnapshot: { categoryId: roads._id, name: 'Roads' }, categorySource: 'PENDING' });
+    const findCategory = Category.findOne.bind(Category);
+    vi.spyOn(Category, 'findOne').mockImplementationOnce(async (...args) => {
+      const category = await findCategory(...args);
+      await Complaint.updateOne({ _id: complaint._id }, { $set: {
+        category: drainage._id, categorySnapshot: { categoryId: drainage._id, name: 'Drainage' }, categorySource: 'AI',
+      } });
+      return category;
+    });
+    const response = await recategorise(agent, complaint, { categoryId: String(drainage._id), reason, expectedVersion: complaint.__v });
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('STALE_COMPLAINT');
+    const stored = await Complaint.findById(complaint._id).lean();
+    expect(stored).toMatchObject({ category: drainage._id, categorySource: 'AI' });
+    expect(stored.statusHistory).toHaveLength(0);
+  });
+
   it.each([
     ['withdrawn', { status: 'WITHDRAWN' }, (id) => ({ categoryId: id, reason }), 409, 'COMPLAINT_WITHDRAWN'],
     ['inactive category', {}, () => ({ categoryId: 'inactive', reason }), 409, 'CATEGORY_INACTIVE'],

@@ -27,11 +27,11 @@ const AiDetails = ({ complaint }) => {
                     {complaint.categorySource === 'FALLBACK' && ' The category was left as "Other"; check it.'}
                 </p>
             )}
-            {ai.suggestedCategory && typeof ai.confidence === 'number' && (
+            {ai.status === 'DONE' && ai.suggestedCategory && typeof ai.confidence === 'number' && (
                 <p>{`Suggested ${ai.suggestedCategory} (${Math.round(ai.confidence * 100)}%)`}</p>
             )}
-            {provenance && <span className="meta">{provenance}</span>}
-            {ai.inputMode && <span className="meta">{INPUT[ai.inputMode]}</span>}
+            {ai.status === 'DONE' && provenance && <span className="meta">{provenance}</span>}
+            {ai.status === 'DONE' && ai.inputMode && <span className="meta">{INPUT[ai.inputMode]}</span>}
         </div>
     );
 };

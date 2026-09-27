@@ -13,8 +13,9 @@ describe('AI details for staff', () => {
     });
 
     it('says when classification is pending', () => {
-        render(<AiDetails complaint={{ ...base, ai: { status: 'PENDING' } }} />);
+        render(<AiDetails complaint={{ ...base, ai: { ...base.ai, status: 'PENDING' } }} />);
         expect(screen.getByText('Classifying…')).toBeInTheDocument();
+        expect(screen.queryByText('Suggested Roads (82%)')).not.toBeInTheDocument();
     });
 
     it('shows legacy provider provenance without missing fields', () => {

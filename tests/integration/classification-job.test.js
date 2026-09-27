@@ -91,6 +91,111 @@ describe('classify_report', () => {
     expect(classify).not.toHaveBeenCalled();
   });
 
+  it('does not call the provider or replace a completed answer on same-request redelivery', async () => {
+    const complaint = await filed();
+    await Complaint.updateOne({ _id: complaint._id }, { $set: {
+      category: roads._id, categorySnapshot: { categoryId: roads._id, name: 'Roads' }, categorySource: 'AI',
+      priority: 'HIGH', prioritySource: 'AI', 'ai.status': 'DONE', 'ai.suggestedCategory': 'Roads',
+    } });
+    const classify = fakeClassification({ category: 'Drainage', priority: 'LOW' });
+    const entry = await entryFor(complaint);
+    const { executeEntry } = require('../../services/jobs/execute');
+    await executeEntry(entry._id, { runKey: 0, attempt: 1, maxAttempts: 1 });
+    expect(classify).not.toHaveBeenCalled();
+    expect(await reload(complaint)).toMatchObject({ category: roads._id, priority: 'HIGH', ai: { status: 'DONE', suggestedCategory: 'Roads' } });
+  });
+
+  it('fences an expired AI delivery from writing after a replacement claim', async () => {
+    const complaint = await filed();
+    let releaseOld;
+    let releaseNew;
+    let oldStarted;
+    let newStarted;
+    const oldEntered = new Promise((resolve) => { oldStarted = resolve; });
+    const newEntered = new Promise((resolve) => { newStarted = resolve; });
+    const oldHeld = new Promise((resolve) => { releaseOld = resolve; });
+    const newHeld = new Promise((resolve) => { releaseNew = resolve; });
+    let calls = 0;
+    fakeClassification(async () => {
+      calls += 1;
+      if (calls === 1) { oldStarted(); await oldHeld; return { category: 'Roads', priority: 'HIGH' }; }
+      newStarted();
+      await newHeld;
+      return AiError.of('AUTH');
+    });
+    const entry = await entryFor(complaint);
+    const { executeEntry } = require('../../services/jobs/execute');
+    const options = { runKey: 0, attempt: 1, maxAttempts: 1 };
+    const oldRun = executeEntry(entry._id, options);
+    await oldEntered;
+    try {
+      await OutboxEntry.updateOne({ _id: entry._id }, { $set: { processingAt: new Date(Date.now() - 11 * 60 * 1000) } });
+      const newRun = executeEntry(entry._id, options);
+      await newEntered;
+      releaseOld();
+      await expect(oldRun).resolves.toBe('skipped');
+      releaseNew();
+      await expect(newRun).rejects.toMatchObject({ code: 'AUTH', final: true });
+    } finally {
+      releaseOld();
+      releaseNew();
+    }
+    expect(await reload(complaint)).toMatchObject({ category: other._id, ai: { status: 'FAILED', failureCode: 'AUTH' } });
+    expect(await entryFor(complaint)).toMatchObject({ state: 'FAILED', lastErrorCode: 'AUTH' });
+  });
+
+  it('does not call the provider for a withdrawn queued report', async () => {
+    const complaint = await filed();
+    await Complaint.updateOne({ _id: complaint._id }, { $set: { status: 'WITHDRAWN' } });
+    const classify = fakeClassification({ category: 'Roads' });
+    const photo = vi.spyOn(reportPhoto, 'readFirstPhoto');
+    const entry = await entryFor(complaint);
+    const { executeEntry } = require('../../services/jobs/execute');
+    await executeEntry(entry._id, { runKey: 0, attempt: 1, maxAttempts: 1 });
+    expect(photo).not.toHaveBeenCalled();
+    expect(classify).not.toHaveBeenCalled();
+    expect(await reload(complaint)).toMatchObject({ status: 'WITHDRAWN', category: other._id });
+  });
+
+  it('does not send a report withdrawn while the photo is being read', async () => {
+    const complaint = await filed();
+    vi.spyOn(reportPhoto, 'readFirstPhoto').mockImplementation(async () => {
+      await Complaint.updateOne({ _id: complaint._id }, { $set: { status: 'WITHDRAWN' } });
+      return null;
+    });
+    const classify = fakeClassification({ category: 'Roads' });
+    const entry = await entryFor(complaint);
+    const { executeEntry } = require('../../services/jobs/execute');
+    await executeEntry(entry._id, { runKey: 0, attempt: 1, maxAttempts: 1 });
+    expect(classify).not.toHaveBeenCalled();
+    expect(await reload(complaint)).toMatchObject({ status: 'WITHDRAWN', category: other._id });
+  });
+
+  it('does not write an AI answer after withdrawal during the provider call', async () => {
+    const complaint = await filed();
+    fakeClassification(async () => {
+      await Complaint.updateOne({ _id: complaint._id }, { $set: { status: 'WITHDRAWN' } });
+      return { category: 'Roads', priority: 'HIGH' };
+    });
+    await drainOutbox();
+    expect(await reload(complaint)).toMatchObject({ status: 'WITHDRAWN', category: other._id, categorySource: 'PENDING', ai: { status: 'PENDING' } });
+  });
+
+  it('clears the previous AI suggestion when a new request becomes pending', async () => {
+    const complaint = await filed({
+      category: drainage._id, categorySource: 'CITIZEN',
+      ai: { status: 'DONE', requestSeq: 1, suggestedCategory: 'Roads', confidence: 0.9, summary: 'Old summary', tags: ['road'],
+        provider: 'kimi', model: 'kimi-test', promptVersion: 'classify-v1', inputMode: 'TEXT_ONLY',
+        disagreement: { categoryId: roads._id, name: 'Roads', confidence: 0.9 } },
+    });
+    await inTransaction((session) => requestClassification({ session, complaintId: complaint._id }));
+    const ai = (await reload(complaint)).ai;
+    expect(ai).toMatchObject({ status: 'PENDING', requestSeq: 2 });
+    for (const field of ['suggestedCategory', 'confidence', 'summary', 'tags', 'provider', 'model', 'promptVersion', 'inputMode', 'disagreement']) {
+      expect(ai[field], field).toBeUndefined();
+    }
+  });
+
   it('never overwrites a staff decision that lands while the AI is answering', async () => {
     const complaint = await filed();
     fakeClassification(async () => {

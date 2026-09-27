@@ -254,6 +254,11 @@ const updateComplaintStatus = async (req, res) => {
     }
 
     const filter = { _id: complaint._id, status: complaint.status, __v: matchVersion };
+    // Classification writes do not increment __v. Preserve the priority value used to build history.
+    if (priority !== undefined) {
+        filter.priority = complaint.priority;
+        filter.prioritySource = complaint.prioritySource ?? null;
+    }
     if (viewer.role === 'agency') filter.assignedTo = complaint.assignedTo;
     // The change and its email to the reporter are written together. Only status changes notify
     // the reporter, and the email only ever carries the public note.

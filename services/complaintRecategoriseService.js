@@ -29,6 +29,9 @@ const recategorise = async ({ complaintId, viewer, categoryId, reason, expectedV
   const updated = await Complaint.findOneAndUpdate(
     {
       _id: complaint._id, __v: complaint.__v, status: { $ne: 'WITHDRAWN' },
+      category: complaint.category,
+      categorySource: complaint.categorySource ?? null,
+      'categorySnapshot.name': complaint.categorySnapshot?.name ?? null,
       ...(viewer.role === 'agency' ? { assignedTo: viewer.userId } : {}),
     },
     {

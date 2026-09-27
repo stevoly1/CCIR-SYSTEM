@@ -6,7 +6,7 @@ vi.mock('./RecategoriseDialog', () => ({ default: ({ initialCategoryId, title })
 
 const complaint = {
     _id: 'c1', canRecategorise: true, category: { _id: 'roads', name: 'Roads' },
-    ai: { disagreement: { categoryId: 'drain', name: 'Drainage', confidence: 0.9 } },
+    ai: { status: 'DONE', disagreement: { categoryId: 'drain', name: 'Drainage', confidence: 0.9 } },
 };
 
 describe('AI disagreement', () => {
@@ -25,6 +25,11 @@ describe('AI disagreement', () => {
         const { rerender } = render(<DisagreementPanel complaint={{ ...complaint, ai: { disagreement: null } }} onUpdated={vi.fn()} onConflict={vi.fn()} />);
         expect(screen.queryByRole('region', { name: 'AI disagreement' })).not.toBeInTheDocument();
         rerender(<DisagreementPanel complaint={{ ...complaint, canRecategorise: false }} onUpdated={vi.fn()} onConflict={vi.fn()} />);
+        expect(screen.queryByRole('region', { name: 'AI disagreement' })).not.toBeInTheDocument();
+    });
+
+    it('hides an old disagreement while a new classification is pending', () => {
+        render(<DisagreementPanel complaint={{ ...complaint, ai: { ...complaint.ai, status: 'PENDING' } }} onUpdated={vi.fn()} onConflict={vi.fn()} />);
         expect(screen.queryByRole('region', { name: 'AI disagreement' })).not.toBeInTheDocument();
     });
 });

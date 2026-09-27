@@ -20,7 +20,7 @@ const decideClassification = ({ report, requestSeq, result, categories, inputMod
     'ai.promptVersion': result.meta.promptVersion,
     'ai.inputMode': inputMode,
   };
-  const $unset = { 'ai.failureCode': 1, 'ai.failedAt': 1, 'ai.error': 1 };
+  const $unset = { 'ai.failureCode': 1, 'ai.failedAt': 1, 'ai.error': 1, 'ai.processingToken': 1 };
 
   if (AI_MAY_SET.has(source)) {
     Object.assign($set, {
@@ -42,7 +42,9 @@ const decideClassification = ({ report, requestSeq, result, categories, inputMod
   if (report.prioritySource !== 'STAFF') Object.assign($set, { priority: result.priority, prioritySource: 'AI' });
 
   return {
-    filter: { _id: report._id, 'ai.requestSeq': requestSeq, categorySource: source, prioritySource: report.prioritySource ?? null },
+    filter: { _id: report._id, status: { $ne: 'WITHDRAWN' }, 'ai.status': 'PENDING', 'ai.requestSeq': requestSeq,
+      ...(report.ai?.processingToken ? { 'ai.processingToken': report.ai.processingToken } : {}),
+      categorySource: source, prioritySource: report.prioritySource ?? null },
     update: { $set, $unset },
   };
 };

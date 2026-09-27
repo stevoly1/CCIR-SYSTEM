@@ -44,6 +44,9 @@ describe('PATCH /api/v1/complaints/:id (pending edit)', () => {
     expect(response.body.reanalysed).toBe(true);
     const stored = await Complaint.findById(complaint.id).lean();
     expect(stored).toMatchObject({ category: roads._id, priority: 'HIGH', ai: { status: 'PENDING', requestSeq: 2, analysisCount: 2 } });
+    for (const field of ['suggestedCategory', 'confidence', 'summary', 'tags', 'classifiedAt', 'inputMode']) {
+      expect(stored.ai[field], field).toBeUndefined();
+    }
     expect(stored.editHistory[0]).toMatchObject({ fields: ['description'], reanalysed: true });
     expect(stored.__v).toBe(complaint.__v + 1);
     expect(await jobs(2)).toBe(1);

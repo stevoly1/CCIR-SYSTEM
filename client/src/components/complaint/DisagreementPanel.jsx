@@ -5,7 +5,7 @@ import RecategoriseDialog from './RecategoriseDialog';
 const DisagreementPanel = ({ complaint, onUpdated, onConflict }) => {
     const [choice, setChoice] = useState(null);
     const disagreement = complaint.ai?.disagreement;
-    if (!disagreement || !complaint.canRecategorise) return null;
+    if (complaint.ai?.status !== 'DONE' || !disagreement || !complaint.canRecategorise) return null;
     return (
         <div className="field" role="region" aria-label="AI disagreement">
             <p><strong>{`AI suggests ${disagreement.name} (${Math.round(disagreement.confidence * 100)}%)`}</strong> — the citizen chose {complaint.category.name}.</p>
