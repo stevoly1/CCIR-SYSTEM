@@ -769,6 +769,7 @@
 .verify-panel p { margin: 0; }
 
 /* Jobs (administrators): background work at a glance */
+.jobs-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
 .jobs-summary {
     display: flex;
     flex-wrap: wrap;
