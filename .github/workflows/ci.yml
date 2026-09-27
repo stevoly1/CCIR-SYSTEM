@@ -18,7 +18,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  NPM_VERSION: 12.1.0
+  # The npm bundled with Node.js 26, which hosts such as Railway use: the lowest npm the project accepts.
+  NPM_VERSION: 11.19.1
   MONGOMS_DOWNLOAD_DIR: /home/runner/.cache/mongodb-binaries
 
 jobs:

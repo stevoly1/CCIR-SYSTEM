@@ -23,14 +23,14 @@ describe('runtime guard', () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Unsupported Node.js 24.19.0; required >=26.9.0 <27.');
-    expect(result.stderr).toContain('Unsupported npm 11.6.2; required >=12.1.0 <13.');
+    expect(result.stderr).toContain('Unsupported npm 11.6.2; required >=11.19.1 <13.');
   });
 
-  it('rejects the superseded npm 11 contract', () => {
-    const result = runGuard('26.9.0', '11.19.1');
+  it('rejects an npm older than the one bundled with Node.js 26.9.0', () => {
+    const result = runGuard('26.9.0', '11.19.0');
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toBe('Unsupported npm 11.19.1; required >=12.1.0 <13.\n');
+    expect(result.stderr).toBe('Unsupported npm 11.19.0; required >=11.19.1 <13.\n');
   });
 
   it('rejects the next Node.js major line', () => {
@@ -44,10 +44,13 @@ describe('runtime guard', () => {
     const result = runGuard('26.9.0', '13.0.0');
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toBe('Unsupported npm 13.0.0; required >=12.1.0 <13.\n');
+    expect(result.stderr).toBe('Unsupported npm 13.0.0; required >=11.19.1 <13.\n');
   });
 
+  // Hosts such as Railway install Node.js with its bundled npm (11.19.1 for 26.9.0 and 26.10.0).
   it.each([
+    ['26.9.0', '11.19.1'],
+    ['26.10.0', '11.19.1'],
     ['26.9.0', '12.1.0'],
     ['26.10.0', '12.1.0'],
   ])('accepts Node.js %s with npm %s', (node, npm) => {
