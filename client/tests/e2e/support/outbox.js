@@ -21,6 +21,8 @@ export const latestMessage = async (to, kind) => {
 
 export const latestLink = async (to, kind) => (await latestMessage(to, kind)).links[0];
 
+export const tokenOf = (link) => new URL(link).hash.replace(/^#token=/, '');
+
 // A link of a kind to an address other than `previous`: the one a resend produced, once it arrives.
 export const newerLink = async (to, kind, previous) => {
   let link;

@@ -1,25 +1,11 @@
 // Deterministic stand-ins for external providers, installed only by the e2e server.
-const ai = require('../../services/ai');
 const googleOAuthService = require('../../services/googleOAuthService');
 const locationService = require('../../services/locationService');
 const uploadService = require('../../services/uploadService');
 
-const RULES = [
-  [/pothole|road/i, 'Roads', 'HIGH'],
-  [/drain|flood/i, 'Drainage', 'MEDIUM'],
-  [/light/i, 'Streetlights', 'LOW'],
-];
 let uploadCount = 0;
 
 const install = () => {
-  ai.classifyReport = async ({ description }) => {
-    const [, category, priority] = RULES.find(([pattern]) => pattern.test(description)) ?? [null, 'Other', 'LOW'];
-    return {
-      category, priority, summary: `AI summary: ${description.slice(0, 40)}`,
-      tags: [category.toLowerCase()], confidence: 0.9,
-      meta: { provider: 'kimi', model: 'kimi-e2e', promptVersion: 'classify-v1', durationMs: 1 },
-    };
-  };
   locationService.autocomplete = async () => ([
     { label: '12 Market Road, Ikeja', address: '12 Market Road, Ikeja', latitude: 6.6018, longitude: 3.3515 },
   ]);

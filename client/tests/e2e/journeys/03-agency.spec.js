@@ -26,5 +26,7 @@ test('J4 assigned agency user progresses a report; unassigned reports are read-o
   await loginAs(page, 'agency-a@e2e.test');
   await page.goto('/dashboard/reports');
   await page.getByText('Deep pothole at the Allen junction').click();
-  await expect(page.getByText('Only the assigned staff member can update this report.')).toBeVisible();
+  await expect(page.getByText('Status and priority cannot be changed here.')).toBeVisible();
+  await expect(page.getByLabel('Status')).toHaveCount(0);
+  await expect(page.getByLabel('Priority')).toHaveCount(0);
 });
