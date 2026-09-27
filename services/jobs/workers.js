@@ -30,6 +30,8 @@ const createWorkers = ({ connection, queues, policy = DEFAULT_POLICY, idle = IDL
           retryDelayMs,
           // The provider asked everyone to wait: hold the whole queue, not only this entry.
           onRateLimited: (ms) => queues[name].rateLimit(ms),
+          // Counted only once BullMQ has seen the previous delivery's lock expire.
+          takeOver: job.stalledCounter > 0,
         });
       } catch (error) {
         if (!(error instanceof JobError)) {

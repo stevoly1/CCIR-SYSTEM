@@ -95,6 +95,26 @@ describe('running one outbox entry', () => {
     expect(await OutboxEntry.findById(entry._id)).toMatchObject({ state: 'DONE', attempts: 1 });
   });
 
+  it('takes over a fresh claim when the queue found its worker gone, still fencing the old delivery', async () => {
+    let release;
+    let started;
+    const entered = new Promise((resolve) => { started = resolve; });
+    const held = new Promise((resolve) => { release = resolve; });
+    behaviour.run.mockImplementationOnce(async () => { started(); await held; throw JobError.of('AUTH'); }).mockResolvedValueOnce(undefined);
+    const entry = await add();
+    const options = { runKey: 0, attempt: 1, maxAttempts: 1 };
+    const first = executeEntry(entry._id, options);
+    await entered;
+    try {
+      await expect(executeEntry(entry._id, { ...options, takeOver: true })).resolves.toBe('done');
+    } finally {
+      release();
+    }
+    await expect(first).resolves.toBe('skipped');
+    expect(behaviour.onFinalFailure).not.toHaveBeenCalled();
+    expect(await OutboxEntry.findById(entry._id)).toMatchObject({ state: 'DONE', attempts: 1 });
+  });
+
   it('records a retryable failure and schedules the next attempt in MongoDB', async () => {
     behaviour.run.mockRejectedValue(JobError.of('PROVIDER_DOWN'));
     const entry = await add();

@@ -29,7 +29,9 @@ const jobLogFields = (reported) => {
 // job exists, which on a per-command plan is about 78,000 commands a day.
 // onRateLimited(ms) holds the whole queue when the provider asks everyone to wait; it runs before
 // the failure is recorded, so no job slips through between the two.
-const executeEntry = async (entryId, { runKey, attempt, maxAttempts, retryDelayMs = () => 0, onRateLimited }) => {
+// takeOver: BullMQ found the previous delivery's lock gone (its worker died), so a fresh claim
+// left by that delivery is taken over at once instead of after CLAIM_AFTER_MS.
+const executeEntry = async (entryId, { runKey, attempt, maxAttempts, retryDelayMs = () => 0, onRateLimited, takeOver = false }) => {
   const entry = await OutboxEntry.findById(entryId);
   if (!entry || FINISHED.has(entry.state) || entry.runKey !== runKey || entry.attempts + 1 !== attempt) return 'skipped';
   let handler;
@@ -52,7 +54,7 @@ const executeEntry = async (entryId, { runKey, attempt, maxAttempts, retryDelayM
   const processingToken = randomUUID();
   const claimed = await OutboxEntry.findOneAndUpdate(
     { _id: entry._id, runKey, attempts: attempt - 1, state: { $in: ['PENDING', 'QUEUED'] },
-      $or: [{ processingToken: null }, { processingAt: { $lt: new Date(Date.now() - CLAIM_AFTER_MS) } }] },
+      ...(takeOver ? {} : { $or: [{ processingToken: null }, { processingAt: { $lt: new Date(Date.now() - CLAIM_AFTER_MS) } }] }) },
     { $set: { processingToken, processingAt: new Date() } },
     { returnDocument: 'after' },
   );
