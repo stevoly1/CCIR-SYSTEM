@@ -1,5 +1,6 @@
 const { Queue } = require('bullmq');
 const { parseAiConfig } = require('../../config/ai');
+const { logErrorsOnce } = require('./redisEvents');
 
 const QUEUE_NAMES = ['ai', 'email'];
 
@@ -15,14 +16,19 @@ const DEFAULT_POLICY = buildPolicy(parseAiConfig({}));
 // Each BullMQ job is one attempt: retries are scheduled in MongoDB (see execute.js), so no job ever
 // waits in Redis's delayed set. A job that crashes is removed, so the relay's re-offer can bring
 // its entry back.
-const createQueues = ({ connection }) => Object.fromEntries(QUEUE_NAMES.map((name) => [name, new Queue(name, {
-  connection,
-  defaultJobOptions: {
-    attempts: 1,
-    // The outbox is the record; Redis keeps only what is in flight (Upstash's free tier holds 256 MB).
-    removeOnComplete: true,
-    removeOnFail: true,
-  },
-})]));
+const createQueues = ({ connection }) => {
+  const queues = Object.fromEntries(QUEUE_NAMES.map((name) => [name, new Queue(name, {
+    connection,
+    defaultJobOptions: {
+      attempts: 1,
+      // The outbox is the record; Redis keeps only what is in flight (Upstash's free tier holds 256 MB).
+      removeOnComplete: true,
+      removeOnFail: true,
+    },
+  })]));
+  // Without a listener BullMQ prints connection errors as raw stacks outside the JSON log.
+  logErrorsOnce(queues, 'queue_error', 'Queue connection error');
+  return queues;
+};
 
 module.exports = { QUEUE_NAMES, DEFAULT_POLICY, buildPolicy, createQueues };

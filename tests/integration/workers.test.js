@@ -200,4 +200,28 @@ describe('workers', () => {
     release();
     expect(behaviour.run).toHaveBeenCalledTimes(2);
   });
+
+  // A reset reaches every worker (or queue) sharing the connection: one line, and work carries on.
+  it('logs a dropped connection once per connection and keeps working after the reconnect', async () => {
+    behaviour.run.mockResolvedValue(undefined);
+    await setUp();
+    await Promise.all(workers.workers.map((worker) => worker.waitUntilReady()));
+    const reset = () => Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' });
+    const logs = captureLogs();
+    try {
+      consumer.stream.destroy(reset());
+      producer.stream.destroy(reset());
+      await vi.waitFor(() => expect(logs.lines.filter((line) => line.event === 'queue_error')).toHaveLength(1), { timeout: 5000, interval: 20 });
+      const workerErrors = logs.lines.filter((line) => line.event === 'worker_error');
+      expect(workerErrors).toHaveLength(1);
+      expect(workerErrors[0]).toMatchObject({ level: 40, queues: ['ai', 'email'], err: { code: 'ECONNRESET' } });
+      expect(logs.lines.find((line) => line.event === 'queue_error')).toMatchObject({ queues: ['ai', 'email'], err: { code: 'ECONNRESET' } });
+      await vi.waitFor(() => expect([consumer.status, producer.status]).toEqual(['ready', 'ready']), { timeout: 5000, interval: 20 });
+      const entry = await add();
+      await relay.runOnce();
+      await settle(entry._id, 'DONE');
+    } finally {
+      logs.restore();
+    }
+  });
 });

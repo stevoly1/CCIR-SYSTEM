@@ -6,6 +6,7 @@ const { createWorkers, IDLE_SETTINGS } = require('./workers');
 const { startHeartbeat } = require('./heartbeat');
 const { startAiSweep } = require('./aiSweep');
 const { getLogger } = require('../../utils/logger');
+const { logReconnects } = require('./redisEvents');
 
 // The relay, workers, heartbeat and daily classification sweep, for the worker process or API with
 // WORKERS_IN_PROCESS=true. stop() finishes the jobs in hand before closing connections.
@@ -14,6 +15,8 @@ const startBackgroundWork = async ({ env = process.env, policy = buildPolicy(get
   const url = requireRedisUrl(config);
   const producer = producerConnection(url);
   const consumer = workerConnection(url);
+  logReconnects(producer, 'queue');
+  logReconnects(consumer, 'worker');
   const queues = createQueues({ connection: producer });
   const relay = createRelay({ queues, intervalMs: relayIntervalMs ?? config.relayIntervalMs });
   const workers = createWorkers({ connection: consumer, queues, policy, idle });
