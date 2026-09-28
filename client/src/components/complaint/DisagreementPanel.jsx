@@ -1,18 +1,23 @@
 import { useState } from 'react';
 import RecategoriseDialog from './RecategoriseDialog';
 
-// Staff settle the difference between the citizen's choice and the AI suggestion.
+// Staff settle the difference between the citizen's choice and the AI suggestion. Staff who may
+// not change this report's category (agency staff it is not assigned to) see it without the choices.
 const DisagreementPanel = ({ complaint, onUpdated, onConflict }) => {
     const [choice, setChoice] = useState(null);
     const disagreement = complaint.ai?.disagreement;
-    if (complaint.ai?.status !== 'DONE' || !disagreement || !complaint.canRecategorise) return null;
+    if (complaint.ai?.status !== 'DONE' || !disagreement || complaint.status === 'WITHDRAWN') return null;
     return (
         <div className="field" role="region" aria-label="AI disagreement">
             <p><strong>{`AI suggests ${disagreement.name} (${Math.round(disagreement.confidence * 100)}%)`}</strong> — the citizen chose {complaint.category.name}.</p>
-            <div style={{ display: 'flex', gap: 10 }}>
-                <button type="button" className="btn btn-primary" onClick={() => setChoice({ id: disagreement.categoryId, title: "Use the AI's category" })}>Use AI's category</button>
-                <button type="button" className="btn btn-outline" onClick={() => setChoice({ id: complaint.category._id, title: "Keep the citizen's category" })}>Keep citizen's category</button>
-            </div>
+            {complaint.canRecategorise ? (
+                <div style={{ display: 'flex', gap: 10 }}>
+                    <button type="button" className="btn btn-primary" onClick={() => setChoice({ id: disagreement.categoryId, title: "Use the AI's category" })}>Use AI's category</button>
+                    <button type="button" className="btn btn-outline" onClick={() => setChoice({ id: complaint.category._id, title: "Keep the citizen's category" })}>Keep citizen's category</button>
+                </div>
+            ) : (
+                <p className="meta">Only an administrator or the staff member assigned to this report can settle this.</p>
+            )}
             {choice && (
                 <RecategoriseDialog complaint={complaint} initialCategoryId={choice.id} title={choice.title}
                     onClose={() => setChoice(null)}

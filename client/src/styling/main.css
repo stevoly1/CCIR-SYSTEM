@@ -72,6 +72,11 @@ input, textarea, select {
     font-size: 0.95rem;
 }
 
+/* Text boxes keep the size the layout gives them; longer text scrolls inside. */
+textarea {
+    resize: none;
+}
+
 h1, h2, h3, h4, p {
     margin: 0;
 }
